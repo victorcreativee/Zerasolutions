@@ -1,0 +1,70 @@
+import { Router } from "express";
+import { prisma } from "../../config/prisma.js";
+import { requireAuth } from "../../middleware/authMiddleware.js";
+import { HttpError } from "../../utils/httpError.js";
+
+export const moduleRouter = Router();
+
+moduleRouter.use(requireAuth);
+
+const moduleCatalog = [
+  { key: "POS", name: "POS", activeByDefault: true },
+  { key: "INVENTORY", name: "Inventory", activeByDefault: false },
+  { key: "FINANCE", name: "Finance", activeByDefault: false },
+  { key: "OPERATIONS", name: "Operations", activeByDefault: false },
+  { key: "REPORTS", name: "Reports", activeByDefault: false }
+];
+
+moduleRouter.get("/", (_req, res) => {
+  res.json({
+    modules: moduleCatalog
+  });
+});
+
+moduleRouter.patch("/:businessId/:key", async (req, res, next) => {
+  try {
+    const { businessId, key } = req.params;
+    const { active } = req.body;
+    const normalizedKey = key.toUpperCase();
+
+    if (typeof active !== "boolean") {
+      throw new HttpError(400, "Module active status must be true or false.");
+    }
+
+    const knownModule = moduleCatalog.some((moduleItem) => moduleItem.key === normalizedKey);
+
+    if (!knownModule) {
+      throw new HttpError(400, "Unknown module.");
+    }
+
+    const membership = await prisma.businessUser.findUnique({
+      where: {
+        userId_businessId: {
+          userId: req.user.id,
+          businessId
+        }
+      },
+      include: { role: true }
+    });
+
+    const canManageModules = req.user.systemRole === "SYSTEM_ADMIN" || membership?.role?.name === "Owner";
+
+    if (!canManageModules) {
+      throw new HttpError(403, "Only the business owner can update modules for this business.");
+    }
+
+    const module = await prisma.businessModule.update({
+      where: {
+        businessId_key: {
+          businessId,
+          key: normalizedKey
+        }
+      },
+      data: { active }
+    });
+
+    res.json({ module });
+  } catch (error) {
+    next(error);
+  }
+});

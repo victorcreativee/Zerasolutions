@@ -78,6 +78,7 @@ systemAdminRouter.post("/businesses", async (req, res, next) => {
         data: {
           name: business.name,
           type: business.type,
+          posMode: business.posMode || "RETAIL_CHECKOUT",
           country: business.country || "Uganda",
           currency: business.currency || "UGX",
           roles: {
@@ -152,6 +153,52 @@ systemAdminRouter.post("/businesses", async (req, res, next) => {
     });
 
     res.status(201).json({ business: createdBusiness });
+  } catch (error) {
+    next(error);
+  }
+});
+systemAdminRouter.patch("/businesses/:businessId/system-settings", async (req, res, next) => {
+  try {
+    const { businessId } = req.params;
+
+    const existingBusiness = await prisma.business.findUnique({
+      where: { id: businessId }
+    });
+
+    if (!existingBusiness) {
+      throw new HttpError(404, "Business not found.");
+    }
+
+    const updatedBusiness = await prisma.business.update({
+      where: { id: businessId },
+      data: {
+        updatedAt: new Date()
+      },
+      include: {
+        branches: true,
+        modules: true,
+        _count: {
+          select: {
+            products: true
+          }
+        },
+        memberships: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                status: true
+              }
+            },
+            role: true
+          }
+        }
+      }
+    });
+
+    res.json({ business: updatedBusiness });
   } catch (error) {
     next(error);
   }

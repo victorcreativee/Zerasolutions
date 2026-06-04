@@ -6,7 +6,100 @@ import { HttpError } from "../../utils/httpError.js";
 export const posRouter = Router();
 
 posRouter.use(requireAuth);
+posRouter.get("/tables/business/:businessId", async (req, res, next) => {
+  try {
+    const { businessId } = req.params;
+    const { branchId } = req.query;
 
+    if (!branchId) {
+      throw new HttpError(400, "Branch is required.");
+    }
+
+    const membership = await prisma.businessUser.findUnique({
+      where: {
+        userId_businessId: {
+          userId: req.user.id,
+          businessId
+        }
+      }
+    });
+
+    if (!membership && req.user.systemRole !== "SYSTEM_ADMIN") {
+      throw new HttpError(403, "You do not have access to this business.");
+    }
+
+    const tables = await prisma.pOSTable.findMany({
+      where: {
+        businessId,
+        branchId
+      },
+      orderBy: {
+        createdAt: "asc"
+      }
+    });
+
+    res.json({ tables });
+  } catch (error) {
+    next(error);
+  }
+});
+
+posRouter.post("/tables", async (req, res, next) => {
+  try {
+    const { businessId, branchId, name, seats = 4 } = req.body;
+
+    if (!businessId || !branchId || !name) {
+      throw new HttpError(400, "Business, branch, and table name are required.");
+    }
+
+    const membership = await prisma.businessUser.findUnique({
+      where: {
+        userId_businessId: {
+          userId: req.user.id,
+          businessId
+        }
+      },
+      include: { role: true }
+    });
+
+    const roleName = membership?.role?.name || req.user.systemRole;
+    const canManageTables = req.user.systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager"].includes(roleName);
+
+    if (!canManageTables) {
+      throw new HttpError(403, "Only owner or manager can add tables.");
+    }
+
+    const branch = await prisma.branch.findFirst({
+      where: {
+        id: branchId,
+        businessId,
+        status: "ACTIVE"
+      }
+    });
+
+    if (!branch) {
+      throw new HttpError(404, "Active branch was not found.");
+    }
+
+    const table = await prisma.pOSTable.create({
+      data: {
+        businessId,
+        branchId,
+        name: name.trim(),
+        seats: Number(seats) || 4
+      }
+    });
+
+    res.status(201).json({ table });
+  } catch (error) {
+    if (error.code === "P2002") {
+      next(new HttpError(409, "A table with this name already exists in this branch."));
+      return;
+    }
+
+    next(error);
+  }
+});
 posRouter.get("/readiness/:businessId/:branchId", async (req, res, next) => {
   try {
     const { businessId, branchId } = req.params;

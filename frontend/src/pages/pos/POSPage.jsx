@@ -183,7 +183,9 @@ export default function POSPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-sm font-semibold text-zera-green">Zera POS</p>
-            <h2 className="mt-2 text-2xl font-bold sm:text-3xl">{activeBranch ? `${activeBranch.name} register` : "Retail register"}</h2>
+            <h2 className="mt-2 text-2xl font-bold sm:text-3xl">
+              {activeBranch ? `${activeBranch.name} register` : "Retail register"}
+            </h2>
             <p className="mt-3 max-w-3xl leading-7 text-zera-muted">
               Sales are not enabled yet. This shell prepares the cashier workspace, branch readiness, cart layout, and payment surface.
             </p>

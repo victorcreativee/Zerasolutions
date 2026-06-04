@@ -18,7 +18,7 @@ businessRouter.post("/", async (req, res, next) => {
 businessRouter.patch("/:businessId", async (req, res, next) => {
   try {
     const { businessId } = req.params;
-    const { name, type, country, currency } = req.body;
+    const { name, country, currency } = req.body;
 
     if (!name) {
       throw new HttpError(400, "Business name is required.");
@@ -44,7 +44,6 @@ businessRouter.patch("/:businessId", async (req, res, next) => {
       where: { id: businessId },
       data: {
         name,
-        type,
         country,
         currency: currency || "UGX"
       },

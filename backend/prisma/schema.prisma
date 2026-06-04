@@ -56,6 +56,16 @@ enum PaymentMethod {
   CARD
   MOBILE_MONEY
 }
+enum POSMode {
+  RETAIL_CHECKOUT
+  TABLE_SERVICE
+}
+enum POSTableStatus {
+  AVAILABLE
+  OCCUPIED
+  RESERVED
+  INACTIVE
+}
 
 model User {
   id           String     @id @default(cuid())
@@ -75,11 +85,13 @@ model Business {
   id        String         @id @default(cuid())
   name      String
   type      String?
+  posMode   POSMode        @default(RETAIL_CHECKOUT)
   country   String?
   currency  String         @default("UGX")
   status    BusinessStatus @default(ACTIVE)
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
+  tables    POSTable[]
 
   branches    Branch[]
   memberships BusinessUser[]
@@ -97,6 +109,7 @@ model Branch {
   businessId String
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
+  tables   POSTable[]
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   sales    Sale[]
@@ -206,4 +219,21 @@ model SaleItem {
 
   @@index([saleId])
   @@index([productId])
+}
+model POSTable {
+  id         String         @id @default(cuid())
+  name       String
+  seats      Int            @default(4)
+  status     POSTableStatus @default(AVAILABLE)
+  businessId String
+  branchId   String
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, branchId, name])
+  @@index([businessId])
+  @@index([branchId])
 }

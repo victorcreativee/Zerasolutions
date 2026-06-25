@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import LoginPage from "./pages/auth/LoginPage.jsx";
 import RegisterPage from "./pages/auth/RegisterPage.jsx";
 import AccountPage from "./pages/account/AccountPage.jsx";
+import CustomersPage from "./pages/customers/CustomersPage.jsx";
 import DashboardPage from "./pages/dashboard/DashboardPage.jsx";
 import PlaceholderPage from "./pages/dashboard/PlaceholderPage.jsx";
 import SettingsPage from "./pages/dashboard/SettingsPage.jsx";
@@ -32,6 +33,9 @@ export default function App() {
           </Route>
           <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={["Owner", "Manager", "Cashier"]} />}>
             <Route path="/sales" element={<SalesPage />} />
+          </Route>
+          <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={["Owner", "Manager", "Cashier"]} />}>
+            <Route path="/customers" element={<CustomersPage />} />
           </Route>
           <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={["Owner", "Manager"]} />}>
             <Route path="/products" element={<ProductsPage />} />

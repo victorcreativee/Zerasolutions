@@ -10,6 +10,16 @@ export async function getRecentSales(businessId, params = {}) {
   return response.data.sales;
 }
 
+export async function getPOSTables(businessId, branchId) {
+  const response = await api.get(`/pos/tables/business/${businessId}`, { params: { branchId } });
+  return response.data.tables;
+}
+
+export async function createPOSTable(payload) {
+  const response = await api.post("/pos/tables", payload);
+  return response.data.table;
+}
+
 export async function createSale(payload) {
   const response = await api.post("/pos/sales", payload);
   return response.data.sale;

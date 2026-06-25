@@ -10,11 +10,15 @@ export default {
           line: "#dfe8e3",
           green: "#15803d",
           mint: "#e9f8ef",
-          gold: "#b98900"
+          gold: "#b98900",
+          canvas: "#f5f7f6",
+          surface: "#f1f5f3"
         }
       },
       boxShadow: {
-        soft: "0 18px 60px rgba(23, 33, 29, 0.08)"
+        soft: "0 12px 32px rgba(23, 33, 29, 0.07)",
+        panel: "0 10px 24px rgba(23, 33, 29, 0.12)",
+        xs: "0 1px 2px rgba(23, 33, 29, 0.06)"
       }
     }
   },

@@ -4,6 +4,7 @@ import { env } from "./config/env.js";
 import { authRouter } from "./modules/auth/auth.routes.js";
 import { businessRouter } from "./modules/businesses/business.routes.js";
 import { branchRouter } from "./modules/branches/branch.routes.js";
+import { customerRouter } from "./modules/customers/customer.routes.js";
 import { userRouter } from "./modules/users/user.routes.js";
 import { roleRouter } from "./modules/roles/role.routes.js";
 import { moduleRouter } from "./modules/modules/module.routes.js";
@@ -58,6 +59,7 @@ app.get("/health", (_req, res) => {
 app.use("/api/auth", authRouter);
 app.use("/api/businesses", businessRouter);
 app.use("/api/branches", branchRouter);
+app.use("/api/customers", customerRouter);
 app.use("/api/users", userRouter);
 app.use("/api/roles", roleRouter);
 app.use("/api/modules", moduleRouter);

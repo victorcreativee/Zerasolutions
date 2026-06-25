@@ -6,6 +6,17 @@ import { HttpError } from "../../utils/httpError.js";
 export const posRouter = Router();
 
 posRouter.use(requireAuth);
+
+function getEffectivePOSMode(business) {
+  const type = (business?.type || "").toLowerCase();
+
+  if (business?.posMode === "TABLE_SERVICE" || type.includes("bar") || type.includes("restaurant")) {
+    return "TABLE_SERVICE";
+  }
+
+  return "RETAIL_CHECKOUT";
+}
+
 posRouter.get("/tables/business/:businessId", async (req, res, next) => {
   try {
     const { businessId } = req.params;
@@ -124,6 +135,8 @@ posRouter.get("/readiness/:businessId/:branchId", async (req, res, next) => {
         select: {
           id: true,
           name: true,
+          type: true,
+          posMode: true,
           status: true,
           currency: true
         }
@@ -191,7 +204,7 @@ posRouter.get("/readiness/:businessId/:branchId", async (req, res, next) => {
 posRouter.get("/sales/business/:businessId", async (req, res, next) => {
   try {
     const { businessId } = req.params;
-    const { branchId, dateFrom, dateTo, paymentMethod, status } = req.query;
+    const { branchId, customerId, dateFrom, dateTo, paymentMethod, status } = req.query;
 
     if (!prisma.sale) {
       throw new HttpError(503, "Prisma Client is out of date. Restart the backend and run npx prisma generate.");
@@ -232,6 +245,7 @@ posRouter.get("/sales/business/:businessId", async (req, res, next) => {
       where: {
         businessId,
         ...(branchId ? { branchId } : {}),
+        ...(customerId ? { customerId } : {}),
         ...(status ? { status } : {}),
         ...(paymentMethod ? { paymentMethod } : {}),
         ...(Object.keys(createdAt).length ? { createdAt } : {})
@@ -247,6 +261,22 @@ posRouter.get("/sales/business/:businessId", async (req, res, next) => {
           select: {
             id: true,
             name: true
+          }
+        },
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true
+          }
+        },
+        table: {
+          select: {
+            id: true,
+            name: true,
+            seats: true,
+            status: true
           }
         },
         items: {
@@ -328,6 +358,22 @@ posRouter.patch("/sales/business/:businessId/:saleId/void", async (req, res, nex
             name: true
           }
         },
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true
+          }
+        },
+        table: {
+          select: {
+            id: true,
+            name: true,
+            seats: true,
+            status: true
+          }
+        },
         items: {
           include: {
             product: {
@@ -352,7 +398,7 @@ posRouter.patch("/sales/business/:businessId/:saleId/void", async (req, res, nex
 
 posRouter.post("/sales", async (req, res, next) => {
   try {
-    const { businessId, branchId, paymentMethod, items } = req.body;
+    const { businessId, branchId, customerId, tableId, paymentMethod, items } = req.body;
 
     if (!prisma.sale) {
       throw new HttpError(503, "Prisma Client is out of date. Restart the backend and run npx prisma generate.");
@@ -383,7 +429,7 @@ posRouter.post("/sales", async (req, res, next) => {
       throw new HttpError(403, "You do not have access to record sales for this business.");
     }
 
-    const [business, branch, posModule] = await Promise.all([
+    const [business, branch, posModule, customer, table] = await Promise.all([
       prisma.business.findUnique({
         where: { id: businessId }
       }),
@@ -400,7 +446,28 @@ posRouter.post("/sales", async (req, res, next) => {
             key: "POS"
           }
         }
-      })
+      }),
+      customerId
+        ? prisma.customer.findFirst({
+            where: {
+              id: customerId,
+              businessId,
+              status: "ACTIVE"
+            }
+          })
+        : null,
+      tableId
+        ? prisma.pOSTable.findFirst({
+            where: {
+              id: tableId,
+              businessId,
+              branchId,
+              status: {
+                not: "INACTIVE"
+              }
+            }
+          })
+        : null
     ]);
 
     if (!business || business.status !== "ACTIVE") {
@@ -413,6 +480,20 @@ posRouter.post("/sales", async (req, res, next) => {
 
     if (!posModule?.active) {
       throw new HttpError(400, "POS module is not active for this business.");
+    }
+
+    if (customerId && !customer) {
+      throw new HttpError(400, "Selected customer is not active in this business.");
+    }
+
+    const effectivePOSMode = getEffectivePOSMode(business);
+
+    if (effectivePOSMode === "TABLE_SERVICE" && !tableId) {
+      throw new HttpError(400, "Select a table before recording this bar or restaurant sale.");
+    }
+
+    if (tableId && !table) {
+      throw new HttpError(400, "Selected table is not available for this branch.");
     }
 
     const normalizedItems = items.map((item) => ({
@@ -461,6 +542,8 @@ posRouter.post("/sales", async (req, res, next) => {
         paymentMethod,
         businessId,
         branchId,
+        customerId: customer?.id || null,
+        tableId: table?.id || null,
         cashierId: req.user.id,
         items: {
           create: saleItems
@@ -477,6 +560,22 @@ posRouter.post("/sales", async (req, res, next) => {
           select: {
             id: true,
             name: true
+          }
+        },
+        customer: {
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true
+          }
+        },
+        table: {
+          select: {
+            id: true,
+            name: true,
+            seats: true,
+            status: true
           }
         },
         items: {

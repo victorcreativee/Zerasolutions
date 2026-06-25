@@ -223,6 +223,8 @@ export default function SalesPage() {
                         <div>
                           <h4 className="font-bold">{sale.receiptNumber}</h4>
                           <p className="mt-1 text-sm text-zera-muted">{formatDate(sale.createdAt)}</p>
+                          <p className="mt-1 text-xs font-semibold text-zera-muted">{sale.customer?.name || "Walk-in customer"}</p>
+                          {sale.table?.name ? <p className="mt-1 text-xs font-semibold text-zera-green">{sale.table.name}</p> : null}
                         </div>
                         <div className="text-right">
                           <p className="font-bold">{formatMoney(sale.total, activeBusiness.currency)}</p>
@@ -251,8 +253,13 @@ export default function SalesPage() {
 
                   <div className="mt-5 grid gap-3 sm:grid-cols-3">
                     <ReceiptInfo icon={MapPin} label="Branch" value={selectedSale.branch?.name || "Not set"} />
-                    <ReceiptInfo icon={UserRound} label="Cashier" value={selectedSale.cashier?.name || "Not set"} />
+                    <ReceiptInfo icon={UserRound} label="Customer" value={selectedSale.customer?.name || "Walk-in customer"} />
+                    <ReceiptInfo icon={ReceiptText} label="Table" value={selectedSale.table?.name || "Counter sale"} />
+                  </div>
+
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <ReceiptInfo icon={paymentIcon(selectedSale.paymentMethod)} label="Payment" value={formatPayment(selectedSale.paymentMethod)} />
+                    <ReceiptInfo icon={UserRound} label="Cashier" value={selectedSale.cashier?.name || "Not set"} />
                   </div>
 
                   <div className="mt-5 space-y-3">
@@ -384,6 +391,16 @@ function PrintableReceipt({ business, sale }) {
           <span>Time</span>
           <span>{formatReceiptTime(receiptDate)}</span>
         </div>
+        <div className="mt-1 flex justify-between gap-3">
+          <span>Customer</span>
+          <span className="text-right">{sale.customer?.name || "Walk-in"}</span>
+        </div>
+        {sale.table?.name ? (
+          <div className="mt-1 flex justify-between gap-3">
+            <span>Table</span>
+            <span className="text-right">{sale.table.name}</span>
+          </div>
+        ) : null}
         <div className="mt-1 flex justify-between gap-3">
           <span>Cashier</span>
           <span className="text-right">{sale.cashier?.name || "Not set"}</span>

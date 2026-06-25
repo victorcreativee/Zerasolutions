@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Banknote, Barcode, Calculator, CheckCircle2, CreditCard, Filter, Minus, Plus, Printer, ReceiptText, Search, ShoppingCart, Store, Trash2, X } from "lucide-react";
+import { Banknote, Barcode, Calculator, CheckCircle2, CreditCard, Filter, Minus, Plus, Printer, ReceiptText, Search, ShoppingCart, Store, Table2, Trash2, UserRound, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import Button from "../../components/Button.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
-import { createSale, getPOSReadiness, getRecentSales } from "../../services/posService.js";
+import { createPOSTable, createSale, getPOSTables, getPOSReadiness, getRecentSales } from "../../services/posService.js";
+import { getCustomers } from "../../services/customerService.js";
 import { getProducts } from "../../services/productService.js";
 
 export default function POSPage() {
@@ -12,28 +13,49 @@ export default function POSPage() {
   const { activeBranch, activeBranchId, activeBusiness, activeBusinessId, activeRoleName } = useWorkspace();
   const [readiness, setReadiness] = useState(null);
   const [products, setProducts] = useState([]);
+  const [customers, setCustomers] = useState([]);
+  const [tables, setTables] = useState([]);
   const [recentSales, setRecentSales] = useState([]);
   const [cartItems, setCartItems] = useState([]);
   const [productSearch, setProductSearch] = useState("");
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const [selectedTableId, setSelectedTableId] = useState("");
+  const [newTableName, setNewTableName] = useState("");
   const [productTypeFilter, setProductTypeFilter] = useState("ALL");
   const [productCategoryFilter, setProductCategoryFilter] = useState("");
   const [reviewOpen, setReviewOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [loadingReadiness, setLoadingReadiness] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [loadingTables, setLoadingTables] = useState(false);
   const [savingSale, setSavingSale] = useState(false);
   const [readinessError, setReadinessError] = useState("");
   const [productError, setProductError] = useState("");
+  const [customerError, setCustomerError] = useState("");
+  const [tableError, setTableError] = useState("");
   const [saleError, setSaleError] = useState("");
   const [saleMessage, setSaleMessage] = useState("");
   const branchReady = readiness?.checks?.branchActive ?? activeBranch?.status === "ACTIVE";
   const workspaceReady = Boolean(activeBusiness && activeBranch && branchReady && (readiness?.checks?.posActive ?? true));
+  const posMode = getEffectivePOSMode(activeBusiness);
+  const isTableService = posMode === "TABLE_SERVICE";
+  const canManageTables = ["Owner", "Manager"].includes(activeRoleName);
   const subtotal = cartItems.reduce((total, item) => total + Number(item.product.price) * item.quantity, 0);
   const totalItems = cartItems.reduce((total, item) => total + item.quantity, 0);
   const productCategories = useMemo(() => {
     const categories = products.map((product) => product.category).filter(Boolean);
     return [...new Set(categories)].sort((first, second) => first.localeCompare(second));
   }, [products]);
+  const selectedCustomer = useMemo(
+    () => customers.find((customer) => customer.id === selectedCustomerId) || null,
+    [customers, selectedCustomerId]
+  );
+  const selectedTable = useMemo(
+    () => tables.find((table) => table.id === selectedTableId) || null,
+    [tables, selectedTableId]
+  );
   const productFilterCount = [productTypeFilter !== "ALL", Boolean(productCategoryFilter), Boolean(productSearch)].filter(Boolean).length;
   const totals = [
     { label: "Subtotal", value: formatMoney(subtotal, activeBusiness?.currency) },
@@ -94,6 +116,44 @@ export default function POSPage() {
 
   useEffect(() => {
     if (!activeBusinessId) {
+      setCustomers([]);
+      setSelectedCustomerId("");
+      return;
+    }
+
+    async function loadCustomers() {
+      try {
+        setLoadingCustomers(true);
+        setCustomerError("");
+        const data = await getCustomers(activeBusinessId, {
+          status: "ACTIVE",
+          ...(customerSearch ? { q: customerSearch } : {})
+        });
+        setCustomers(data);
+        setSelectedCustomerId((current) => (data.some((customer) => customer.id === current) ? current : ""));
+      } catch (apiError) {
+        setCustomerError(apiError.response?.data?.message || "Unable to load customers.");
+      } finally {
+        setLoadingCustomers(false);
+      }
+    }
+
+    const timeout = window.setTimeout(loadCustomers, 250);
+    return () => window.clearTimeout(timeout);
+  }, [activeBusinessId, customerSearch]);
+
+  useEffect(() => {
+    if (!activeBusinessId || !activeBranchId || !isTableService) {
+      setTables([]);
+      setSelectedTableId("");
+      return;
+    }
+
+    loadTables();
+  }, [activeBusinessId, activeBranchId, isTableService]);
+
+  useEffect(() => {
+    if (!activeBusinessId) {
       setRecentSales([]);
       return;
     }
@@ -107,6 +167,20 @@ export default function POSPage() {
       setRecentSales(data);
     } catch {
       setRecentSales([]);
+    }
+  }
+
+  async function loadTables() {
+    try {
+      setLoadingTables(true);
+      setTableError("");
+      const data = await getPOSTables(activeBusinessId, activeBranchId);
+      setTables(data);
+      setSelectedTableId((current) => (data.some((table) => table.id === current) ? current : data[0]?.id || ""));
+    } catch (apiError) {
+      setTableError(apiError.response?.data?.message || "Unable to load POS tables.");
+    } finally {
+      setLoadingTables(false);
     }
   }
 
@@ -147,6 +221,29 @@ export default function POSPage() {
     setProductCategoryFilter("");
   }
 
+  async function handleCreateTable(event) {
+    event.preventDefault();
+
+    if (!activeBusinessId || !activeBranchId || !newTableName.trim()) {
+      return;
+    }
+
+    try {
+      setTableError("");
+      const table = await createPOSTable({
+        businessId: activeBusinessId,
+        branchId: activeBranchId,
+        name: newTableName,
+        seats: 4
+      });
+      setTables((current) => [...current, table]);
+      setSelectedTableId(table.id);
+      setNewTableName("");
+    } catch (apiError) {
+      setTableError(apiError.response?.data?.message || "Unable to add table.");
+    }
+  }
+
   async function handleRecordSale() {
     if (!activeBusinessId || !activeBranchId || !cartItems.length) {
       return;
@@ -160,6 +257,8 @@ export default function POSPage() {
       const sale = await createSale({
         businessId: activeBusinessId,
         branchId: activeBranchId,
+        customerId: selectedCustomerId || undefined,
+        tableId: isTableService ? selectedTableId : undefined,
         paymentMethod,
         items: cartItems.map((item) => ({
           productId: item.product.id,
@@ -184,14 +283,17 @@ export default function POSPage() {
           <div>
             <p className="text-sm font-semibold text-zera-green">Zera POS</p>
             <h2 className="mt-2 text-2xl font-bold sm:text-3xl">
-              {activeBranch ? `${activeBranch.name} register` : "Retail register"}
+              {activeBranch ? `${activeBranch.name} ${isTableService ? "table service" : "checkout"}` : posModeLabel(posMode)}
             </h2>
             <p className="mt-3 max-w-3xl leading-7 text-zera-muted">
-              Sales are not enabled yet. This shell prepares the cashier workspace, branch readiness, cart layout, and payment surface.
+              {isTableService
+                ? "Select a table, attach a customer when needed, then record the order from the cart."
+                : "Run fast counter checkout with customer selection available for repeat buyers."}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <StatusPill label={activeBusiness?.name || "No business"} ready={Boolean(activeBusiness)} />
+            <StatusPill label={posModeLabel(posMode)} ready={Boolean(activeBusiness)} />
             <StatusPill label={activeBranch?.name || "No branch"} ready={branchReady} />
             <StatusPill label={activeRoleName || "No role"} ready={Boolean(activeRoleName)} />
           </div>
@@ -200,6 +302,73 @@ export default function POSPage() {
 
       <section className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">
         <div className="space-y-5">
+          {isTableService ? (
+            <section className="rounded-lg border border-zera-line bg-white p-5">
+              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+                    <Table2 size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold">Table service</h3>
+                    <p className="text-sm text-zera-muted">
+                      {loadingTables ? "Loading tables..." : `${tables.length} table${tables.length === 1 ? "" : "s"} for this branch`}
+                    </p>
+                  </div>
+                </div>
+                {selectedTable ? (
+                  <div className="rounded-md bg-zera-mint px-3 py-2 text-sm font-semibold text-zera-green">
+                    Current: {selectedTable.name}
+                  </div>
+                ) : null}
+              </div>
+
+              {tableError ? <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{tableError}</p> : null}
+
+              <div className="grid gap-2 sm:grid-cols-4">
+                {tables.map((table) => (
+                  <button
+                    key={table.id}
+                    type="button"
+                    className={`min-h-16 rounded-md border px-3 text-left transition ${
+                      selectedTableId === table.id ? "border-zera-green bg-zera-mint text-zera-ink" : "border-zera-line bg-[#f7faf8] hover:border-zera-green"
+                    }`}
+                    onClick={() => setSelectedTableId(table.id)}
+                  >
+                    <span className="block font-bold">{table.name}</span>
+                    <span className="mt-1 block text-xs text-zera-muted">
+                      {table.seats} seats · {formatTableStatus(table.status)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {!loadingTables && !tables.length ? (
+                <div className="rounded-md border border-dashed border-zera-line bg-[#f7faf8] p-5 text-sm text-zera-muted">
+                  No tables exist for this branch yet. Owners and managers can add the first table below.
+                </div>
+              ) : null}
+
+              {canManageTables ? (
+                <form className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]" onSubmit={handleCreateTable}>
+                  <label className="block">
+                    <span className="sr-only">New table name</span>
+                    <input
+                      className="min-h-11 w-full rounded-md border border-zera-line bg-white px-3 text-sm outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                      value={newTableName}
+                      onChange={(event) => setNewTableName(event.target.value)}
+                      placeholder="Add table, e.g. Patio 4"
+                    />
+                  </label>
+                  <Button type="submit" variant="secondary" className="gap-2" disabled={!newTableName.trim()}>
+                    <Plus size={17} />
+                    Add table
+                  </Button>
+                </form>
+              ) : null}
+            </section>
+          ) : null}
+
           <section className="rounded-lg border border-zera-line bg-white p-5">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
@@ -360,6 +529,7 @@ export default function POSPage() {
               </div>
               <div className="space-y-3">
                 <ReadinessRow label="Business assigned" value={activeBusiness?.name || "Missing"} ready={Boolean(activeBusiness)} />
+                <ReadinessRow label="POS experience" value={posModeLabel(posMode)} ready={Boolean(activeBusiness)} />
                 <ReadinessRow label="Branch active" value={activeBranch?.name || "Missing"} ready={branchReady} />
                 <ReadinessRow label="Cashier identity" value={user?.name || "Missing"} ready={Boolean(user?.name)} />
                 <ReadinessRow label="POS module" value={loadingReadiness ? "Checking..." : readiness?.checks?.posActive ? "Enabled" : "Not enabled"} ready={Boolean(readiness?.checks?.posActive)} />
@@ -376,6 +546,55 @@ export default function POSPage() {
         </div>
 
         <aside className="space-y-5">
+          <section className="rounded-lg border border-zera-line bg-white p-5">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+                <UserRound size={22} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold">Customer</h3>
+                <p className="text-sm text-zera-muted">{selectedCustomer ? selectedCustomer.name : "Walk-in sale"}</p>
+              </div>
+            </div>
+
+            <label className="flex min-h-11 items-center gap-3 rounded-md border border-zera-line bg-[#f7faf8] px-3">
+              <Search size={17} className="text-zera-muted" />
+              <input
+                className="w-full border-0 bg-transparent text-sm outline-none"
+                value={customerSearch}
+                onChange={(event) => setCustomerSearch(event.target.value)}
+                placeholder="Search saved customers"
+              />
+            </label>
+
+            <label className="mt-3 block">
+              <span className="mb-2 block text-sm font-medium text-zera-ink">Sale customer</span>
+              <select
+                className="min-h-11 w-full rounded-md border border-zera-line bg-white px-3 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                value={selectedCustomerId}
+                onChange={(event) => setSelectedCustomerId(event.target.value)}
+              >
+                <option value="">Walk-in customer</option>
+                {customers.map((customer) => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.name}
+                    {customer.phone ? ` - ${customer.phone}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {loadingCustomers ? <p className="mt-3 text-sm text-zera-muted">Loading customers...</p> : null}
+            {customerError ? <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{customerError}</p> : null}
+
+            <Link
+              className="mt-4 inline-flex min-h-10 w-full items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-semibold text-zera-green transition hover:bg-zera-mint"
+              to="/customers"
+            >
+              Manage customers
+            </Link>
+          </section>
+
           <section className="rounded-lg border border-zera-line bg-white p-5">
             <div className="mb-5 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -478,7 +697,7 @@ export default function POSPage() {
             <h3 className="text-lg font-bold">Sale review</h3>
             <p className="mt-1 text-sm text-zera-muted">Record a simple sale with a manual payment method. No payment gateway is connected.</p>
             <div className="mt-4 grid gap-3">
-              <Button type="button" className="gap-2" disabled={!cartItems.length} onClick={() => setReviewOpen(true)}>
+              <Button type="button" className="gap-2" disabled={!cartItems.length || (isTableService && !selectedTableId)} onClick={() => setReviewOpen(true)}>
                 <ReceiptText size={18} />
                 Review draft sale
               </Button>
@@ -519,7 +738,10 @@ export default function POSPage() {
                       <p className="text-sm font-bold">{sale.receiptNumber}</p>
                       <p className="text-sm font-bold">{formatMoney(sale.total, activeBusiness?.currency)}</p>
                     </div>
-                    <p className="mt-1 text-xs text-zera-muted">{sale.paymentMethod.replace("_", " ")}</p>
+                    <p className="mt-1 text-xs text-zera-muted">
+                      {sale.table?.name ? `${sale.table.name} · ` : ""}
+                      {sale.customer?.name || "Walk-in"} · {sale.paymentMethod.replace("_", " ")}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -577,6 +799,21 @@ export default function POSPage() {
               </div>
             </div>
 
+            <div className="mt-4 rounded-md bg-[#f7faf8] px-3 py-3">
+              <p className="text-xs font-semibold uppercase text-zera-muted">Customer</p>
+              <p className="mt-1 font-bold">{selectedCustomer?.name || "Walk-in customer"}</p>
+              {selectedCustomer?.phone || selectedCustomer?.email ? (
+                <p className="mt-1 text-sm text-zera-muted">{selectedCustomer.phone || selectedCustomer.email}</p>
+              ) : null}
+            </div>
+
+            {isTableService ? (
+              <div className="mt-4 rounded-md bg-[#f7faf8] px-3 py-3">
+                <p className="text-xs font-semibold uppercase text-zera-muted">Table</p>
+                <p className="mt-1 font-bold">{selectedTable?.name || "No table selected"}</p>
+              </div>
+            ) : null}
+
             <label className="mt-5 block">
               <span className="mb-2 block text-sm font-medium text-zera-ink">Payment method</span>
               <select
@@ -617,6 +854,28 @@ function formatProductType(type = "PHYSICAL") {
     .split("_")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+function getEffectivePOSMode(business) {
+  if (!business) {
+    return "RETAIL_CHECKOUT";
+  }
+
+  const type = (business.type || "").toLowerCase();
+
+  if (business.posMode === "TABLE_SERVICE" || type.includes("bar") || type.includes("restaurant")) {
+    return "TABLE_SERVICE";
+  }
+
+  return "RETAIL_CHECKOUT";
+}
+
+function posModeLabel(posMode) {
+  return posMode === "TABLE_SERVICE" ? "Table-service POS" : "Retail checkout POS";
+}
+
+function formatTableStatus(status = "AVAILABLE") {
+  return status.toLowerCase().replace("_", " ");
 }
 
 function StatusPill({ label, ready }) {

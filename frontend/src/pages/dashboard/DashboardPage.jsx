@@ -1,57 +1,41 @@
-import { useEffect, useState } from "react";
-import { Boxes, Building2, ClipboardList, MapPin, ReceiptText, ShieldCheck, Store, Users, Wallet } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowRight, Boxes, MapPin, Package, ReceiptText, Settings, Store, UserRound, Users } from "lucide-react";
+import { Link, Navigate } from "react-router-dom";
+import PageHeader from "../../components/PageHeader.jsx";
+import StatCard from "../../components/StatCard.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
-import { getSystemBusinesses } from "../../services/systemAdminService.js";
 import { getBusinessUsers } from "../../services/teamService.js";
 import { getRecentSales } from "../../services/posService.js";
 
 export default function DashboardPage() {
   const { user } = useAuth();
   const { activeBranch, activeBusiness, activeRoleName } = useWorkspace();
-  const [systemBusinesses, setSystemBusinesses] = useState([]);
   const [teamUsers, setTeamUsers] = useState([]);
   const [recentSales, setRecentSales] = useState([]);
-  const [loadingSystem, setLoadingSystem] = useState(false);
   const [loadingTeam, setLoadingTeam] = useState(false);
   const [loadingSales, setLoadingSales] = useState(false);
 
-  const isSystemAdmin = user?.systemRole === "SYSTEM_ADMIN";
   const activeModules = activeBusiness?.modules?.filter((module) => module.active) || [];
+  const activeModuleKeys = activeModules.map((module) => module.key);
   const activeBranches = activeBusiness?.branches?.filter((branch) => branch.status === "ACTIVE") || [];
   const activeTeamUsers = teamUsers.filter((membership) => membership.user.status === "ACTIVE");
   const completedSales = recentSales.filter((sale) => sale.status === "COMPLETED");
   const salesTotal = completedSales.reduce((total, sale) => total + Number(sale.total), 0);
-  const posIsActive = activeModules.some((module) => module.key === "POS");
-  const roleContent = getRoleContent(activeRoleName, {
+  const posIsActive = activeModuleKeys.includes("POS");
+  const setupItems = buildSetupItems({
     activeBranch,
     activeBusiness,
-    activeModules,
+    activeRoleName,
     activeTeamUsers,
     posIsActive
   });
-  const RoleIcon = roleContent.icon;
+  const quickActions = buildQuickActions(activeRoleName, activeModuleKeys);
+
+  const recentCompletedSales = useMemo(() => completedSales.slice(0, 5), [completedSales]);
 
   useEffect(() => {
-    if (!isSystemAdmin) {
-      return;
-    }
-
-    async function loadSystemOverview() {
-      try {
-        setLoadingSystem(true);
-        const data = await getSystemBusinesses();
-        setSystemBusinesses(data);
-      } finally {
-        setLoadingSystem(false);
-      }
-    }
-
-    loadSystemOverview();
-  }, [isSystemAdmin]);
-
-  useEffect(() => {
-    if (!activeBusiness?.id || isSystemAdmin) {
+    if (!activeBusiness?.id || user?.systemRole === "SYSTEM_ADMIN") {
       setTeamUsers([]);
       return;
     }
@@ -59,18 +43,17 @@ export default function DashboardPage() {
     async function loadTeamOverview() {
       try {
         setLoadingTeam(true);
-        const data = await getBusinessUsers(activeBusiness.id);
-        setTeamUsers(data);
+        setTeamUsers(await getBusinessUsers(activeBusiness.id));
       } finally {
         setLoadingTeam(false);
       }
     }
 
     loadTeamOverview();
-  }, [activeBusiness?.id, isSystemAdmin]);
+  }, [activeBusiness?.id, user?.systemRole]);
 
   useEffect(() => {
-    if (!activeBusiness?.id || isSystemAdmin || !posIsActive) {
+    if (!activeBusiness?.id || user?.systemRole === "SYSTEM_ADMIN" || !posIsActive) {
       setRecentSales([]);
       return;
     }
@@ -79,260 +62,224 @@ export default function DashboardPage() {
       try {
         setLoadingSales(true);
         const today = new Date().toISOString().slice(0, 10);
-        const data = await getRecentSales(activeBusiness.id, { dateFrom: today, dateTo: today });
-        setRecentSales(data);
+        setRecentSales(await getRecentSales(activeBusiness.id, { dateFrom: today, dateTo: today }));
       } finally {
         setLoadingSales(false);
       }
     }
 
     loadSalesOverview();
-  }, [activeBusiness?.id, isSystemAdmin, posIsActive]);
+  }, [activeBusiness?.id, posIsActive, user?.systemRole]);
 
-  if (isSystemAdmin) {
+  if (user?.systemRole === "SYSTEM_ADMIN") {
+    return <Navigate to="/system-admin" replace />;
+  }
+
+  if (!activeBusiness) {
     return (
-      <div className="mx-auto max-w-6xl space-y-6">
-        <section className="rounded-lg border border-zera-line bg-white p-6 shadow-soft">
-          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-sm font-semibold text-zera-green">Zera platform admin</p>
-              <h2 className="mt-2 text-2xl font-bold sm:text-3xl">Business provisioning dashboard</h2>
-              <p className="mt-3 max-w-2xl leading-7 text-zera-muted">
-                Create customer businesses, assign their owner login, and keep the platform setup clean before modules become deeper.
-              </p>
-            </div>
-            <div className="flex min-h-14 min-w-14 items-center justify-center rounded-lg bg-zera-mint text-zera-green">
-              <Building2 size={30} />
-            </div>
-          </div>
-        </section>
-
-        <section className="grid gap-4 md:grid-cols-3">
-          <MetricCard icon={Building2} label="Businesses" value={loadingSystem ? "..." : systemBusinesses.length} />
-          <MetricCard
-            icon={MapPin}
-            label="Branches"
-            value={loadingSystem ? "..." : systemBusinesses.reduce((total, business) => total + (business.branches?.length || 0), 0)}
-          />
-          <MetricCard
-            icon={Users}
-            label="Business users"
-            value={loadingSystem ? "..." : systemBusinesses.reduce((total, business) => total + (business.memberships?.length || 0), 0)}
-          />
-        </section>
-
-        <section className="rounded-lg border border-zera-line bg-white p-5">
-          <h3 className="text-lg font-bold">Provisioning status</h3>
-          <p className="mt-2 text-sm leading-6 text-zera-muted">
-            Business creation and owner-login assignment are handled in System Admin. This dashboard only summarizes platform setup.
-          </p>
-        </section>
+      <div className="mx-auto max-w-7xl">
+        <PageHeader
+          eyebrow="Workspace"
+          title="No business assigned"
+          description="A Zera system administrator must create your business account before this workspace can be used."
+        />
+        <div className="mt-5 rounded-md border border-dashed border-zera-line bg-white p-6 text-sm text-zera-muted">
+          Contact your Zera system administrator to finish account provisioning.
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <section className="rounded-lg border border-zera-line bg-white p-6 shadow-soft">
-        <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-zera-green">{roleContent.eyebrow}</p>
-            <h2 className="mt-2 text-2xl font-bold sm:text-3xl">{roleContent.title}</h2>
-            <p className="mt-3 max-w-2xl leading-7 text-zera-muted">
-              {activeBusiness ? roleContent.description : "A system admin must create your business account before POS, users, and operations can be prepared."}
-            </p>
+    <div className="mx-auto max-w-7xl space-y-5">
+      <PageHeader
+        eyebrow={`${activeRoleName || "Business"} workspace`}
+        title={`${activeBusiness.name} dashboard`}
+        description={dashboardDescription(activeRoleName, activeBranch?.name)}
+        action={
+          posIsActive ? (
+            <Link
+              className="inline-flex h-10 items-center gap-2 rounded-md bg-zera-green px-4 text-sm font-semibold text-white hover:bg-green-700"
+              to="/pos"
+            >
+              Open POS
+              <ArrowRight size={16} />
+            </Link>
+          ) : null
+        }
+      />
+
+      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+        <StatCard icon={MapPin} label="Working branch" value={activeBranch?.name || "Not selected"} helper={`${activeBranches.length} active`} />
+        <StatCard
+          icon={ReceiptText}
+          label="Today's sales"
+          value={loadingSales ? "Loading..." : formatMoney(salesTotal, activeBusiness.currency)}
+          helper={`${completedSales.length} transaction${completedSales.length === 1 ? "" : "s"}`}
+        />
+        <StatCard
+          icon={Users}
+          label="Active team"
+          value={loadingTeam ? "Loading..." : activeTeamUsers.length}
+          helper={`${teamUsers.length} total account${teamUsers.length === 1 ? "" : "s"}`}
+        />
+        <StatCard icon={Boxes} label="Enabled modules" value={activeModules.length} helper={activeModules.map((module) => module.key).join(", ") || "None"} />
+      </section>
+
+      <section className="grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
+        <article className="rounded-md border border-zera-line bg-white">
+          <div className="flex items-center justify-between border-b border-zera-line px-4 py-3">
+            <div>
+              <h3 className="font-bold">Today’s activity</h3>
+              <p className="mt-1 text-xs text-zera-muted">Latest completed sales for the selected business.</p>
+            </div>
+            {posIsActive ? (
+              <Link className="text-sm font-semibold text-zera-green hover:underline" to="/sales">
+                View sales
+              </Link>
+            ) : null}
           </div>
-          <div className="flex min-h-24 min-w-24 items-center justify-center rounded-lg bg-zera-mint text-zera-green">
-            <RoleIcon size={42} />
+
+          {loadingSales ? (
+            <div className="p-5 text-sm text-zera-muted">Loading today’s activity...</div>
+          ) : recentCompletedSales.length ? (
+            <div className="divide-y divide-zera-line">
+              {recentCompletedSales.map((sale) => (
+                <div className="grid gap-2 px-4 py-3 sm:grid-cols-[1fr_auto_auto] sm:items-center sm:gap-5" key={sale.id}>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold">{sale.receiptNumber}</p>
+                    <p className="mt-1 truncate text-xs text-zera-muted">
+                      {sale.customer?.name || "Walk-in customer"} · {sale.branch?.name || activeBranch?.name || "Branch"}
+                    </p>
+                  </div>
+                  <p className="text-xs font-semibold text-zera-muted">{formatTime(sale.createdAt)}</p>
+                  <p className="text-sm font-bold">{formatMoney(sale.total, activeBusiness.currency)}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="flex min-h-44 flex-col items-center justify-center px-5 text-center">
+              <ReceiptText className="text-zera-green" size={26} />
+              <p className="mt-3 text-sm font-bold">No completed sales today</p>
+              <p className="mt-1 text-sm text-zera-muted">New transactions will appear here.</p>
+            </div>
+          )}
+        </article>
+
+        <article className="rounded-md border border-zera-line bg-white">
+          <div className="border-b border-zera-line px-4 py-3">
+            <h3 className="font-bold">Workspace readiness</h3>
+            <p className="mt-1 text-xs text-zera-muted">Only items that affect daily work.</p>
           </div>
+          <div className="divide-y divide-zera-line">
+            {setupItems.map((item) => (
+              <div className="flex items-center justify-between gap-3 px-4 py-3" key={item.label}>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">{item.label}</p>
+                  <p className="mt-1 truncate text-xs text-zera-muted">{item.value}</p>
+                </div>
+                <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-bold ${item.ready ? "bg-zera-mint text-zera-green" : "bg-amber-50 text-amber-800"}`}>
+                  {item.ready ? "Ready" : "Action"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </article>
+      </section>
+
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="font-bold">Quick actions</h3>
+          <p className="text-xs text-zera-muted">{activeRoleName} access</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {quickActions.map((action) => {
+            const Icon = action.icon;
+            return (
+              <Link
+                className="group flex min-h-20 items-center gap-3 rounded-md border border-zera-line bg-white p-4 hover:border-zera-green"
+                key={action.path}
+                to={action.path}
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-surface text-zera-green group-hover:bg-zera-mint">
+                  <Icon size={20} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold">{action.label}</p>
+                  <p className="mt-1 truncate text-xs text-zera-muted">{action.helper}</p>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       </section>
-
-      <section className="grid gap-4 md:grid-cols-4">
-        <MetricCard icon={MapPin} label="Active branches" value={`${activeBranches.length}/${activeBusiness?.branches?.length || 0}`} compact />
-        <MetricCard icon={Boxes} label="Active modules" value={activeModules.length} />
-        <MetricCard icon={Users} label="Active users" value={loadingTeam ? "..." : `${activeTeamUsers.length}/${teamUsers.length}`} compact />
-        <MetricCard icon={ReceiptText} label="Today's sales" value={loadingSales ? "..." : formatMoney(salesTotal, activeBusiness?.currency)} compact />
-      </section>
-
-      {!activeBusiness ? (
-        <section className="rounded-lg border border-zera-line bg-white p-5">
-          <h3 className="text-lg font-bold">No business assigned</h3>
-          <p className="mt-2 text-sm leading-6 text-zera-muted">
-            Ask the Zera system admin to create your business and owner login first.
-          </p>
-        </section>
-      ) : (
-        <>
-          <section className="grid gap-4 lg:grid-cols-3">
-            <StatusPanel
-              title="Business profile"
-              lines={[
-                activeBusiness.type || "Business type not set",
-                activeBusiness.country || "Country not set",
-                activeBusiness.currency || "Currency not set"
-              ]}
-            />
-            <StatusPanel
-              title="Active branch"
-              lines={[
-                activeBranch ? activeBranch.name : "No branch selected",
-                activeBranch?.location || "Branch location not set",
-                activeBranch?.status ? `${activeBranch.status.toLowerCase()} branch` : "Branch status not set"
-              ]}
-            />
-            <StatusPanel
-              title="Enabled modules"
-              lines={activeModules.length ? activeModules.map((module) => module.key) : ["No modules active"]}
-            />
-          </section>
-
-          <section className="grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-            <section className="rounded-lg border border-zera-line bg-white p-5">
-              <h3 className="text-lg font-bold">{roleContent.panelTitle}</h3>
-              <div className="mt-4 space-y-3">
-                {roleContent.readiness.map((item) => (
-                  <ReadinessItem key={item.label} {...item} />
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-lg border border-zera-line bg-white p-5">
-              <h3 className="text-lg font-bold">Today at a glance</h3>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                {roleContent.today.map((item) => (
-                  <TodayItem key={item.label} {...item} />
-                ))}
-              </div>
-            </section>
-          </section>
-        </>
-      )}
     </div>
   );
+}
+
+function dashboardDescription(roleName, branchName) {
+  if (roleName === "Cashier") {
+    return `Start selling, review receipts, and serve customers at ${branchName || "the selected branch"}.`;
+  }
+
+  if (roleName === "Manager") {
+    return `Monitor today’s branch activity, team access, and operational readiness at ${branchName || "the selected branch"}.`;
+  }
+
+  return "See today’s performance, operational readiness, and the actions that need your attention.";
+}
+
+function buildSetupItems({ activeBranch, activeBusiness, activeRoleName, activeTeamUsers, posIsActive }) {
+  const items = [
+    { label: "Branch status", value: activeBranch?.name || "Select an active branch", ready: activeBranch?.status === "ACTIVE" },
+    { label: "POS access", value: posIsActive ? "Selling workspace enabled" : "Enable POS through system admin", ready: posIsActive }
+  ];
+
+  if (activeRoleName !== "Cashier") {
+    items.push({
+      label: "Team access",
+      value: `${activeTeamUsers.length} active user${activeTeamUsers.length === 1 ? "" : "s"}`,
+      ready: activeTeamUsers.length > 0
+    });
+  }
+
+  if (activeRoleName === "Owner") {
+    items.push({
+      label: "Business type",
+      value: activeBusiness?.type || "Ask system admin to configure it",
+      ready: Boolean(activeBusiness?.type)
+    });
+  }
+
+  return items;
+}
+
+function buildQuickActions(roleName, modules) {
+  const actions = [];
+
+  if (modules.includes("POS")) {
+    actions.push(
+      { label: "New sale", helper: "Open the selling workspace", path: "/pos", icon: ReceiptText },
+      { label: "Sales history", helper: "Review receipts and payments", path: "/sales", icon: Store },
+      { label: "Customers", helper: "Find or create a customer", path: "/customers", icon: UserRound }
+    );
+  }
+
+  if (["Owner", "Manager"].includes(roleName) && modules.includes("POS")) {
+    actions.push({ label: "Products", helper: "Manage the sales catalog", path: "/products", icon: Package });
+  }
+
+  if (roleName === "Owner") {
+    actions.push({ label: "Business settings", helper: "Branches and team setup", path: "/settings", icon: Settings });
+  }
+
+  return actions.slice(0, 4);
 }
 
 function formatMoney(value, currency = "UGX") {
   return `${currency} ${Number(value).toLocaleString()}`;
 }
 
-function getRoleContent(roleName, { activeBranch, activeBusiness, activeModules, activeTeamUsers, posIsActive }) {
-  const enabledModuleText = activeModules.length ? activeModules.map((module) => module.key).join(", ") : "No active modules";
-  const hasActiveBranch = activeBranch?.status === "ACTIVE";
-  const teamCount = activeTeamUsers.length;
-
-  if (roleName === "Manager") {
-    return {
-      eyebrow: "Manager workspace",
-      title: activeBusiness ? `${activeBusiness.name} operations` : "Manager dashboard",
-      description: "Track branch readiness, active modules, and team access for daily operations.",
-      icon: ClipboardList,
-      panelTitle: "Manager readiness",
-      readiness: [
-        { label: "Branch selected", value: activeBranch?.name || "No branch selected", ready: Boolean(activeBranch) },
-        { label: "Branch active", value: hasActiveBranch ? "Ready" : "Needs owner attention", ready: hasActiveBranch },
-        { label: "Operations visibility", value: enabledModuleText, ready: activeModules.length > 0 }
-      ],
-      today: [
-        { icon: MapPin, label: "Working branch", value: activeBranch?.name || "Not selected" },
-        { icon: Boxes, label: "Visible modules", value: activeModules.length },
-        { icon: Users, label: "Active users", value: teamCount },
-        { icon: ShieldCheck, label: "Access level", value: "Manager" }
-      ]
-    };
-  }
-
-  if (roleName === "Cashier") {
-    return {
-      eyebrow: "Cashier workspace",
-      title: activeBranch ? `${activeBranch.name} counter` : "Cashier dashboard",
-      description: "Keep the selling workspace simple: confirm your branch and POS access before sales screens are built.",
-      icon: ReceiptText,
-      panelTitle: "Cashier readiness",
-      readiness: [
-        { label: "Branch selected", value: activeBranch?.name || "No branch selected", ready: Boolean(activeBranch) },
-        { label: "Branch active", value: hasActiveBranch ? "Ready" : "Ask manager or owner", ready: hasActiveBranch },
-        { label: "POS access", value: posIsActive ? "Enabled" : "Not enabled", ready: posIsActive }
-      ],
-      today: [
-        { icon: ReceiptText, label: "POS module", value: posIsActive ? "Enabled" : "Paused" },
-        { icon: MapPin, label: "Counter branch", value: activeBranch?.name || "Not selected" },
-        { icon: ShieldCheck, label: "Access level", value: "Cashier" },
-        { icon: Store, label: "Workspace", value: activeBusiness?.name || "Not assigned" }
-      ]
-    };
-  }
-
-  return {
-    eyebrow: "Owner workspace",
-    title: activeBusiness ? `${activeBusiness.name} control center` : "Owner dashboard",
-    description: "Manage business setup, branches, team accounts, and active modules from one calm workspace.",
-    icon: Store,
-    panelTitle: "Owner setup health",
-    readiness: [
-      { label: "Business profile", value: activeBusiness?.type || "Add type in Settings", ready: Boolean(activeBusiness?.type) },
-      { label: "Active branch", value: activeBranch?.name || "Create or activate a branch", ready: hasActiveBranch },
-      { label: "Team access", value: `${teamCount} active user${teamCount === 1 ? "" : "s"}`, ready: teamCount > 0 },
-      { label: "POS foundation", value: posIsActive ? "Enabled" : "Enable POS in Settings", ready: posIsActive }
-    ],
-    today: [
-      { icon: MapPin, label: "Active branch", value: activeBranch?.name || "Not selected" },
-      { icon: Boxes, label: "Active modules", value: activeModules.length },
-      { icon: Users, label: "Active users", value: teamCount },
-      { icon: Wallet, label: "Currency", value: activeBusiness?.currency || "Not set" }
-    ]
-  };
-}
-
-function MetricCard({ icon: Icon, label, value, compact = false }) {
-  return (
-    <article className="rounded-lg border border-zera-line bg-white p-5">
-      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-        <Icon size={22} />
-      </div>
-      <p className="text-sm font-medium text-zera-muted">{label}</p>
-      <p className={`mt-2 font-bold text-zera-ink ${compact ? "text-xl" : "text-3xl"}`}>{value}</p>
-    </article>
-  );
-}
-
-function StatusPanel({ title, lines }) {
-  return (
-    <section className="rounded-lg border border-zera-line bg-white p-5">
-      <h3 className="text-lg font-bold">{title}</h3>
-      <div className="mt-4 space-y-2">
-        {lines.map((line) => (
-          <div key={line} className="rounded-md bg-[#f7faf8] px-3 py-2 text-sm font-semibold text-zera-muted">
-            {line}
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ReadinessItem({ label, ready, value }) {
-  return (
-    <div className="flex flex-col gap-2 rounded-md bg-[#f7faf8] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <p className="text-sm font-bold text-zera-ink">{label}</p>
-        <p className="mt-1 text-sm text-zera-muted">{value}</p>
-      </div>
-      <span className={`rounded-md px-2 py-1 text-xs font-semibold ${ready ? "bg-zera-mint text-zera-green" : "bg-red-50 text-red-700"}`}>
-        {ready ? "Ready" : "Needs setup"}
-      </span>
-    </div>
-  );
-}
-
-function TodayItem({ icon: Icon, label, value }) {
-  return (
-    <div className="rounded-md bg-[#f7faf8] p-4">
-      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-md bg-white text-zera-green">
-        <Icon size={20} />
-      </div>
-      <p className="text-sm font-medium text-zera-muted">{label}</p>
-      <p className="mt-1 text-lg font-bold text-zera-ink">{value}</p>
-    </div>
-  );
+function formatTime(value) {
+  return new Intl.DateTimeFormat("en", { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
 }

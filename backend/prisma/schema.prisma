@@ -40,6 +40,11 @@ enum ProductStatus {
   INACTIVE
 }
 
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum ProductType {
   PHYSICAL
   SERVICE
@@ -94,6 +99,7 @@ model Business {
   tables    POSTable[]
 
   branches    Branch[]
+  customers   Customer[]
   memberships BusinessUser[]
   modules     BusinessModule[]
   products    Product[]
@@ -192,17 +198,42 @@ model Sale {
   businessId    String
   branchId      String
   cashierId     String
+  customerId    String?
+  tableId       String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
 
   business Business   @relation(fields: [businessId], references: [id], onDelete: Cascade)
   branch   Branch     @relation(fields: [branchId], references: [id], onDelete: Restrict)
   cashier  User       @relation(fields: [cashierId], references: [id], onDelete: Restrict)
+  customer Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  table    POSTable?  @relation(fields: [tableId], references: [id], onDelete: SetNull)
   items    SaleItem[]
 
   @@index([businessId])
   @@index([branchId])
   @@index([cashierId])
+  @@index([customerId])
+  @@index([tableId])
+}
+
+model Customer {
+  id         String         @id @default(cuid())
+  name       String
+  phone      String?
+  email      String?
+  notes      String?
+  status     CustomerStatus @default(ACTIVE)
+  businessId String
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  sales    Sale[]
+
+  @@unique([businessId, phone])
+  @@unique([businessId, email])
+  @@index([businessId])
 }
 
 model SaleItem {
@@ -232,6 +263,7 @@ model POSTable {
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  sales    Sale[]
 
   @@unique([businessId, branchId, name])
   @@index([businessId])

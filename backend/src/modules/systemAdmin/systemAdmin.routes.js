@@ -16,6 +16,20 @@ const defaultModules = [
   { key: "REPORTS", active: false }
 ];
 
+function normalizePOSMode(value, businessType = "") {
+  if (["RETAIL_CHECKOUT", "TABLE_SERVICE"].includes(value)) {
+    return value;
+  }
+
+  const normalizedType = businessType.toLowerCase();
+
+  if (normalizedType.includes("bar") || normalizedType.includes("restaurant")) {
+    return "TABLE_SERVICE";
+  }
+
+  return "RETAIL_CHECKOUT";
+}
+
 systemAdminRouter.get("/businesses", async (_req, res, next) => {
   try {
     const businesses = await prisma.business.findMany({
@@ -73,12 +87,14 @@ systemAdminRouter.post("/businesses", async (req, res, next) => {
 
     const passwordHash = await bcrypt.hash(owner.password, 12);
 
+    const posMode = normalizePOSMode(business.posMode, business.type);
+
     const createdBusiness = await prisma.$transaction(async (tx) => {
       const newBusiness = await tx.business.create({
         data: {
           name: business.name,
           type: business.type,
-          posMode: business.posMode || "RETAIL_CHECKOUT",
+          posMode,
           country: business.country || "Uganda",
           currency: business.currency || "UGX",
           roles: {
@@ -106,6 +122,19 @@ systemAdminRouter.post("/businesses", async (req, res, next) => {
           modules: true
         }
       });
+
+      const firstBranch = newBusiness.branches?.[0];
+
+      if (posMode === "TABLE_SERVICE" && firstBranch) {
+        await tx.pOSTable.createMany({
+          data: Array.from({ length: 8 }, (_, index) => ({
+            businessId: newBusiness.id,
+            branchId: firstBranch.id,
+            name: `Table ${index + 1}`,
+            seats: 4
+          }))
+        });
+      }
 
       const ownerRole = newBusiness.roles.find((role) => role.name === "Owner");
       const ownerUser = await tx.user.create({
@@ -160,6 +189,7 @@ systemAdminRouter.post("/businesses", async (req, res, next) => {
 systemAdminRouter.patch("/businesses/:businessId/system-settings", async (req, res, next) => {
   try {
     const { businessId } = req.params;
+    const { name, type, posMode, country, currency, status } = req.body;
 
     const existingBusiness = await prisma.business.findUnique({
       where: { id: businessId }
@@ -169,33 +199,79 @@ systemAdminRouter.patch("/businesses/:businessId/system-settings", async (req, r
       throw new HttpError(404, "Business not found.");
     }
 
-    const updatedBusiness = await prisma.business.update({
-      where: { id: businessId },
-      data: {
-        updatedAt: new Date()
-      },
-      include: {
-        branches: true,
-        modules: true,
-        _count: {
-          select: {
-            products: true
-          }
-        },
-        memberships: {
+    if (!name?.trim()) {
+      throw new HttpError(400, "Business name is required.");
+    }
+
+    if (status && !["ACTIVE", "INACTIVE"].includes(status)) {
+      throw new HttpError(400, "Business status must be ACTIVE or INACTIVE.");
+    }
+
+    const nextType = type?.trim() || existingBusiness.type;
+    const nextPOSMode = normalizePOSMode(posMode, nextType);
+
+    const updatedBusiness = await prisma.$transaction(async (tx) => {
+      await tx.business.update({
+        where: { id: businessId },
+        data: {
+          name: name.trim(),
+          type: nextType,
+          posMode: nextPOSMode,
+          country: country?.trim() || existingBusiness.country || "Uganda",
+          currency: currency?.trim().toUpperCase() || existingBusiness.currency,
+          status: status || existingBusiness.status
+        }
+      });
+
+      if (nextPOSMode === "TABLE_SERVICE") {
+        const branches = await tx.branch.findMany({
+          where: { businessId },
           include: {
-            user: {
-              select: {
-                id: true,
-                name: true,
-                email: true,
-                status: true
-              }
-            },
-            role: true
+            _count: {
+              select: { tables: true }
+            }
+          }
+        });
+
+        for (const branch of branches) {
+          if (branch._count.tables === 0) {
+            await tx.pOSTable.createMany({
+              data: Array.from({ length: 8 }, (_, index) => ({
+                businessId,
+                branchId: branch.id,
+                name: `Table ${index + 1}`,
+                seats: 4
+              }))
+            });
           }
         }
       }
+
+      return tx.business.findUnique({
+        where: { id: businessId },
+        include: {
+          branches: true,
+          modules: true,
+          _count: {
+            select: {
+              products: true
+            }
+          },
+          memberships: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  status: true
+                }
+              },
+              role: true
+            }
+          }
+        }
+      });
     });
 
     res.json({ business: updatedBusiness });

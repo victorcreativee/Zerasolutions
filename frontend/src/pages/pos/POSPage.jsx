@@ -41,9 +41,16 @@ export default function POSPage() {
   const workspaceReady = Boolean(activeBusiness && activeBranch && branchReady && (readiness?.checks?.posActive ?? true));
   const posMode = getEffectivePOSMode(activeBusiness);
   const isTableService = posMode === "TABLE_SERVICE";
+  const modeInfo = getPOSModeInfo(posMode);
+  const ModeIcon = modeInfo.icon;
   const canManageTables = ["Owner", "Manager"].includes(activeRoleName);
   const subtotal = cartItems.reduce((total, item) => total + Number(item.product.price) * item.quantity, 0);
   const totalItems = cartItems.reduce((total, item) => total + item.quantity, 0);
+  const reviewDisabledReason = !cartItems.length
+    ? "Add products to the cart first."
+    : isTableService && !selectedTableId
+      ? "Select a table before reviewing the bill."
+      : "";
   const productCategories = useMemo(() => {
     const categories = products.map((product) => product.category).filter(Boolean);
     return [...new Set(categories)].sort((first, second) => first.localeCompare(second));
@@ -283,12 +290,10 @@ export default function POSPage() {
           <div>
             <p className="text-sm font-semibold text-zera-green">Zera POS</p>
             <h2 className="mt-2 text-2xl font-bold sm:text-3xl">
-              {activeBranch ? `${activeBranch.name} ${isTableService ? "table service" : "checkout"}` : posModeLabel(posMode)}
+              {activeBranch ? `${activeBranch.name} ${modeInfo.shortTitle}` : modeInfo.title}
             </h2>
             <p className="mt-3 max-w-3xl leading-7 text-zera-muted">
-              {isTableService
-                ? "Select a table, attach a customer when needed, then record the order from the cart."
-                : "Run fast counter checkout with customer selection available for repeat buyers."}
+              {modeInfo.description}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -299,6 +304,8 @@ export default function POSPage() {
           </div>
         </div>
       </section>
+
+      <POSModeStrip activeBranch={activeBranch} modeInfo={modeInfo} workspaceReady={workspaceReady} />
 
       <section className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">
         <div className="space-y-5">
@@ -367,13 +374,28 @@ export default function POSPage() {
                 </form>
               ) : null}
             </section>
-          ) : null}
+          ) : (
+            <section className="rounded-lg border border-zera-line bg-white p-5">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+                    <ModeIcon size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold">Retail checkout</h3>
+                    <p className="text-sm text-zera-muted">Counter sale mode for shops, supermarkets, pharmacies, and quick-service businesses.</p>
+                  </div>
+                </div>
+                <div className="rounded-md bg-zera-mint px-3 py-2 text-sm font-semibold text-zera-green">No table required</div>
+              </div>
+            </section>
+          )}
 
           <section className="rounded-lg border border-zera-line bg-white p-5">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <h3 className="text-lg font-bold">Product entry</h3>
-                <p className="mt-1 text-sm text-zera-muted">Search and scan controls are staged for the product catalog phase.</p>
+                <p className="mt-1 text-sm text-zera-muted">{modeInfo.productEntryHint}</p>
               </div>
               <div className={`rounded-md px-3 py-2 text-sm font-semibold ${workspaceReady ? "bg-zera-mint text-zera-green" : "bg-red-50 text-red-700"}`}>
                 {workspaceReady ? "Register ready" : "Setup needed"}
@@ -662,7 +684,7 @@ export default function POSPage() {
               <div className="flex min-h-48 flex-col items-center justify-center rounded-md border border-dashed border-zera-line bg-[#f7faf8] px-4 text-center">
                 <ReceiptText size={30} className="text-zera-green" />
                 <h4 className="mt-3 font-bold">Cart is empty</h4>
-                <p className="mt-2 text-sm leading-6 text-zera-muted">Tap an active product to prepare a draft cart. Checkout is still locked.</p>
+                <p className="mt-2 text-sm leading-6 text-zera-muted">{modeInfo.emptyCartText}</p>
               </div>
             )}
 
@@ -694,13 +716,14 @@ export default function POSPage() {
           </section>
 
           <section className="rounded-lg border border-zera-line bg-white p-5">
-            <h3 className="text-lg font-bold">Sale review</h3>
-            <p className="mt-1 text-sm text-zera-muted">Record a simple sale with a manual payment method. No payment gateway is connected.</p>
+            <h3 className="text-lg font-bold">{modeInfo.reviewTitle}</h3>
+            <p className="mt-1 text-sm text-zera-muted">{modeInfo.reviewDescription}</p>
             <div className="mt-4 grid gap-3">
               <Button type="button" className="gap-2" disabled={!cartItems.length || (isTableService && !selectedTableId)} onClick={() => setReviewOpen(true)}>
                 <ReceiptText size={18} />
-                Review draft sale
+                {modeInfo.reviewButtonLabel}
               </Button>
+              {reviewDisabledReason ? <p className="text-sm text-zera-muted">{reviewDisabledReason}</p> : null}
               <Button type="button" variant="secondary" className="gap-2" disabled>
                 <Banknote size={18} />
                 Cash payment
@@ -876,6 +899,69 @@ function posModeLabel(posMode) {
 
 function formatTableStatus(status = "AVAILABLE") {
   return status.toLowerCase().replace("_", " ");
+}
+
+function getPOSModeInfo(posMode) {
+  if (posMode === "TABLE_SERVICE") {
+    return {
+      icon: Table2,
+      title: "Table-service POS",
+      shortTitle: "table service",
+      description: "Select a table, build the cart, attach a customer when needed, then record the bill with a manual payment method.",
+      productEntryHint: "Tap menu items into a table bill. Barcode scanning and kitchen tickets come later.",
+      emptyCartText: "Select a table, then tap active products to prepare the table bill.",
+      reviewTitle: "Bill review",
+      reviewDescription: "Confirm the table bill and record a manual payment. Kitchen tickets and payment gateway integration come later.",
+      reviewButtonLabel: "Review table bill",
+      requirement: "Table required before checkout",
+      workflow: "Table first, cart second, payment last"
+    };
+  }
+
+  return {
+    icon: Store,
+    title: "Retail checkout POS",
+    shortTitle: "checkout",
+    description: "Run fast counter sales with customer selection available for repeat buyers and credit-history foundations later.",
+    productEntryHint: "Search, filter, and tap products into the cart for a quick counter checkout.",
+    emptyCartText: "Tap active products to prepare a checkout cart.",
+    reviewTitle: "Checkout review",
+    reviewDescription: "Confirm the cart and record a manual payment. Barcode scanning and payment integrations come later.",
+    reviewButtonLabel: "Review checkout sale",
+    requirement: "No table required",
+    workflow: "Cart first, customer optional, payment last"
+  };
+}
+
+function POSModeStrip({ activeBranch, modeInfo, workspaceReady }) {
+  const Icon = modeInfo.icon;
+
+  return (
+    <section className="grid gap-3 rounded-lg border border-zera-line bg-white p-4 shadow-soft md:grid-cols-[1.1fr_0.9fr_0.9fr]">
+      <article className="flex min-w-0 items-center gap-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+          <Icon size={22} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase text-zera-muted">Sales mode</p>
+          <h3 className="truncate text-lg font-bold">{modeInfo.title}</h3>
+        </div>
+      </article>
+
+      <article className="rounded-md bg-[#f7faf8] px-3 py-3">
+        <p className="text-xs font-bold uppercase text-zera-muted">Workflow</p>
+        <p className="mt-1 text-sm font-semibold text-zera-ink">{modeInfo.workflow}</p>
+      </article>
+
+      <article className="rounded-md bg-[#f7faf8] px-3 py-3">
+        <p className="text-xs font-bold uppercase text-zera-muted">Register state</p>
+        <p className={`mt-1 text-sm font-semibold ${workspaceReady ? "text-zera-green" : "text-red-700"}`}>
+          {workspaceReady ? `${activeBranch?.name || "Branch"} ready` : "Setup required"}
+        </p>
+        <p className="mt-1 text-xs text-zera-muted">{modeInfo.requirement}</p>
+      </article>
+    </section>
+  );
 }
 
 function StatusPill({ label, ready }) {

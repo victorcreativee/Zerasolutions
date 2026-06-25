@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Boxes, Building2, ChartNoAxesCombined, MapPin, Plus, ReceiptText, ShieldCheck, Store, Wallet } from "lucide-react";
+import { Boxes, Building2, ChartNoAxesCombined, MapPin, Plus, ReceiptText, ShieldCheck, Store, Table2, Wallet } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import Input from "../../components/Input.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
-import { createBranch, updateBranchStatus, updateBusinessModule, updateBusinessProfile } from "../../services/setupService.js";
+import { createBranch, updateBranchStatus, updateBusinessProfile } from "../../services/setupService.js";
 
 const defaultProfileForm = {
   name: "",
@@ -58,7 +58,6 @@ export default function SettingsPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingBranch, setSavingBranch] = useState(false);
   const [updatingBranchId, setUpdatingBranchId] = useState("");
-  const [updatingModule, setUpdatingModule] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -92,7 +91,8 @@ export default function SettingsPage() {
 
     try {
       const business = await updateBusinessProfile(activeBusinessId, {
-        ...profileForm,
+        name: profileForm.name,
+        country: profileForm.country,
         currency: profileForm.currency.toUpperCase()
       });
       await refreshWorkspace({ preferredBusinessId: business.id });
@@ -129,27 +129,6 @@ export default function SettingsPage() {
       setError(apiError.response?.data?.message || "Unable to create branch.");
     } finally {
       setSavingBranch(false);
-    }
-  }
-
-  async function handleModuleToggle(module) {
-    if (!activeBusiness) {
-      return;
-    }
-
-    const updateKey = `${activeBusiness.id}-${module.key}`;
-    setError("");
-    setMessage("");
-    setUpdatingModule(updateKey);
-
-    try {
-      const updatedModule = await updateBusinessModule(activeBusiness.id, module.key, !module.active);
-      await refreshWorkspace({ preferredBusinessId: activeBusiness.id });
-      setMessage(`${moduleDetails[module.key]?.name || module.key} module ${updatedModule.active ? "activated" : "paused"}.`);
-    } catch (apiError) {
-      setError(apiError.response?.data?.message || "Unable to update module.");
-    } finally {
-      setUpdatingModule("");
     }
   }
 
@@ -217,11 +196,7 @@ export default function SettingsPage() {
                   onChange={(event) => setProfileForm({ ...profileForm, name: event.target.value })}
                   required
                 />
-                <Input
-                  label="Type of business"
-                  value={profileForm.type}
-                  onChange={(event) => setProfileForm({ ...profileForm, type: event.target.value })}
-                />
+                <ReadOnlyWorkflow business={activeBusiness} />
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Input
                     label="Country"
@@ -325,8 +300,8 @@ export default function SettingsPage() {
           <section className="grid gap-6 lg:grid-cols-[1.25fr_0.75fr]">
             <div className="rounded-lg border border-zera-line bg-white p-5">
               <div className="mb-4">
-                <h3 className="text-lg font-bold">Module activation</h3>
-                <p className="mt-1 text-sm text-zera-muted">Choose which foundations are visible for this business.</p>
+                <h3 className="text-lg font-bold">Enabled modules</h3>
+                <p className="mt-1 text-sm text-zera-muted">System Admin controls which foundations are visible for this business.</p>
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
@@ -337,7 +312,6 @@ export default function SettingsPage() {
                     icon: Store
                   };
                   const Icon = details.icon;
-                  const updateKey = `${activeBusiness.id}-${module.key}`;
 
                   return (
                     <article key={module.id} className="rounded-md border border-zera-line p-4">
@@ -351,23 +325,15 @@ export default function SettingsPage() {
                             <p className="mt-1 text-sm leading-6 text-zera-muted">{details.description}</p>
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          className={`relative h-7 w-12 shrink-0 rounded-full transition ${
-                            module.active ? "bg-zera-green" : "bg-zera-line"
-                          } disabled:cursor-not-allowed disabled:opacity-60`}
-                          onClick={() => handleModuleToggle(module)}
-                          disabled={updatingModule === updateKey}
-                          aria-label={`${module.active ? "Pause" : "Activate"} ${details.name}`}
+                        <span
+                          className={`shrink-0 rounded-md px-2 py-1 text-xs font-bold ${
+                            module.active ? "bg-zera-mint text-zera-green" : "bg-[#f7faf8] text-zera-muted"
+                          }`}
                         >
-                          <span
-                            className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${
-                              module.active ? "left-6" : "left-1"
-                            }`}
-                          />
-                        </button>
+                          {module.active ? "Enabled" : "Off"}
+                        </span>
                       </div>
-                      <div className="mt-4 text-sm font-semibold text-zera-muted">{module.active ? "Active" : "Paused"}</div>
+                      <div className="mt-4 text-xs font-semibold text-zera-muted">Managed by Zera System Admin</div>
                     </article>
                   );
                 })}
@@ -399,4 +365,40 @@ export default function SettingsPage() {
       ) : null}
     </div>
   );
+}
+
+function ReadOnlyWorkflow({ business }) {
+  const workflow = getPOSWorkflowInfo(business);
+  const Icon = workflow.icon;
+
+  return (
+    <div className="rounded-md border border-zera-line bg-[#f7faf8] p-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-white text-zera-green">
+          <Icon size={20} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-zera-ink">Business type and sales workflow</p>
+          <p className="mt-1 text-sm text-zera-muted">{business.type || "Business type not set"} · {workflow.label}</p>
+          <p className="mt-2 text-xs leading-5 text-zera-muted">
+            Controlled by Zera System Admin so every branch gets the correct POS experience.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getPOSWorkflowInfo(business) {
+  if (business?.posMode === "TABLE_SERVICE") {
+    return {
+      icon: Table2,
+      label: "Table-service POS"
+    };
+  }
+
+  return {
+    icon: Store,
+    label: "Retail checkout POS"
+  };
 }

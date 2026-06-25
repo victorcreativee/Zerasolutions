@@ -37,20 +37,8 @@ moduleRouter.patch("/:businessId/:key", async (req, res, next) => {
       throw new HttpError(400, "Unknown module.");
     }
 
-    const membership = await prisma.businessUser.findUnique({
-      where: {
-        userId_businessId: {
-          userId: req.user.id,
-          businessId
-        }
-      },
-      include: { role: true }
-    });
-
-    const canManageModules = req.user.systemRole === "SYSTEM_ADMIN" || membership?.role?.name === "Owner";
-
-    if (!canManageModules) {
-      throw new HttpError(403, "Only the business owner can update modules for this business.");
+    if (req.user.systemRole !== "SYSTEM_ADMIN") {
+      throw new HttpError(403, "Only the Zera system admin can update modules for this business.");
     }
 
     const module = await prisma.businessModule.update({

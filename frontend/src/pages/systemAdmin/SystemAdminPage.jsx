@@ -79,10 +79,13 @@ const businessTypeOptions = [
 
 const adminTabs = [
   { key: "overview", label: "Overview", icon: ShieldCheck },
+  { key: "create", label: "Create", icon: Plus },
   { key: "businesses", label: "Directory", icon: Store },
   { key: "details", label: "Details", icon: Building2 },
   { key: "settings", label: "Settings", icon: Settings }
 ];
+
+const selectedBusinessStorageKey = "zera_system_admin_selected_business";
 
 function getBusinessTypeOption(type) {
   return businessTypeOptions.find((option) => option.value === type) || businessTypeOptions[1];
@@ -92,7 +95,7 @@ export default function SystemAdminPage() {
   const { user } = useAuth();
   const [businesses, setBusinesses] = useState([]);
   const [form, setForm] = useState(defaultForm);
-  const [selectedBusinessId, setSelectedBusinessId] = useState("");
+  const [selectedBusinessId, setSelectedBusinessId] = useState(() => localStorage.getItem(selectedBusinessStorageKey) || "");
   const [activeTab, setActiveTab] = useState("overview");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -113,6 +116,7 @@ export default function SystemAdminPage() {
   useEffect(() => {
     if (!businesses.length) {
       setSelectedBusinessId("");
+      localStorage.removeItem(selectedBusinessStorageKey);
       return;
     }
 
@@ -122,6 +126,12 @@ export default function SystemAdminPage() {
       setSelectedBusinessId(businesses[0].id);
     }
   }, [businesses, selectedBusinessId]);
+
+  useEffect(() => {
+    if (selectedBusinessId) {
+      localStorage.setItem(selectedBusinessStorageKey, selectedBusinessId);
+    }
+  }, [selectedBusinessId]);
 
   const filteredBusinesses = useMemo(() => {
     const searchTerm = search.trim().toLowerCase();
@@ -313,7 +323,7 @@ export default function SystemAdminPage() {
       <PageHeader
         eyebrow="Platform operations"
         title="Business control center"
-        description="Choose a company from the header, then manage its setup, access, modules, and sales mode from the tabs below."
+        description="Choose a company, define how it operates, and keep each workspace ready without crowding the business user experience."
         action={
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
             <CurrentBusinessSelector
@@ -321,6 +331,8 @@ export default function SystemAdminPage() {
               loading={loading}
               onChange={selectBusiness}
               onOpenBusinesses={() => setActiveTab("businesses")}
+              onOpenDetails={() => setActiveTab("details")}
+              onOpenSettings={() => setActiveTab("settings")}
               selectedBusiness={selectedBusiness}
             />
             <Button className="shrink-0 gap-2" onClick={() => setActiveTab("create")}>
@@ -464,21 +476,29 @@ function OverviewTab({ businesses, loading, onOpenBusiness, onOpenSettings, sele
       </section>
 
       <article className="min-w-0 rounded-lg border border-zera-line p-4 sm:p-5">
-        <SectionTitle icon={Store} title="Company workspace" subtitle="Manage the company selected in the top header." />
+        <SectionTitle icon={Store} title="Selected workspace" subtitle="The header selector controls which company these actions affect." />
         {selectedBusiness ? (
-          <div className="mt-4 rounded-md border border-zera-green/20 bg-zera-mint/50 p-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-xs font-bold uppercase text-zera-green">Currently managing</p>
-                <h3 className="mt-1 truncate text-xl font-bold">{selectedBusiness.name}</h3>
-                <p className="mt-1 text-sm text-zera-muted">
-                  {selectedBusiness.type || "Business type not set"} · {selectedBusiness.country || "Country not set"} ·{" "}
-                  {selectedBusiness.currency}
-                </p>
+          <div className="mt-4 space-y-4">
+            <div className="rounded-md border border-zera-green/20 bg-zera-mint/50 p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase text-zera-green">Currently managing</p>
+                  <h3 className="mt-1 truncate text-xl font-bold">{selectedBusiness.name}</h3>
+                  <p className="mt-1 text-sm text-zera-muted">
+                    {selectedBusiness.type || "Business type not set"} · {formatPOSMode(selectedBusiness.posMode || getBusinessTypeOption(selectedBusiness.type).posMode)}
+                  </p>
+                </div>
+                <StatusPill label={selectedBusiness.status?.toLowerCase() || "active"} />
               </div>
-              <StatusPill label={selectedBusiness.status?.toLowerCase() || "active"} />
             </div>
-            <div className="mt-4 flex flex-wrap gap-2">
+
+            <div className="grid gap-3 sm:grid-cols-3">
+              <CompactFact label="Branches" value={`${selectedBusiness.branches?.filter((branch) => branch.status === "ACTIVE").length || 0}/${selectedBusiness.branches?.length || 0}`} />
+              <CompactFact label="Modules" value={`${selectedBusiness.modules?.filter((module) => module.active).length || 0}/${selectedBusiness.modules?.length || 0}`} />
+              <CompactFact label="Users" value={`${selectedBusiness.memberships?.filter((membership) => membership.user.status === "ACTIVE").length || 0}/${selectedBusiness.memberships?.length || 0}`} />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
               <Button className="gap-2" onClick={() => onOpenBusiness(selectedBusiness.id)}>
                 <Eye size={16} />
                 Open details
@@ -642,39 +662,41 @@ function BusinessDetailsTab({ activeBranches, activeModules, activeUsers, busine
 
   return (
     <div className="space-y-5">
-      <section className="rounded-lg border border-zera-line bg-[#f7faf8] p-5">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-zera-green">Current business</p>
-            <h3 className="mt-1 text-2xl font-bold">{business.name}</h3>
-            <p className="mt-2 text-sm text-zera-muted">
-              {business.type || "Business type not set"} - {business.country || "Country not set"} - {business.currency}
-            </p>
+      <section className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
+        <article className="rounded-lg border border-zera-line bg-[#f7faf8] p-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-zera-green">Selected business</p>
+              <h3 className="mt-1 truncate text-2xl font-bold">{business.name}</h3>
+              <p className="mt-2 text-sm text-zera-muted">
+                {business.type || "Business type not set"} · {business.country || "Country not set"} · {business.currency}
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <StatusPill label={business.status?.toLowerCase() || "active"} />
+              <StatusPill label={formatPOSMode(business.posMode || getBusinessTypeOption(business.type).posMode)} />
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <StatusPill label={business.status?.toLowerCase() || "active"} />
-            <StatusPill label={formatPOSMode(business.posMode || getBusinessTypeOption(business.type).posMode)} />
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <DetailMetric icon={MapPin} label="Branches" value={`${activeBranches.length}/${business.branches?.length || 0}`} />
+            <DetailMetric icon={Boxes} label="Modules" value={`${activeModules.length}/${business.modules?.length || 0}`} />
+            <DetailMetric icon={Users} label="Users" value={`${activeUsers.length}/${business.memberships?.length || 0}`} />
+            <DetailMetric icon={Store} label="Products" value={business._count?.products || 0} />
           </div>
+        </article>
+
+        <div className="grid gap-5">
+          <InfoPanel icon={UserRound} title="Owner login" subtitle="Primary business admin">
+            <p className="font-semibold">{owner?.user?.name || "Owner not set"}</p>
+            <p className="mt-1 text-sm text-zera-muted">{owner?.user?.email || "Email not set"}</p>
+          </InfoPanel>
+
+          <InfoPanel icon={Utensils} title="POS foundation" subtitle="Driven by business type">
+            <p className="font-semibold">{formatPOSMode(business.posMode || getBusinessTypeOption(business.type).posMode)}</p>
+            <p className="mt-2 text-sm leading-6 text-zera-muted">{getBusinessTypeOption(business.type).helper}</p>
+          </InfoPanel>
         </div>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-4">
-        <DetailMetric icon={MapPin} label="Active branches" value={`${activeBranches.length}/${business.branches?.length || 0}`} />
-        <DetailMetric icon={Boxes} label="Active modules" value={`${activeModules.length}/${business.modules?.length || 0}`} />
-        <DetailMetric icon={Users} label="Active users" value={`${activeUsers.length}/${business.memberships?.length || 0}`} />
-        <DetailMetric icon={Store} label="Products" value={business._count?.products || 0} />
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-2">
-        <InfoPanel icon={UserRound} title="Owner login" subtitle="Primary business admin">
-          <p className="font-semibold">{owner?.user?.name || "Owner not set"}</p>
-          <p className="mt-1 text-sm text-zera-muted">{owner?.user?.email || "Email not set"}</p>
-        </InfoPanel>
-
-        <InfoPanel icon={Utensils} title="POS foundation" subtitle="Driven by the business type selected by System Admin">
-          <p className="font-semibold">{formatPOSMode(business.posMode || getBusinessTypeOption(business.type).posMode)}</p>
-          <p className="mt-2 text-sm leading-6 text-zera-muted">{getBusinessTypeOption(business.type).helper}</p>
-        </InfoPanel>
       </section>
 
       <section className="grid gap-5 xl:grid-cols-2">
@@ -915,10 +937,12 @@ function AdminTabButton({ active, icon: Icon, label, onClick }) {
   );
 }
 
-function CurrentBusinessSelector({ businesses, loading, onChange, onOpenBusinesses, selectedBusiness }) {
+function CurrentBusinessSelector({ businesses, loading, onChange, onOpenBusinesses, onOpenDetails, onOpenSettings, selectedBusiness }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const selectorRef = useRef(null);
+  const selectedOwner = selectedBusiness?.memberships?.find((membership) => membership.role?.name === "Owner");
+  const selectedMode = selectedBusiness?.posMode || getBusinessTypeOption(selectedBusiness?.type).posMode;
   const visibleBusinesses = useMemo(() => {
     const searchTerm = query.trim().toLowerCase();
 
@@ -966,7 +990,7 @@ function CurrentBusinessSelector({ businesses, loading, onChange, onOpenBusiness
     <div ref={selectorRef} className="relative w-full sm:w-auto">
       <button
         type="button"
-        className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-md border border-zera-line bg-white px-3 text-left transition hover:border-zera-green focus:border-zera-green focus:outline-none focus:ring-4 focus:ring-zera-green/10 sm:w-[340px]"
+        className="flex min-h-12 w-full min-w-0 items-center gap-3 rounded-md border border-zera-line bg-white px-3 text-left transition hover:border-zera-green focus:border-zera-green focus:outline-none focus:ring-4 focus:ring-zera-green/10 sm:w-[380px]"
         aria-expanded={open}
         aria-haspopup="listbox"
         disabled={loading || businesses.length === 0}
@@ -980,6 +1004,11 @@ function CurrentBusinessSelector({ businesses, loading, onChange, onOpenBusiness
           <p className="truncate text-sm font-bold text-zera-ink">
             {loading ? "Loading companies..." : selectedBusiness?.name || "No companies yet"}
           </p>
+          {selectedBusiness ? (
+            <p className="mt-0.5 truncate text-[11px] font-medium text-zera-muted">
+              {formatPOSMode(selectedMode)} · {selectedBusiness.currency} · {selectedOwner?.user?.email || "owner pending"}
+            </p>
+          ) : null}
         </div>
         <ChevronDown className={`shrink-0 text-zera-muted transition ${open ? "rotate-180" : ""}`} size={16} />
       </button>
@@ -987,7 +1016,13 @@ function CurrentBusinessSelector({ businesses, loading, onChange, onOpenBusiness
       {open ? (
         <div className="absolute right-0 z-30 mt-2 w-[min(460px,calc(100vw-32px))] overflow-hidden rounded-md border border-zera-line bg-white shadow-xl">
           <div className="border-b border-zera-line p-3">
-            <p className="text-xs font-bold uppercase text-zera-muted">Switch company</p>
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-bold uppercase text-zera-muted">Switch company</p>
+                <p className="mt-0.5 text-xs text-zera-muted">{businesses.length} workspaces available</p>
+              </div>
+              {selectedBusiness ? <StatusPill label="current selected" /> : null}
+            </div>
             <label className="mt-2 flex min-h-10 items-center gap-2 rounded-md border border-zera-line px-3 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
               <Search size={16} className="shrink-0 text-zera-muted" />
               <span className="sr-only">Search companies</span>
@@ -1027,7 +1062,10 @@ function CurrentBusinessSelector({ businesses, loading, onChange, onOpenBusiness
                       <Store size={17} />
                     </div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-bold">{business.name}</p>
+                      <div className="flex min-w-0 items-center gap-2">
+                        <p className="truncate text-sm font-bold">{business.name}</p>
+                        {selected ? <span className="shrink-0 rounded-md bg-white px-2 py-0.5 text-[11px] font-bold text-zera-green">Current</span> : null}
+                      </div>
                       <p className="mt-0.5 truncate text-xs text-zera-muted">
                         {business.type || "Business"} · {formatPOSMode(mode)} · {business.currency}
                       </p>
@@ -1042,19 +1080,56 @@ function CurrentBusinessSelector({ businesses, loading, onChange, onOpenBusiness
             )}
           </div>
 
-          <button
-            type="button"
-            className="flex min-h-11 w-full items-center justify-center gap-2 border-t border-zera-line bg-[#f7faf8] px-4 text-sm font-semibold text-zera-green transition hover:bg-zera-mint"
-            onClick={() => {
-              setOpen(false);
-              onOpenBusinesses();
-            }}
-          >
-            <Building2 size={16} />
-            View all {businesses.length} businesses
-          </button>
+          <div className="border-t border-zera-line bg-[#f7faf8] p-2">
+            {selectedBusiness ? (
+              <div className="mb-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  className="flex min-h-10 items-center justify-center gap-2 rounded-md bg-white px-3 text-sm font-semibold text-zera-ink transition hover:bg-zera-mint"
+                  onClick={() => {
+                    setOpen(false);
+                    onOpenDetails();
+                  }}
+                >
+                  <Eye size={15} />
+                  Details
+                </button>
+                <button
+                  type="button"
+                  className="flex min-h-10 items-center justify-center gap-2 rounded-md bg-white px-3 text-sm font-semibold text-zera-ink transition hover:bg-zera-mint"
+                  onClick={() => {
+                    setOpen(false);
+                    onOpenSettings();
+                  }}
+                >
+                  <Settings size={15} />
+                  Settings
+                </button>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              className="flex min-h-10 w-full items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold text-zera-green transition hover:bg-zera-mint"
+              onClick={() => {
+                setOpen(false);
+                onOpenBusinesses();
+              }}
+            >
+              <Building2 size={16} />
+              View all {businesses.length} businesses
+            </button>
+          </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function CompactFact({ label, value }) {
+  return (
+    <div className="rounded-md bg-[#f7faf8] px-3 py-3">
+      <p className="text-xs font-bold uppercase text-zera-muted">{label}</p>
+      <p className="mt-1 text-lg font-bold">{value}</p>
     </div>
   );
 }
@@ -1110,6 +1185,8 @@ function BusinessListItem({ business, onOpenDetails, onSelect, selected }) {
 }
 
 function BusinessTypePicker({ onChange, value }) {
+  const selectedOption = getBusinessTypeOption(value);
+
   return (
     <div>
       <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
@@ -1118,7 +1195,7 @@ function BusinessTypePicker({ onChange, value }) {
           <p className="text-sm text-zera-muted">This controls the POS experience the business will receive.</p>
         </div>
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
         {businessTypeOptions.map((option) => {
           const Icon = option.icon;
           const selected = value === option.value;
@@ -1127,29 +1204,30 @@ function BusinessTypePicker({ onChange, value }) {
             <button
               key={option.value}
               type="button"
-              className={`rounded-md border p-4 text-left transition ${
+              className={`min-h-24 rounded-md border p-3 text-left transition ${
                 selected ? "border-zera-green bg-zera-mint/70 shadow-soft" : "border-zera-line bg-white hover:border-zera-green hover:bg-[#f7faf8]"
               }`}
               onClick={() => onChange(option.value)}
             >
-              <div className="flex items-start gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-white text-zera-green">
-                  <Icon size={20} />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="font-bold">{option.label}</p>
-                    {selected ? <CheckCircle2 size={16} className="text-zera-green" /> : null}
+              <div className="flex h-full flex-col justify-between gap-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-zera-green">
+                    <Icon size={19} />
                   </div>
-                  <p className="mt-1 text-sm leading-6 text-zera-muted">{option.helper}</p>
-                  <p className="mt-3 inline-flex rounded-md bg-zera-mint px-2 py-1 text-xs font-semibold text-zera-green">
-                    {formatPOSMode(option.posMode)}
-                  </p>
+                  {selected ? <CheckCircle2 size={17} className="shrink-0 text-zera-green" /> : null}
+                </div>
+                <div>
+                  <p className="text-sm font-bold leading-5">{option.label}</p>
+                  <p className="mt-1 text-[11px] font-semibold uppercase text-zera-muted">{formatPOSMode(option.posMode)}</p>
                 </div>
               </div>
             </button>
           );
         })}
+      </div>
+      <div className="mt-3 rounded-md border border-zera-green/20 bg-zera-mint/50 px-3 py-3">
+        <p className="text-sm font-semibold text-zera-green">{selectedOption.label} workflow</p>
+        <p className="mt-1 text-sm leading-6 text-zera-muted">{selectedOption.helper}</p>
       </div>
     </div>
   );

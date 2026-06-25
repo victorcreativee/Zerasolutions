@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Boxes, MapPin, Package, ReceiptText, Settings, Store, UserRound, Users } from "lucide-react";
+import { ArrowRight, Boxes, MapPin, Package, ReceiptText, Settings, Store, Table2, UserRound, Users } from "lucide-react";
 import { Link, Navigate } from "react-router-dom";
 import PageHeader from "../../components/PageHeader.jsx";
 import StatCard from "../../components/StatCard.jsx";
@@ -23,6 +23,8 @@ export default function DashboardPage() {
   const completedSales = recentSales.filter((sale) => sale.status === "COMPLETED");
   const salesTotal = completedSales.reduce((total, sale) => total + Number(sale.total), 0);
   const posIsActive = activeModuleKeys.includes("POS");
+  const posWorkflow = getPOSWorkflowInfo(activeBusiness);
+  const POSWorkflowIcon = posWorkflow.icon;
   const setupItems = buildSetupItems({
     activeBranch,
     activeBusiness,
@@ -125,6 +127,25 @@ export default function DashboardPage() {
         />
         <StatCard icon={Boxes} label="Enabled modules" value={activeModules.length} helper={activeModules.map((module) => module.key).join(", ") || "None"} />
       </section>
+
+      {posIsActive ? (
+        <section className="grid gap-3 rounded-md border border-zera-line bg-white p-4 md:grid-cols-[1fr_auto] md:items-center">
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+              <POSWorkflowIcon size={22} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs font-bold uppercase text-zera-muted">Sales workflow</p>
+              <h3 className="mt-1 text-lg font-bold">{posWorkflow.title}</h3>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">{posWorkflow.description}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 md:justify-end">
+            <span className="rounded-md bg-zera-mint px-3 py-2 text-xs font-bold text-zera-green">{posWorkflow.primaryRule}</span>
+            <span className="rounded-md bg-[#f7faf8] px-3 py-2 text-xs font-bold text-zera-muted">{activeBusiness.type || "Business type not set"}</span>
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
         <article className="rounded-md border border-zera-line bg-white">
@@ -246,12 +267,34 @@ function buildSetupItems({ activeBranch, activeBusiness, activeRoleName, activeT
   if (activeRoleName === "Owner") {
     items.push({
       label: "Business type",
-      value: activeBusiness?.type || "Ask system admin to configure it",
+      value: activeBusiness?.type ? `${activeBusiness.type} · ${formatPOSMode(activeBusiness.posMode)}` : "Ask system admin to configure it",
       ready: Boolean(activeBusiness?.type)
     });
   }
 
   return items;
+}
+
+function getPOSWorkflowInfo(business) {
+  if (business?.posMode === "TABLE_SERVICE") {
+    return {
+      icon: Table2,
+      title: "Table-service POS",
+      description: "Built for bars, restaurants, and table-based service. Staff select a table first, then build the bill and record payment.",
+      primaryRule: "Table required"
+    };
+  }
+
+  return {
+    icon: Store,
+    title: "Retail checkout POS",
+    description: "Built for retail shops, supermarkets, pharmacies, and quick counter sales. Staff add products directly to the cart and checkout.",
+    primaryRule: "No table required"
+  };
+}
+
+function formatPOSMode(posMode = "RETAIL_CHECKOUT") {
+  return posMode === "TABLE_SERVICE" ? "Table-service POS" : "Retail checkout POS";
 }
 
 function buildQuickActions(roleName, modules) {

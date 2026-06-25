@@ -47,7 +47,7 @@ export default function DashboardLayout() {
 
     const activeBusiness = businesses.find((business) => business.id === activeBusinessId);
     const activeModuleKeys = activeBusiness?.modules?.filter((module) => module.active).map((module) => module.key) || [];
-    return getVisibleNavigation(businessNavigation, activeRoleName, activeModuleKeys);
+    return getBusinessNavigationForMode(getVisibleNavigation(businessNavigation, activeRoleName, activeModuleKeys), activeBusiness?.posMode);
   }, [activeBusinessId, activeRoleName, businesses, isSystemAdmin]);
 
   useEffect(() => {
@@ -244,4 +244,20 @@ export default function DashboardLayout() {
       </div>
     </div>
   );
+}
+
+function getBusinessNavigationForMode(groups, posMode) {
+  return groups.map((group) => ({
+    ...group,
+    items: group.items.map((item) => {
+      if (item.path !== "/pos") {
+        return item;
+      }
+
+      return {
+        ...item,
+        label: posMode === "TABLE_SERVICE" ? "Table POS" : "Checkout POS"
+      };
+    })
+  }));
 }

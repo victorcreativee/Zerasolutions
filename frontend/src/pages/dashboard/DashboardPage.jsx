@@ -20,7 +20,7 @@ import StatCard from "../../components/StatCard.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
 import { getBusinessUsers } from "../../services/teamService.js";
-import { getPOSTables, getRecentSales } from "../../services/posService.js";
+import { getActivePOSOrders, getPOSTables, getRecentSales } from "../../services/posService.js";
 import { getCustomers } from "../../services/customerService.js";
 import { getProducts } from "../../services/productService.js";
 
@@ -34,9 +34,11 @@ export default function DashboardPage() {
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [tables, setTables] = useState([]);
+  const [openBills, setOpenBills] = useState([]);
   const [loadingTeam, setLoadingTeam] = useState(false);
   const [loadingSales, setLoadingSales] = useState(false);
   const [loadingWorkData, setLoadingWorkData] = useState(false);
+  const [loadingOpenBills, setLoadingOpenBills] = useState(false);
 
   const activeModules = activeBusiness?.modules?.filter((module) => module.active) || [];
   const activeModuleKeys = activeModules.map((module) => module.key);
@@ -46,6 +48,8 @@ export default function DashboardPage() {
   const salesTotal = completedSales.reduce((total, sale) => total + Number(sale.total), 0);
   const posIsActive = activeModuleKeys.includes("POS");
   const posWorkflow = getPOSWorkflowInfo(activeBusiness);
+  const isTableService = activeBusiness?.posMode === "TABLE_SERVICE";
+  const cashierCanCloseBills = ["Owner", "Manager", "Cashier"].includes(activeRoleName);
   const POSWorkflowIcon = posWorkflow.icon;
   const isOperationalRole = operationalRoles.includes(activeRoleName);
   const activeProducts = products.filter((product) => product.status === "ACTIVE");
@@ -60,7 +64,7 @@ export default function DashboardPage() {
     activeTeamUsers,
     posIsActive
   });
-  const quickActions = buildQuickActions(activeRoleName, activeModuleKeys);
+  const quickActions = buildQuickActions(activeRoleName, activeModuleKeys, activeBusiness);
 
   const recentCompletedSales = useMemo(() => completedSales.slice(0, 5), [completedSales]);
   const roleDashboard = useMemo(
@@ -159,6 +163,24 @@ export default function DashboardPage() {
     loadOperationalData();
   }, [activeBranch?.id, activeBusiness?.id, activeBusiness?.posMode, user?.systemRole]);
 
+  useEffect(() => {
+    if (!activeBusiness?.id || !activeBranch?.id || user?.systemRole === "SYSTEM_ADMIN" || !posIsActive || !isTableService || !cashierCanCloseBills) {
+      setOpenBills([]);
+      return;
+    }
+
+    async function loadOpenBillsOverview() {
+      try {
+        setLoadingOpenBills(true);
+        setOpenBills(await getActivePOSOrders(activeBusiness.id, activeBranch.id));
+      } finally {
+        setLoadingOpenBills(false);
+      }
+    }
+
+    loadOpenBillsOverview();
+  }, [activeBranch?.id, activeBusiness?.id, cashierCanCloseBills, isTableService, posIsActive, user?.systemRole]);
+
   if (user?.systemRole === "SYSTEM_ADMIN") {
     return <Navigate to="/system-admin" replace />;
   }
@@ -247,6 +269,14 @@ export default function DashboardPage() {
             <span className="rounded-md bg-[#f7faf8] px-3 py-2 text-xs font-bold text-zera-muted">{activeBusiness.type || "Business type not set"}</span>
           </div>
         </section>
+      ) : null}
+
+      {isTableService && cashierCanCloseBills ? (
+        <CashierOpenBillsPanel
+          currency={activeBusiness.currency}
+          loading={loadingOpenBills}
+          openBills={openBills}
+        />
       ) : null}
 
       <section className="grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
@@ -483,6 +513,59 @@ function RoleDashboard({ activeBranch, activeBusiness, completedSales, currency,
         </div>
       </section>
     </div>
+  );
+}
+
+function CashierOpenBillsPanel({ currency, loading, openBills }) {
+  const totalDue = openBills.reduce((total, order) => total + Number(order.total), 0);
+
+  return (
+    <section className="rounded-md border border-zera-line bg-white p-4 shadow-soft">
+      <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+            <ReceiptText size={22} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase text-zera-green">Cashier handoff</p>
+            <h3 className="mt-1 text-lg font-bold">Open table bills</h3>
+            <p className="mt-1 text-sm leading-6 text-zera-muted">
+              Bills printed or sent by waiters appear here. Receive payment to close the table and issue the final receipt.
+            </p>
+          </div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-[auto_auto_auto] sm:items-center">
+          <div className="rounded-md bg-[#f7faf8] px-3 py-2">
+            <p className="text-[11px] font-bold uppercase text-zera-muted">Waiting</p>
+            <p className="text-lg font-bold">{loading ? "..." : openBills.length}</p>
+          </div>
+          <div className="rounded-md bg-[#f7faf8] px-3 py-2">
+            <p className="text-[11px] font-bold uppercase text-zera-muted">Amount due</p>
+            <p className="text-lg font-bold">{loading ? "..." : formatMoney(totalDue, currency)}</p>
+          </div>
+          <Link className="inline-flex min-h-11 items-center justify-center rounded-md bg-zera-green px-4 text-sm font-semibold text-white hover:bg-green-700" to="/open-bills">
+            Open bills
+          </Link>
+        </div>
+      </div>
+
+      {openBills.length ? (
+        <div className="mt-4 grid gap-2 md:grid-cols-3">
+          {openBills.slice(0, 3).map((order) => (
+            <Link className="rounded-md border border-zera-line bg-[#f7faf8] px-3 py-3 hover:border-zera-green" key={order.id} to="/open-bills">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold">{order.table?.name || "Table bill"}</p>
+                  <p className="mt-1 truncate text-xs text-zera-muted">{order.orderNumber}</p>
+                </div>
+                <Table2 className="shrink-0 text-zera-green" size={18} />
+              </div>
+              <p className="mt-3 text-sm font-bold">{formatMoney(order.total, currency)}</p>
+            </Link>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
 
@@ -771,10 +854,14 @@ function formatTableStatus(status = "AVAILABLE") {
     .join(" ");
 }
 
-function buildQuickActions(roleName, modules) {
+function buildQuickActions(roleName, modules, business) {
   const actions = [];
 
   if (modules.includes("POS")) {
+    if (business?.posMode === "TABLE_SERVICE" && ["Owner", "Manager", "Cashier"].includes(roleName)) {
+      actions.push({ label: "Open bills", helper: "Receive table payments", path: "/open-bills", icon: ClipboardCheck });
+    }
+
     actions.push(
       { label: "New sale", helper: "Open the selling workspace", path: "/pos", icon: ReceiptText },
       { label: "Sales history", helper: "Review receipts and payments", path: "/sales", icon: Store },

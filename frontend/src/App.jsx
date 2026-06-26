@@ -7,6 +7,7 @@ import DashboardPage from "./pages/dashboard/DashboardPage.jsx";
 import PlaceholderPage from "./pages/dashboard/PlaceholderPage.jsx";
 import SettingsPage from "./pages/dashboard/SettingsPage.jsx";
 import UsersPage from "./pages/dashboard/UsersPage.jsx";
+import OpenBillsPage from "./pages/pos/OpenBillsPage.jsx";
 import POSPage from "./pages/pos/POSPage.jsx";
 import ProductsPage from "./pages/products/ProductsPage.jsx";
 import ReportsPage from "./pages/reports/ReportsPage.jsx";
@@ -18,6 +19,9 @@ import BusinessOwnerRoute from "./routes/BusinessOwnerRoute.jsx";
 import BusinessModuleRoute from "./routes/BusinessModuleRoute.jsx";
 import DashboardLayout from "./layouts/DashboardLayout.jsx";
 
+const salesRoles = ["Owner", "Manager", "Cashier", "Waiter", "Store Keeper", "Pharmacist", "Front Desk"];
+const productRoles = ["Owner", "Manager", "Store Keeper", "Pharmacist"];
+
 export default function App() {
   return (
     <Routes>
@@ -28,19 +32,22 @@ export default function App() {
         <Route element={<DashboardLayout />}>
           <Route path="/account" element={<AccountPage />} />
           <Route path="/dashboard" element={<DashboardPage />} />
-          <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={["Owner", "Manager", "Cashier"]} />}>
+          <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={salesRoles} />}>
             <Route path="/pos" element={<POSPage />} />
           </Route>
           <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={["Owner", "Manager", "Cashier"]} />}>
+            <Route path="/open-bills" element={<OpenBillsPage />} />
+          </Route>
+          <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={salesRoles} />}>
             <Route path="/sales" element={<SalesPage />} />
           </Route>
-          <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={["Owner", "Manager", "Cashier"]} />}>
+          <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={salesRoles} />}>
             <Route path="/customers" element={<CustomersPage />} />
           </Route>
-          <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={["Owner", "Manager"]} />}>
+          <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={productRoles} />}>
             <Route path="/products" element={<ProductsPage />} />
           </Route>
-          <Route element={<BusinessModuleRoute moduleKey="INVENTORY" allowedRoles={["Owner", "Manager"]} />}>
+          <Route element={<BusinessModuleRoute moduleKey="INVENTORY" allowedRoles={["Owner", "Manager", "Store Keeper", "Pharmacist"]} />}>
             <Route path="/inventory" element={<PlaceholderPage title="Inventory" moduleKey="INVENTORY" />} />
           </Route>
           <Route element={<BusinessModuleRoute moduleKey="FINANCE" allowedRoles={["Owner"]} />}>

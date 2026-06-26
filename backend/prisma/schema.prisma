@@ -72,6 +72,18 @@ enum POSTableStatus {
   INACTIVE
 }
 
+enum POSOrderStatus {
+  OPEN
+  BILL_PRINTED
+  PAID
+  CANCELLED
+}
+
+enum POSOrderItemStatus {
+  ACTIVE
+  CANCELLED
+}
+
 model User {
   id           String     @id @default(cuid())
   name         String
@@ -84,6 +96,7 @@ model User {
 
   memberships BusinessUser[]
   sales        Sale[]
+  posOrders    POSOrder[]
 }
 
 model Business {
@@ -105,6 +118,7 @@ model Business {
   products    Product[]
   roles       Role[]
   sales       Sale[]
+  posOrders   POSOrder[]
 }
 
 model Branch {
@@ -119,6 +133,7 @@ model Branch {
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   sales    Sale[]
+  posOrders POSOrder[]
 
   @@index([businessId])
 }
@@ -182,6 +197,7 @@ model Product {
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   saleItems SaleItem[]
+  posOrderItems POSOrderItem[]
 
   @@unique([businessId, sku])
   @@unique([businessId, barcode])
@@ -209,6 +225,7 @@ model Sale {
   customer Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
   table    POSTable?  @relation(fields: [tableId], references: [id], onDelete: SetNull)
   items    SaleItem[]
+  posOrder POSOrder?
 
   @@index([businessId])
   @@index([branchId])
@@ -230,6 +247,7 @@ model Customer {
 
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   sales    Sale[]
+  posOrders POSOrder[]
 
   @@unique([businessId, phone])
   @@unique([businessId, email])
@@ -264,8 +282,57 @@ model POSTable {
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
   sales    Sale[]
+  posOrders POSOrder[]
 
   @@unique([businessId, branchId, name])
   @@index([businessId])
   @@index([branchId])
+}
+
+model POSOrder {
+  id          String         @id @default(cuid())
+  orderNumber String        @unique
+  subtotal    Decimal       @db.Decimal(12, 2)
+  total       Decimal       @db.Decimal(12, 2)
+  status      POSOrderStatus @default(OPEN)
+  businessId  String
+  branchId    String
+  tableId     String
+  waiterId    String
+  customerId  String?
+  saleId      String?       @unique
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  branch   Branch    @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  table    POSTable  @relation(fields: [tableId], references: [id], onDelete: Restrict)
+  waiter   User      @relation(fields: [waiterId], references: [id], onDelete: Restrict)
+  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  sale     Sale?     @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  items    POSOrderItem[]
+
+  @@index([businessId])
+  @@index([branchId])
+  @@index([tableId])
+  @@index([waiterId])
+  @@index([customerId])
+  @@index([status])
+}
+
+model POSOrderItem {
+  id        String             @id @default(cuid())
+  quantity  Int
+  unitPrice Decimal            @db.Decimal(12, 2)
+  lineTotal Decimal            @db.Decimal(12, 2)
+  status    POSOrderItemStatus @default(ACTIVE)
+  orderId   String
+  productId String
+  createdAt DateTime           @default(now())
+
+  order   POSOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([productId])
 }

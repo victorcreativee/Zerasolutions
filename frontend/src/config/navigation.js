@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 
 const salesRoles = ["Owner", "Manager", "Cashier", "Waiter", "Store Keeper", "Pharmacist", "Front Desk"];
+const cashierRoles = ["Owner", "Manager", "Cashier"];
 const productRoles = ["Owner", "Manager", "Store Keeper", "Pharmacist"];
 
 export const businessNavigation = [
@@ -26,6 +27,7 @@ export const businessNavigation = [
   {
     label: "Commerce",
     items: [
+      { label: "Open bills", path: "/open-bills", icon: ClipboardList, roles: cashierRoles, modules: ["POS"], tableServiceOnly: true },
       { label: "Sales", path: "/sales", icon: BarChart3, roles: salesRoles, modules: ["POS"] },
       { label: "Customers", path: "/customers", icon: UserRound, roles: salesRoles, modules: ["POS"] },
       { label: "Products", path: "/products", icon: Package, roles: productRoles, modules: ["POS"] }
@@ -65,6 +67,7 @@ const routeMetadata = {
   "/account": { title: "Account", section: "Personal settings" },
   "/dashboard": { title: "Dashboard", section: "Workspace" },
   "/pos": { title: "Point of Sale", section: "Work" },
+  "/open-bills": { title: "Open Bills", section: "Commerce" },
   "/sales": { title: "Sales", section: "Commerce" },
   "/customers": { title: "Customers", section: "Commerce" },
   "/products": { title: "Products", section: "Commerce" },

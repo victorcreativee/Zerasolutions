@@ -247,9 +247,12 @@ export default function DashboardLayout() {
 }
 
 function getBusinessNavigationForMode(groups, posMode) {
-  return groups.map((group) => ({
-    ...group,
-    items: group.items.map((item) => {
+  return groups
+    .map((group) => ({
+      ...group,
+      items: group.items
+        .filter((item) => !item.tableServiceOnly || posMode === "TABLE_SERVICE")
+        .map((item) => {
       if (item.path !== "/pos") {
         return item;
       }
@@ -258,6 +261,7 @@ function getBusinessNavigationForMode(groups, posMode) {
         ...item,
         label: posMode === "TABLE_SERVICE" ? "Table POS" : "Checkout POS"
       };
-    })
-  }));
+        })
+    }))
+    .filter((group) => group.items.length);
 }

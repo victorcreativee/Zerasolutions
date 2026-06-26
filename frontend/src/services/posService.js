@@ -20,6 +20,42 @@ export async function createPOSTable(payload) {
   return response.data.table;
 }
 
+export async function getActivePOSOrders(businessId, branchId, params = {}) {
+  const response = await api.get(`/pos/orders/business/${businessId}`, {
+    params: {
+      branchId,
+      status: "ACTIVE",
+      ...params
+    }
+  });
+  return response.data.orders;
+}
+
+export async function getActiveTableOrder(businessId, branchId, tableId) {
+  const response = await api.get(`/pos/orders/table/${tableId}/active`, {
+    params: {
+      businessId,
+      branchId
+    }
+  });
+  return response.data.order;
+}
+
+export async function createPOSOrder(payload) {
+  const response = await api.post("/pos/orders", payload);
+  return response.data.order;
+}
+
+export async function markPOSOrderBillPrinted(orderId) {
+  const response = await api.patch(`/pos/orders/${orderId}/bill-printed`);
+  return response.data.order;
+}
+
+export async function payPOSOrder(orderId, payload) {
+  const response = await api.patch(`/pos/orders/${orderId}/pay`, payload);
+  return response.data.sale;
+}
+
 export async function createSale(payload) {
   const response = await api.post("/pos/sales", payload);
   return response.data.sale;

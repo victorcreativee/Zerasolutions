@@ -18,10 +18,153 @@ function getEffectivePOSMode(business) {
   return "RETAIL_CHECKOUT";
 }
 
+const activeOrderStatuses = ["OPEN", "BILL_PRINTED"];
+
+const orderInclude = {
+  branch: {
+    select: {
+      id: true,
+      name: true
+    }
+  },
+  waiter: {
+    select: {
+      id: true,
+      name: true
+    }
+  },
+  customer: {
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      email: true
+    }
+  },
+  table: {
+    select: {
+      id: true,
+      name: true,
+      seats: true,
+      status: true
+    }
+  },
+  sale: {
+    include: {
+      branch: {
+        select: {
+          id: true,
+          name: true
+        }
+      },
+      cashier: {
+        select: {
+          id: true,
+          name: true
+        }
+      },
+      customer: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true
+        }
+      },
+      table: {
+        select: {
+          id: true,
+          name: true,
+          seats: true,
+          status: true
+        }
+      },
+      items: {
+        include: {
+          product: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              category: true,
+              unit: true,
+              price: true
+            }
+          }
+        }
+      }
+    }
+  },
+  items: {
+    where: {
+      status: "ACTIVE"
+    },
+    include: {
+      product: {
+        select: {
+              id: true,
+              name: true,
+              type: true,
+              category: true,
+              unit: true,
+              price: true
+        }
+      }
+    }
+  }
+};
+
+function canPayTableBill(roleName, systemRole) {
+  return systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager", "Cashier"].includes(roleName);
+}
+
+function canOpenTableBill(roleName, systemRole, business) {
+  return systemRole === "SYSTEM_ADMIN" || canRecordSale(roleName, business);
+}
+
+async function assertBusinessAccess({ businessId, userId, systemRole }) {
+  const membership = await prisma.businessUser.findUnique({
+    where: {
+      userId_businessId: {
+        userId,
+        businessId
+      }
+    },
+    include: { role: true }
+  });
+
+  if (!membership && systemRole !== "SYSTEM_ADMIN") {
+    throw new HttpError(403, "You do not have access to this business.");
+  }
+
+  return membership;
+}
+
+async function getActiveTableOrder({ businessId, branchId, tableId }) {
+  return prisma.pOSOrder.findFirst({
+    where: {
+      businessId,
+      branchId,
+      tableId,
+      status: {
+        in: activeOrderStatuses
+      }
+    },
+    include: orderInclude,
+    orderBy: {
+      createdAt: "desc"
+    }
+  });
+}
+
 posRouter.get("/tables/business/:businessId", async (req, res, next) => {
   try {
     const { businessId } = req.params;
     const { branchId } = req.query;
+
+    if (!prisma.pOSOrder) {
+      throw new HttpError(503, "Prisma Client is out of date. Restart the backend and run npx prisma generate.");
+    }
 
     if (!branchId) {
       throw new HttpError(400, "Branch is required.");
@@ -50,7 +193,93 @@ posRouter.get("/tables/business/:businessId", async (req, res, next) => {
       }
     });
 
-    res.json({ tables });
+    const tableIds = tables.map((table) => table.id);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(todayStart);
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const tableSales = tableIds.length
+      ? await prisma.sale.findMany({
+          where: {
+            businessId,
+            branchId,
+            tableId: { in: tableIds },
+            status: "COMPLETED",
+            createdAt: {
+              gte: todayStart,
+              lte: todayEnd
+            }
+          },
+          select: {
+            id: true,
+            receiptNumber: true,
+            tableId: true,
+            total: true,
+            createdAt: true
+          },
+          orderBy: {
+            createdAt: "desc"
+          }
+        })
+      : [];
+    const openTableOrders = tableIds.length
+      ? await prisma.pOSOrder.findMany({
+          where: {
+            businessId,
+            branchId,
+            tableId: { in: tableIds },
+            status: {
+              in: activeOrderStatuses
+            }
+          },
+          select: {
+            id: true,
+            orderNumber: true,
+            tableId: true,
+            total: true,
+            status: true,
+            updatedAt: true,
+            _count: {
+              select: {
+                items: true
+              }
+            }
+          },
+          orderBy: {
+            updatedAt: "desc"
+          }
+        })
+      : [];
+
+    const tablesWithServiceSummary = tables.map((table) => {
+      const salesForTable = tableSales.filter((sale) => sale.tableId === table.id);
+      const activeOrder = openTableOrders.find((order) => order.tableId === table.id) || null;
+      const todaySalesTotal = salesForTable.reduce((total, sale) => total + Number(sale.total), 0);
+      const lastSale = salesForTable[0] || null;
+
+      return {
+        ...table,
+        serviceSummary: {
+          todaySalesCount: salesForTable.length,
+          todaySalesTotal,
+          lastReceiptNumber: lastSale?.receiptNumber || null,
+          lastSaleAt: lastSale?.createdAt || null,
+          activeOrder: activeOrder
+            ? {
+                id: activeOrder.id,
+                orderNumber: activeOrder.orderNumber,
+                total: Number(activeOrder.total),
+                status: activeOrder.status,
+                itemCount: activeOrder._count.items,
+                updatedAt: activeOrder.updatedAt
+              }
+            : null
+        }
+      };
+    });
+
+    res.json({ tables: tablesWithServiceSummary });
   } catch (error) {
     next(error);
   }
@@ -112,6 +341,503 @@ posRouter.post("/tables", async (req, res, next) => {
     next(error);
   }
 });
+
+posRouter.get("/orders/business/:businessId", async (req, res, next) => {
+  try {
+    const { businessId } = req.params;
+    const { branchId, tableId, status = "OPEN" } = req.query;
+
+    if (!branchId) {
+      throw new HttpError(400, "Branch is required.");
+    }
+
+    await assertBusinessAccess({
+      businessId,
+      userId: req.user.id,
+      systemRole: req.user.systemRole
+    });
+
+    const statuses =
+      status === "ACTIVE"
+        ? activeOrderStatuses
+        : status
+          ? String(status)
+              .split(",")
+              .map((item) => item.trim())
+              .filter(Boolean)
+          : activeOrderStatuses;
+
+    const orders = await prisma.pOSOrder.findMany({
+      where: {
+        businessId,
+        branchId,
+        ...(tableId ? { tableId } : {}),
+        status: {
+          in: statuses
+        }
+      },
+      include: orderInclude,
+      orderBy: {
+        updatedAt: "desc"
+      },
+      take: 100
+    });
+
+    res.json({ orders });
+  } catch (error) {
+    next(error);
+  }
+});
+
+posRouter.get("/orders/table/:tableId/active", async (req, res, next) => {
+  try {
+    const { tableId } = req.params;
+    const { businessId, branchId } = req.query;
+
+    if (!businessId || !branchId) {
+      throw new HttpError(400, "Business and branch are required.");
+    }
+
+    await assertBusinessAccess({
+      businessId,
+      userId: req.user.id,
+      systemRole: req.user.systemRole
+    });
+
+    const order = await getActiveTableOrder({ businessId, branchId, tableId });
+    res.json({ order });
+  } catch (error) {
+    next(error);
+  }
+});
+
+posRouter.post("/orders", async (req, res, next) => {
+  try {
+    const { businessId, branchId, customerId, tableId, items } = req.body;
+
+    if (!businessId || !branchId || !tableId || !Array.isArray(items) || items.length === 0) {
+      throw new HttpError(400, "Business, branch, table, and order items are required.");
+    }
+
+    const membership = await assertBusinessAccess({
+      businessId,
+      userId: req.user.id,
+      systemRole: req.user.systemRole
+    });
+
+    const [business, branch, posModule, customer, table] = await Promise.all([
+      prisma.business.findUnique({
+        where: { id: businessId }
+      }),
+      prisma.branch.findFirst({
+        where: {
+          id: branchId,
+          businessId
+        }
+      }),
+      prisma.businessModule.findUnique({
+        where: {
+          businessId_key: {
+            businessId,
+            key: "POS"
+          }
+        }
+      }),
+      customerId
+        ? prisma.customer.findFirst({
+            where: {
+              id: customerId,
+              businessId,
+              status: "ACTIVE"
+            }
+          })
+        : null,
+      prisma.pOSTable.findFirst({
+        where: {
+          id: tableId,
+          businessId,
+          branchId,
+          status: {
+            not: "INACTIVE"
+          }
+        }
+      })
+    ]);
+
+    if (!business || business.status !== "ACTIVE") {
+      throw new HttpError(400, "Business is not active.");
+    }
+
+    if (getEffectivePOSMode(business) !== "TABLE_SERVICE") {
+      throw new HttpError(400, "Open table bills are only available for bar and restaurant POS.");
+    }
+
+    const roleName = membership?.role?.name || req.user.systemRole;
+
+    if (!canOpenTableBill(roleName, req.user.systemRole, business)) {
+      throw new HttpError(403, "You do not have access to open table bills.");
+    }
+
+    if (!branch || branch.status !== "ACTIVE") {
+      throw new HttpError(400, "Branch is not active.");
+    }
+
+    if (!posModule?.active) {
+      throw new HttpError(400, "POS module is not active for this business.");
+    }
+
+    if (customerId && !customer) {
+      throw new HttpError(400, "Selected customer is not active in this business.");
+    }
+
+    if (!table) {
+      throw new HttpError(400, "Selected table is not available for this branch.");
+    }
+
+    const normalizedItems = items.map((item) => ({
+      productId: item.productId,
+      quantity: Number(item.quantity)
+    }));
+
+    if (normalizedItems.some((item) => !item.productId || !Number.isInteger(item.quantity) || item.quantity <= 0)) {
+      throw new HttpError(400, "Each order item must have a product and positive quantity.");
+    }
+
+    const productIds = [...new Set(normalizedItems.map((item) => item.productId))];
+    const products = await prisma.product.findMany({
+      where: {
+        businessId,
+        id: { in: productIds },
+        status: "ACTIVE"
+      }
+    });
+
+    if (products.length !== productIds.length) {
+      throw new HttpError(400, "One or more products are not active in this business.");
+    }
+
+    const orderItems = normalizedItems.map((item) => {
+      const product = products.find((productItem) => productItem.id === item.productId);
+      const unitPrice = Number(product.price);
+      const lineTotal = unitPrice * item.quantity;
+
+      return {
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice: unitPrice.toFixed(2),
+        lineTotal: lineTotal.toFixed(2)
+      };
+    });
+
+    const order = await prisma.$transaction(async (transaction) => {
+      const existingOrder = await transaction.pOSOrder.findFirst({
+        where: {
+          businessId,
+          branchId,
+          tableId,
+          status: {
+            in: activeOrderStatuses
+          }
+        },
+        include: {
+          items: {
+            where: {
+              status: "ACTIVE"
+            }
+          }
+        },
+        orderBy: {
+          createdAt: "desc"
+        }
+      });
+
+      if (existingOrder) {
+        const subtotal =
+          existingOrder.items.reduce((total, item) => total + Number(item.lineTotal), 0) +
+          orderItems.reduce((total, item) => total + Number(item.lineTotal), 0);
+
+        await transaction.pOSOrderItem.createMany({
+          data: orderItems.map((item) => ({
+            ...item,
+            orderId: existingOrder.id
+          }))
+        });
+
+        return transaction.pOSOrder.update({
+          where: {
+            id: existingOrder.id
+          },
+          data: {
+            subtotal: subtotal.toFixed(2),
+            total: subtotal.toFixed(2),
+            customerId: customer?.id || existingOrder.customerId,
+            status: "OPEN"
+          },
+          include: orderInclude
+        });
+      }
+
+      const subtotal = orderItems.reduce((total, item) => total + Number(item.lineTotal), 0);
+
+      const createdOrder = await transaction.pOSOrder.create({
+        data: {
+          orderNumber: `ZO-${Date.now()}`,
+          subtotal: subtotal.toFixed(2),
+          total: subtotal.toFixed(2),
+          businessId,
+          branchId,
+          tableId,
+          waiterId: req.user.id,
+          customerId: customer?.id || null,
+          items: {
+            create: orderItems
+          }
+        },
+        include: orderInclude
+      });
+
+      await transaction.pOSTable.update({
+        where: {
+          id: table.id
+        },
+        data: {
+          status: "OCCUPIED"
+        }
+      });
+
+      return createdOrder;
+    });
+
+    res.status(201).json({ order });
+  } catch (error) {
+    next(error);
+  }
+});
+
+posRouter.patch("/orders/:orderId/bill-printed", async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+
+    const existingOrder = await prisma.pOSOrder.findUnique({
+      where: { id: orderId },
+      include: {
+        business: true
+      }
+    });
+
+    if (!existingOrder) {
+      throw new HttpError(404, "Table bill was not found.");
+    }
+
+    const membership = await assertBusinessAccess({
+      businessId: existingOrder.businessId,
+      userId: req.user.id,
+      systemRole: req.user.systemRole
+    });
+
+    const roleName = membership?.role?.name || req.user.systemRole;
+
+    if (!canOpenTableBill(roleName, req.user.systemRole, existingOrder.business)) {
+      throw new HttpError(403, "You do not have access to update this bill.");
+    }
+
+    if (!activeOrderStatuses.includes(existingOrder.status)) {
+      throw new HttpError(400, "Only open table bills can be marked as printed.");
+    }
+
+    const order = await prisma.pOSOrder.update({
+      where: { id: orderId },
+      data: {
+        status: "BILL_PRINTED"
+      },
+      include: orderInclude
+    });
+
+    res.json({ order });
+  } catch (error) {
+    next(error);
+  }
+});
+
+posRouter.patch("/orders/:orderId/pay", async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    const { paymentMethod = "CASH", customerId } = req.body;
+
+    if (!["CASH", "CARD", "MOBILE_MONEY"].includes(paymentMethod)) {
+      throw new HttpError(400, "Payment method is not supported.");
+    }
+
+    const existingOrder = await prisma.pOSOrder.findUnique({
+      where: { id: orderId },
+      include: {
+        business: true,
+        items: {
+          where: {
+            status: "ACTIVE"
+          },
+          include: {
+            product: true
+          }
+        }
+      }
+    });
+
+    if (!existingOrder) {
+      throw new HttpError(404, "Table bill was not found.");
+    }
+
+    const membership = await assertBusinessAccess({
+      businessId: existingOrder.businessId,
+      userId: req.user.id,
+      systemRole: req.user.systemRole
+    });
+
+    const roleName = membership?.role?.name || req.user.systemRole;
+
+    if (!canPayTableBill(roleName, req.user.systemRole)) {
+      throw new HttpError(403, "Only a cashier, manager, or owner can receive payment for a table bill.");
+    }
+
+    if (!activeOrderStatuses.includes(existingOrder.status)) {
+      throw new HttpError(400, "Only open table bills can be paid.");
+    }
+
+    if (!existingOrder.items.length) {
+      throw new HttpError(400, "This table bill has no active items.");
+    }
+
+    const customer = customerId
+      ? await prisma.customer.findFirst({
+          where: {
+            id: customerId,
+            businessId: existingOrder.businessId,
+            status: "ACTIVE"
+          }
+        })
+      : null;
+
+    if (customerId && !customer) {
+      throw new HttpError(400, "Selected customer is not active in this business.");
+    }
+
+    const sale = await prisma.$transaction(async (transaction) => {
+      const saleItems = existingOrder.items.map((item) => ({
+        productId: item.productId,
+        quantity: item.quantity,
+        unitPrice: Number(item.unitPrice).toFixed(2),
+        lineTotal: Number(item.lineTotal).toFixed(2)
+      }));
+      const subtotal = saleItems.reduce((total, item) => total + Number(item.lineTotal), 0);
+
+      const paidSale = await transaction.sale.create({
+        data: {
+          receiptNumber: `ZS-${Date.now()}`,
+          subtotal: subtotal.toFixed(2),
+          total: subtotal.toFixed(2),
+          paymentMethod,
+          businessId: existingOrder.businessId,
+          branchId: existingOrder.branchId,
+          tableId: existingOrder.tableId,
+          customerId: customer?.id || existingOrder.customerId || null,
+          cashierId: req.user.id,
+          items: {
+            create: saleItems
+          }
+        }
+      });
+
+      await transaction.pOSOrder.update({
+        where: {
+          id: existingOrder.id
+        },
+        data: {
+          status: "PAID",
+          saleId: paidSale.id,
+          customerId: customer?.id || existingOrder.customerId || null,
+          total: subtotal.toFixed(2),
+          subtotal: subtotal.toFixed(2)
+        }
+      });
+
+      const remainingOpenOrders = await transaction.pOSOrder.count({
+        where: {
+          businessId: existingOrder.businessId,
+          branchId: existingOrder.branchId,
+          tableId: existingOrder.tableId,
+          status: {
+            in: activeOrderStatuses
+          }
+        }
+      });
+
+      if (remainingOpenOrders === 0) {
+        await transaction.pOSTable.update({
+          where: {
+            id: existingOrder.tableId
+          },
+          data: {
+            status: "AVAILABLE"
+          }
+        });
+      }
+
+      return transaction.sale.findUnique({
+        where: {
+          id: paidSale.id
+        },
+        include: {
+          branch: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          cashier: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          customer: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              email: true
+            }
+          },
+          table: {
+            select: {
+              id: true,
+              name: true,
+              seats: true,
+              status: true
+            }
+          },
+          items: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  type: true,
+                  category: true,
+                  unit: true
+                }
+              }
+            }
+          }
+        }
+      });
+    });
+
+    res.json({ sale });
+  } catch (error) {
+    next(error);
+  }
+});
+
 posRouter.get("/readiness/:businessId/:branchId", async (req, res, next) => {
   try {
     const { businessId, branchId } = req.params;
@@ -493,6 +1219,10 @@ posRouter.post("/sales", async (req, res, next) => {
       throw new HttpError(400, "Select a table before recording this bar or restaurant sale.");
     }
 
+    if (effectivePOSMode === "TABLE_SERVICE" && roleName === "Waiter") {
+      throw new HttpError(403, "Waiters can send table orders. A cashier must receive payment and print the receipt.");
+    }
+
     if (tableId && !table) {
       throw new HttpError(400, "Selected table is not available for this branch.");
     }
@@ -594,6 +1324,17 @@ posRouter.post("/sales", async (req, res, next) => {
         }
       }
     });
+
+    if (table?.id) {
+      await prisma.pOSTable.update({
+        where: {
+          id: table.id
+        },
+        data: {
+          status: "AVAILABLE"
+        }
+      });
+    }
 
     res.status(201).json({ sale });
   } catch (error) {

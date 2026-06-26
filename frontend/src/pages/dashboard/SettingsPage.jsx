@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Boxes, Building2, ChartNoAxesCombined, MapPin, Plus, ReceiptText, ShieldCheck, Store, Table2, Wallet } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import Input from "../../components/Input.jsx";
@@ -45,14 +45,9 @@ const moduleDetails = {
   }
 };
 
-const roleDetails = [
-  { name: "Owner", description: "Full access to business setup, modules, and team accounts." },
-  { name: "Manager", description: "Prepared for daily operations and branch oversight." },
-  { name: "Cashier", description: "Prepared for POS access and customer-facing workflows." }
-];
-
 export default function SettingsPage() {
   const { activeBusiness, activeBusinessId, loading, refreshWorkspace, selectBranch } = useWorkspace();
+  const roleDetails = useMemo(() => buildRoleDetails(activeBusiness), [activeBusiness]);
   const [profileForm, setProfileForm] = useState(defaultProfileForm);
   const [branchForm, setBranchForm] = useState(defaultBranchForm);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -387,6 +382,61 @@ function ReadOnlyWorkflow({ business }) {
       </div>
     </div>
   );
+}
+
+function buildRoleDetails(activeBusiness) {
+  if (activeBusiness?.roles?.length) {
+    return activeBusiness.roles;
+  }
+
+  const type = (activeBusiness?.type || "").toLowerCase();
+  const posMode = activeBusiness?.posMode || "RETAIL_CHECKOUT";
+  const baseRoles = [
+    { name: "Owner", description: "Full access to business setup, modules, and team accounts." },
+    { name: "Manager", description: "Manage daily operations, staff, and branch oversight." }
+  ];
+
+  if (posMode === "TABLE_SERVICE" || type.includes("bar") || type.includes("restaurant")) {
+    return [
+      ...baseRoles,
+      { name: "Waiter", description: "Take table orders and record table-service bills." },
+      { name: "Cashier", description: "Receive payments and close customer bills." }
+    ];
+  }
+
+  if (type.includes("pharmacy")) {
+    return [
+      ...baseRoles,
+      { name: "Pharmacist", description: "Serve pharmacy customers and record medicine sales." },
+      { name: "Cashier", description: "Receive payments and run checkout." }
+    ];
+  }
+
+  if (type.includes("retail")) {
+    return [
+      ...baseRoles,
+      { name: "Store Keeper", description: "Support stock-facing shop duties and retail checkout." },
+      { name: "Cashier", description: "Run retail checkout and receive payments." }
+    ];
+  }
+
+  if (type.includes("supermarket")) {
+    return [
+      ...baseRoles,
+      { name: "Cashier", description: "Run fast checkout and receive payments." },
+      { name: "Store Keeper", description: "Support product and stock-facing supermarket work." }
+    ];
+  }
+
+  if (type.includes("hotel")) {
+    return [
+      ...baseRoles,
+      { name: "Front Desk", description: "Serve guest-facing hotel workflows and record service sales." },
+      { name: "Cashier", description: "Receive payments and close service bills." }
+    ];
+  }
+
+  return [...baseRoles, { name: "Cashier", description: "Run checkout and receive payments." }];
 }
 
 function getPOSWorkflowInfo(business) {

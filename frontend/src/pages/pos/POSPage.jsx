@@ -1,47 +1,44 @@
 import { useEffect, useMemo, useState } from "react";
-import { Banknote, Barcode, Calculator, CheckCircle2, CreditCard, Filter, Minus, Plus, Printer, ReceiptText, Search, ShoppingCart, Store, Table2, Trash2, UserRound, X } from "lucide-react";
+import { Minus, Plus, ReceiptText, Search, ShoppingCart, Store, Table2, Trash2, UserRound, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import Button from "../../components/Button.jsx";
-import { useAuth } from "../../context/AuthContext.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
-import { createPOSTable, createSale, getPOSTables, getPOSReadiness, getRecentSales } from "../../services/posService.js";
+import { createPOSTable, createSale, getPOSTables, getPOSReadiness } from "../../services/posService.js";
 import { getCustomers } from "../../services/customerService.js";
 import { getProducts } from "../../services/productService.js";
 
 export default function POSPage() {
-  const { user } = useAuth();
   const { activeBranch, activeBranchId, activeBusiness, activeBusinessId, activeRoleName } = useWorkspace();
   const [readiness, setReadiness] = useState(null);
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [tables, setTables] = useState([]);
-  const [recentSales, setRecentSales] = useState([]);
   const [cartItems, setCartItems] = useState([]);
   const [productSearch, setProductSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [selectedTableId, setSelectedTableId] = useState("");
   const [newTableName, setNewTableName] = useState("");
-  const [productTypeFilter, setProductTypeFilter] = useState("ALL");
   const [productCategoryFilter, setProductCategoryFilter] = useState("");
   const [reviewOpen, setReviewOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState("CASH");
-  const [loadingReadiness, setLoadingReadiness] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [loadingTables, setLoadingTables] = useState(false);
   const [savingSale, setSavingSale] = useState(false);
-  const [readinessError, setReadinessError] = useState("");
   const [productError, setProductError] = useState("");
   const [customerError, setCustomerError] = useState("");
   const [tableError, setTableError] = useState("");
   const [saleError, setSaleError] = useState("");
   const [saleMessage, setSaleMessage] = useState("");
+  const [readinessError, setReadinessError] = useState("");
   const branchReady = readiness?.checks?.branchActive ?? activeBranch?.status === "ACTIVE";
-  const workspaceReady = Boolean(activeBusiness && activeBranch && branchReady && (readiness?.checks?.posActive ?? true));
+  const posReady = readiness?.checks?.posActive ?? true;
+  const roleReady = readiness?.checks?.roleAllowed ?? Boolean(activeRoleName);
+  const workspaceReady = Boolean(activeBusiness && activeBranch && branchReady && posReady && roleReady);
   const posMode = getEffectivePOSMode(activeBusiness);
   const isTableService = posMode === "TABLE_SERVICE";
-  const modeInfo = getPOSModeInfo(posMode);
+  const modeInfo = getPOSModeInfo(posMode, activeRoleName, activeBusiness?.type);
   const ModeIcon = modeInfo.icon;
   const canManageTables = ["Owner", "Manager"].includes(activeRoleName);
   const subtotal = cartItems.reduce((total, item) => total + Number(item.product.price) * item.quantity, 0);
@@ -63,7 +60,6 @@ export default function POSPage() {
     () => tables.find((table) => table.id === selectedTableId) || null,
     [tables, selectedTableId]
   );
-  const productFilterCount = [productTypeFilter !== "ALL", Boolean(productCategoryFilter), Boolean(productSearch)].filter(Boolean).length;
   const totals = [
     { label: "Subtotal", value: formatMoney(subtotal, activeBusiness?.currency) },
     { label: "Tax", value: formatMoney(0, activeBusiness?.currency) },
@@ -78,14 +74,11 @@ export default function POSPage() {
 
     async function loadReadiness() {
       try {
-        setLoadingReadiness(true);
         setReadinessError("");
         const data = await getPOSReadiness(activeBusinessId, activeBranchId);
         setReadiness(data);
       } catch (apiError) {
         setReadinessError(apiError.response?.data?.message || "Unable to load POS readiness.");
-      } finally {
-        setLoadingReadiness(false);
       }
     }
 
@@ -105,7 +98,6 @@ export default function POSPage() {
         const params = {
           status: "ACTIVE",
           ...(productSearch ? { q: productSearch } : {}),
-          ...(productTypeFilter !== "ALL" ? { type: productTypeFilter } : {}),
           ...(productCategoryFilter ? { category: productCategoryFilter } : {})
         };
         const data = await getProducts(activeBusinessId, params);
@@ -119,7 +111,7 @@ export default function POSPage() {
 
     const timeout = window.setTimeout(loadProducts, 250);
     return () => window.clearTimeout(timeout);
-  }, [activeBusinessId, productSearch, productCategoryFilter, productTypeFilter]);
+  }, [activeBusinessId, productSearch, productCategoryFilter]);
 
   useEffect(() => {
     if (!activeBusinessId) {
@@ -159,24 +151,6 @@ export default function POSPage() {
     loadTables();
   }, [activeBusinessId, activeBranchId, isTableService]);
 
-  useEffect(() => {
-    if (!activeBusinessId) {
-      setRecentSales([]);
-      return;
-    }
-
-    loadRecentSales();
-  }, [activeBusinessId]);
-
-  async function loadRecentSales() {
-    try {
-      const data = await getRecentSales(activeBusinessId);
-      setRecentSales(data);
-    } catch {
-      setRecentSales([]);
-    }
-  }
-
   async function loadTables() {
     try {
       setLoadingTables(true);
@@ -215,17 +189,6 @@ export default function POSPage() {
 
   function removeFromCart(productId) {
     setCartItems((current) => current.filter((item) => item.product.id !== productId));
-  }
-
-  function updateProductTypeFilter(type) {
-    setProductTypeFilter(type);
-    setProductCategoryFilter("");
-  }
-
-  function clearProductFilters() {
-    setProductSearch("");
-    setProductTypeFilter("ALL");
-    setProductCategoryFilter("");
   }
 
   async function handleCreateTable(event) {
@@ -275,7 +238,6 @@ export default function POSPage() {
       setCartItems([]);
       setReviewOpen(false);
       setSaleMessage(`Sale recorded: ${sale.receiptNumber}`);
-      await loadRecentSales();
     } catch (apiError) {
       setSaleError(apiError.response?.data?.detail || apiError.response?.data?.message || "Unable to record sale.");
     } finally {
@@ -300,12 +262,10 @@ export default function POSPage() {
             <StatusPill label={activeBusiness?.name || "No business"} ready={Boolean(activeBusiness)} />
             <StatusPill label={posModeLabel(posMode)} ready={Boolean(activeBusiness)} />
             <StatusPill label={activeBranch?.name || "No branch"} ready={branchReady} />
-            <StatusPill label={activeRoleName || "No role"} ready={Boolean(activeRoleName)} />
+            <StatusPill label={activeRoleName || "No role"} ready={roleReady} />
           </div>
         </div>
       </section>
-
-      <POSModeStrip activeBranch={activeBranch} modeInfo={modeInfo} workspaceReady={workspaceReady} />
 
       <section className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">
         <div className="space-y-5">
@@ -402,7 +362,7 @@ export default function POSPage() {
               </div>
             </div>
 
-            <div className="mt-5 grid gap-3 md:grid-cols-[1fr_auto]">
+            <div className="mt-5">
               <label className="flex min-h-14 items-center gap-3 rounded-md border border-zera-line bg-[#f7faf8] px-4">
                 <Search size={20} className="text-zera-muted" />
                 <input
@@ -412,74 +372,37 @@ export default function POSPage() {
                   placeholder="Search product, category, SKU, or barcode"
                 />
               </label>
-              <Button type="button" variant="secondary" className="gap-2" disabled>
-                <Barcode size={18} />
-                Scan
-              </Button>
             </div>
 
-            <div className="mt-4 rounded-md border border-zera-line bg-[#f7faf8] p-3">
-              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex items-center gap-2 text-sm font-bold">
-                  <Filter size={17} className="text-zera-green" />
-                  Product filters
-                </div>
-                {productFilterCount ? (
-                  <button type="button" className="text-sm font-semibold text-zera-green" onClick={clearProductFilters}>
-                    Clear filters
-                  </button>
-                ) : null}
-              </div>
-
-              <div className="grid gap-2 sm:grid-cols-4">
-                {[
-                  ["ALL", "All"],
-                  ["PHYSICAL", "Physical"],
-                  ["SERVICE", "Services"],
-                  ["FEE", "Fees"]
-                ].map(([type, label]) => (
+            {productCategories.length ? (
+              <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+                <button
+                  type="button"
+                  className={`min-h-9 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
+                    productCategoryFilter === "" ? "border-zera-green bg-zera-mint text-zera-green" : "border-zera-line bg-white text-zera-ink hover:bg-zera-mint"
+                  }`}
+                  onClick={() => setProductCategoryFilter("")}
+                >
+                  All categories
+                </button>
+                {productCategories.map((category) => (
                   <button
-                    key={type}
+                    key={category}
                     type="button"
-                    className={`min-h-10 rounded-md border px-3 text-sm font-semibold transition ${
-                      productTypeFilter === type ? "border-zera-green bg-zera-green text-white" : "border-zera-line bg-white text-zera-ink hover:bg-zera-mint"
+                    className={`min-h-9 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
+                      productCategoryFilter === category ? "border-zera-green bg-zera-mint text-zera-green" : "border-zera-line bg-white text-zera-ink hover:bg-zera-mint"
                     }`}
-                    onClick={() => updateProductTypeFilter(type)}
+                    onClick={() => setProductCategoryFilter(category)}
                   >
-                    {label}
+                    {category}
                   </button>
                 ))}
               </div>
-
-              {productCategories.length ? (
-                <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                  <button
-                    type="button"
-                    className={`min-h-9 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
-                      productCategoryFilter === "" ? "border-zera-green bg-zera-mint text-zera-green" : "border-zera-line bg-white text-zera-ink hover:bg-zera-mint"
-                    }`}
-                    onClick={() => setProductCategoryFilter("")}
-                  >
-                    All categories
-                  </button>
-                  {productCategories.map((category) => (
-                    <button
-                      key={category}
-                      type="button"
-                      className={`min-h-9 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
-                        productCategoryFilter === category ? "border-zera-green bg-zera-mint text-zera-green" : "border-zera-line bg-white text-zera-ink hover:bg-zera-mint"
-                      }`}
-                      onClick={() => setProductCategoryFilter(category)}
-                    >
-                      {category}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
-            </div>
+            ) : null}
 
             {productError ? <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{productError}</p> : null}
             {saleMessage ? <p className="mt-4 rounded-md bg-zera-mint px-3 py-2 text-sm font-semibold text-zera-green">{saleMessage}</p> : null}
+            {readinessError ? <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{readinessError}</p> : null}
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {!loadingProducts && products.length === 0 ? (
@@ -514,57 +437,6 @@ export default function POSPage() {
             </div>
           </section>
 
-          <section className="grid gap-5 lg:grid-cols-[0.9fr_1.1fr]">
-            <section className="rounded-lg border border-zera-line bg-white p-5">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-                  <Calculator size={22} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold">Keypad</h3>
-                  <p className="text-sm text-zera-muted">Manual entry comes later.</p>
-                </div>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "Clear"].map((key) => (
-                  <button
-                    key={key}
-                    type="button"
-                    disabled
-                    className="min-h-14 rounded-md border border-zera-line bg-[#f7faf8] text-lg font-bold text-zera-muted disabled:cursor-not-allowed"
-                  >
-                    {key}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-lg border border-zera-line bg-white p-5">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-                  <Store size={22} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold">Register readiness</h3>
-                  <p className="text-sm text-zera-muted">A quick check before sales screens are built.</p>
-                </div>
-              </div>
-              <div className="space-y-3">
-                <ReadinessRow label="Business assigned" value={activeBusiness?.name || "Missing"} ready={Boolean(activeBusiness)} />
-                <ReadinessRow label="POS experience" value={posModeLabel(posMode)} ready={Boolean(activeBusiness)} />
-                <ReadinessRow label="Branch active" value={activeBranch?.name || "Missing"} ready={branchReady} />
-                <ReadinessRow label="Cashier identity" value={user?.name || "Missing"} ready={Boolean(user?.name)} />
-                <ReadinessRow label="POS module" value={loadingReadiness ? "Checking..." : readiness?.checks?.posActive ? "Enabled" : "Not enabled"} ready={Boolean(readiness?.checks?.posActive)} />
-                <ReadinessRow
-                  label="Product catalog"
-                  value={loadingReadiness ? "Checking..." : `${readiness?.activeProductCount || products.length} active product${(readiness?.activeProductCount || products.length) === 1 ? "" : "s"}`}
-                  ready={Boolean(readiness?.checks?.productCatalogReady || products.length)}
-                />
-                <ReadinessRow label="Payment mode" value="Manual recording" ready />
-              </div>
-              {readinessError ? <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{readinessError}</p> : null}
-            </section>
-          </section>
         </div>
 
         <aside className="space-y-5">
@@ -703,16 +575,6 @@ export default function POSPage() {
               </div>
             </div>
 
-            <div className="mt-5 grid grid-cols-2 gap-3">
-              <Button type="button" variant="secondary" className="gap-2" disabled>
-                <Minus size={17} />
-                Discount
-              </Button>
-              <Button type="button" variant="secondary" className="gap-2" disabled>
-                <Plus size={17} />
-                Hold
-              </Button>
-            </div>
           </section>
 
           <section className="rounded-lg border border-zera-line bg-white p-5">
@@ -724,57 +586,7 @@ export default function POSPage() {
                 {modeInfo.reviewButtonLabel}
               </Button>
               {reviewDisabledReason ? <p className="text-sm text-zera-muted">{reviewDisabledReason}</p> : null}
-              <Button type="button" variant="secondary" className="gap-2" disabled>
-                <Banknote size={18} />
-                Cash payment
-              </Button>
-              <Button type="button" variant="secondary" className="gap-2" disabled>
-                <CreditCard size={18} />
-                Card / Mobile money
-              </Button>
-              <Button type="button" variant="secondary" className="gap-2" disabled>
-                <Printer size={18} />
-                Print receipt
-              </Button>
             </div>
-          </section>
-
-          <section className="rounded-lg border border-zera-line bg-white p-5">
-            <div className="flex items-start gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-                <CheckCircle2 size={22} />
-              </div>
-              <div>
-                <h3 className="text-lg font-bold">Recent sales</h3>
-                <p className="mt-1 text-sm leading-6 text-zera-muted">
-                  {recentSales.length
-                    ? `${recentSales.length} latest sale${recentSales.length === 1 ? "" : "s"} recorded.`
-                    : "Recorded sales will appear here."}
-                </p>
-              </div>
-            </div>
-            {recentSales.length ? (
-              <div className="mt-4 space-y-2">
-                {recentSales.slice(0, 3).map((sale) => (
-                  <div key={sale.id} className="rounded-md bg-[#f7faf8] px-3 py-2">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-bold">{sale.receiptNumber}</p>
-                      <p className="text-sm font-bold">{formatMoney(sale.total, activeBusiness?.currency)}</p>
-                    </div>
-                    <p className="mt-1 text-xs text-zera-muted">
-                      {sale.table?.name ? `${sale.table.name} · ` : ""}
-                      {sale.customer?.name || "Walk-in"} · {sale.paymentMethod.replace("_", " ")}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            <Link
-              className="mt-4 inline-flex min-h-10 w-full items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-semibold text-zera-green transition hover:bg-zera-mint"
-              to="/sales"
-            >
-              View sales history
-            </Link>
           </section>
         </aside>
       </section>
@@ -901,20 +713,68 @@ function formatTableStatus(status = "AVAILABLE") {
   return status.toLowerCase().replace("_", " ");
 }
 
-function getPOSModeInfo(posMode) {
+function getPOSModeInfo(posMode, roleName = "", businessType = "") {
   if (posMode === "TABLE_SERVICE") {
     return {
       icon: Table2,
       title: "Table-service POS",
       shortTitle: "table service",
       description: "Select a table, build the cart, attach a customer when needed, then record the bill with a manual payment method.",
-      productEntryHint: "Tap menu items into a table bill. Barcode scanning and kitchen tickets come later.",
+      productEntryHint: "Tap menu items into the selected table bill.",
       emptyCartText: "Select a table, then tap active products to prepare the table bill.",
       reviewTitle: "Bill review",
       reviewDescription: "Confirm the table bill and record a manual payment. Kitchen tickets and payment gateway integration come later.",
       reviewButtonLabel: "Review table bill",
       requirement: "Table required before checkout",
       workflow: "Table first, cart second, payment last"
+    };
+  }
+
+  if (roleName === "Pharmacist" || businessType.toLowerCase().includes("pharmacy")) {
+    return {
+      icon: Store,
+      title: "Pharmacy checkout POS",
+      shortTitle: "pharmacy checkout",
+      description: "Search medicines or services, attach a customer when needed, and record a clear pharmacy counter sale.",
+      productEntryHint: "Search medicines, services, SKU, barcode, or category before adding to the cart.",
+      emptyCartText: "Tap active pharmacy items to prepare the customer sale.",
+      reviewTitle: "Pharmacy sale review",
+      reviewDescription: "Confirm products, quantities, customer, and payment method before recording the sale.",
+      reviewButtonLabel: "Review pharmacy sale",
+      requirement: "No table required",
+      workflow: "Customer optional, item check, payment last"
+    };
+  }
+
+  if (roleName === "Front Desk" || businessType.toLowerCase().includes("hotel")) {
+    return {
+      icon: Store,
+      title: "Front desk service POS",
+      shortTitle: "service checkout",
+      description: "Record guest-facing service charges with customer lookup and simple manual payment.",
+      productEntryHint: "Search services, charges, or products that should be billed at the front desk.",
+      emptyCartText: "Tap active services or products to prepare the guest receipt.",
+      reviewTitle: "Service sale review",
+      reviewDescription: "Confirm guest/customer context, items, and payment method before recording the sale.",
+      reviewButtonLabel: "Review service sale",
+      requirement: "No table required",
+      workflow: "Guest optional, service charge, payment last"
+    };
+  }
+
+  if (roleName === "Store Keeper") {
+    return {
+      icon: Store,
+      title: "Store checkout support",
+      shortTitle: "catalog checkout",
+      description: "Support checkout while keeping product names, categories, and prices clear for the team.",
+      productEntryHint: "Search products and categories to verify catalog readiness or prepare a quick sale.",
+      emptyCartText: "Tap active products to prepare a checkout cart.",
+      reviewTitle: "Checkout review",
+      reviewDescription: "Confirm the cart and record a manual payment.",
+      reviewButtonLabel: "Review checkout sale",
+      requirement: "No table required",
+      workflow: "Catalog first, cart second, payment last"
     };
   }
 
@@ -926,42 +786,11 @@ function getPOSModeInfo(posMode) {
     productEntryHint: "Search, filter, and tap products into the cart for a quick counter checkout.",
     emptyCartText: "Tap active products to prepare a checkout cart.",
     reviewTitle: "Checkout review",
-    reviewDescription: "Confirm the cart and record a manual payment. Barcode scanning and payment integrations come later.",
+    reviewDescription: "Confirm the cart and record a manual payment.",
     reviewButtonLabel: "Review checkout sale",
     requirement: "No table required",
     workflow: "Cart first, customer optional, payment last"
   };
-}
-
-function POSModeStrip({ activeBranch, modeInfo, workspaceReady }) {
-  const Icon = modeInfo.icon;
-
-  return (
-    <section className="grid gap-3 rounded-lg border border-zera-line bg-white p-4 shadow-soft md:grid-cols-[1.1fr_0.9fr_0.9fr]">
-      <article className="flex min-w-0 items-center gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-          <Icon size={22} />
-        </div>
-        <div className="min-w-0">
-          <p className="text-xs font-bold uppercase text-zera-muted">Sales mode</p>
-          <h3 className="truncate text-lg font-bold">{modeInfo.title}</h3>
-        </div>
-      </article>
-
-      <article className="rounded-md bg-[#f7faf8] px-3 py-3">
-        <p className="text-xs font-bold uppercase text-zera-muted">Workflow</p>
-        <p className="mt-1 text-sm font-semibold text-zera-ink">{modeInfo.workflow}</p>
-      </article>
-
-      <article className="rounded-md bg-[#f7faf8] px-3 py-3">
-        <p className="text-xs font-bold uppercase text-zera-muted">Register state</p>
-        <p className={`mt-1 text-sm font-semibold ${workspaceReady ? "text-zera-green" : "text-red-700"}`}>
-          {workspaceReady ? `${activeBranch?.name || "Branch"} ready` : "Setup required"}
-        </p>
-        <p className="mt-1 text-xs text-zera-muted">{modeInfo.requirement}</p>
-      </article>
-    </section>
-  );
 }
 
 function StatusPill({ label, ready }) {
@@ -969,19 +798,5 @@ function StatusPill({ label, ready }) {
     <span className={`rounded-md px-3 py-2 text-sm font-semibold ${ready ? "bg-zera-mint text-zera-green" : "bg-red-50 text-red-700"}`}>
       {label}
     </span>
-  );
-}
-
-function ReadinessRow({ label, ready, value }) {
-  return (
-    <div className="flex flex-col gap-2 rounded-md bg-[#f7faf8] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <p className="text-sm font-bold">{label}</p>
-        <p className="mt-1 text-sm text-zera-muted">{value}</p>
-      </div>
-      <span className={`rounded-md px-2 py-1 text-xs font-semibold ${ready ? "bg-zera-mint text-zera-green" : "bg-red-50 text-red-700"}`}>
-        {ready ? "Ready" : "Pending"}
-      </span>
-    </div>
   );
 }

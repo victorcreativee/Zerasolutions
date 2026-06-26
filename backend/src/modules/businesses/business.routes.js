@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../../config/prisma.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { HttpError } from "../../utils/httpError.js";
+import { getMissingDefaultRoles } from "../../utils/businessRoles.js";
 
 export const businessRouter = Router();
 
@@ -49,7 +50,8 @@ businessRouter.patch("/:businessId", async (req, res, next) => {
       },
       include: {
         branches: true,
-        modules: true
+        modules: true,
+        roles: true
       }
     });
 
@@ -61,7 +63,7 @@ businessRouter.patch("/:businessId", async (req, res, next) => {
 
 businessRouter.get("/", async (req, res, next) => {
   try {
-    const businesses = await prisma.business.findMany({
+    let businesses = await prisma.business.findMany({
       where: {
         memberships: {
           some: {
@@ -71,10 +73,46 @@ businessRouter.get("/", async (req, res, next) => {
       },
       include: {
         branches: true,
-        modules: true
+        modules: true,
+        roles: true
       },
       orderBy: { createdAt: "desc" }
     });
+
+    const missingRoleGroups = businesses
+      .map((business) => ({
+        business,
+        roles: getMissingDefaultRoles(business.roles, business.type, business.posMode)
+      }))
+      .filter((group) => group.roles.length > 0);
+
+    if (missingRoleGroups.length > 0) {
+      for (const group of missingRoleGroups) {
+        await prisma.role.createMany({
+          data: group.roles.map((role) => ({
+            ...role,
+            businessId: group.business.id
+          })),
+          skipDuplicates: true
+        });
+      }
+
+      businesses = await prisma.business.findMany({
+        where: {
+          memberships: {
+            some: {
+              userId: req.user.id
+            }
+          }
+        },
+        include: {
+          branches: true,
+          modules: true,
+          roles: true
+        },
+        orderBy: { createdAt: "desc" }
+      });
+    }
 
     res.json({ businesses });
   } catch (error) {

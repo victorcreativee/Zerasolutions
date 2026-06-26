@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { KeyRound, Plus, ShieldCheck, UserCheck, Users, UserX } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { BriefcaseBusiness, KeyRound, Plus, ShieldCheck, UserCheck, Users, UserX } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import Input from "../../components/Input.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
@@ -9,7 +9,7 @@ const defaultForm = {
   name: "",
   email: "",
   password: "",
-  roleName: "Cashier"
+  roleName: ""
 };
 
 export default function UsersPage() {
@@ -23,8 +23,10 @@ export default function UsersPage() {
   const [message, setMessage] = useState("");
   const activeUsers = users.filter((membership) => membership.user.status === "ACTIVE").length;
   const inactiveUsers = users.filter((membership) => membership.user.status === "INACTIVE").length;
+  const roleOptions = useMemo(() => buildRoleOptions(activeBusiness), [activeBusiness]);
+  const primaryStaffRole = roleOptions.find((role) => role.name !== "Manager") || roleOptions[0] || null;
   const managerUsers = users.filter((membership) => membership.role?.name === "Manager").length;
-  const cashierUsers = users.filter((membership) => membership.role?.name === "Cashier").length;
+  const primaryStaffUsers = primaryStaffRole ? users.filter((membership) => membership.role?.name === primaryStaffRole.name).length : 0;
 
   useEffect(() => {
     if (activeBusiness?.id) {
@@ -33,6 +35,19 @@ export default function UsersPage() {
       setUsers([]);
     }
   }, [activeBusiness?.id]);
+
+  useEffect(() => {
+    const nextRoleName = roleOptions[0]?.name || "";
+
+    if (!form.roleName && nextRoleName) {
+      setForm((current) => ({ ...current, roleName: nextRoleName }));
+      return;
+    }
+
+    if (form.roleName && roleOptions.length > 0 && !roleOptions.some((role) => role.name === form.roleName)) {
+      setForm((current) => ({ ...current, roleName: nextRoleName }));
+    }
+  }, [form.roleName, roleOptions]);
 
   async function loadUsers(businessId) {
     try {
@@ -83,7 +98,7 @@ export default function UsersPage() {
       const businessUser = await createBusinessUser(activeBusiness.id, form);
       setUsers((current) => [...current, businessUser]);
       setMessage(`User created. Login email: ${form.email}`);
-      setForm(defaultForm);
+      setForm({ ...defaultForm, roleName: roleOptions[0]?.name || "" });
     } catch (apiError) {
       setError(apiError.response?.data?.message || "Unable to create user.");
     } finally {
@@ -122,7 +137,7 @@ export default function UsersPage() {
             <UserMetric icon={UserCheck} label="Active" value={loading ? "..." : activeUsers} />
             <UserMetric icon={UserX} label="Inactive" value={loading ? "..." : inactiveUsers} />
             <UserMetric icon={ShieldCheck} label="Managers" value={loading ? "..." : managerUsers} />
-            <UserMetric icon={Users} label="Cashiers" value={loading ? "..." : cashierUsers} />
+            <UserMetric icon={BriefcaseBusiness} label={primaryStaffRole?.name || "Staff"} value={loading ? "..." : primaryStaffUsers} />
           </section>
 
           <section className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
@@ -161,9 +176,17 @@ export default function UsersPage() {
                     value={form.roleName}
                     onChange={(event) => setForm({ ...form, roleName: event.target.value })}
                   >
-                    <option value="Manager">Manager</option>
-                    <option value="Cashier">Cashier</option>
+                    {roleOptions.map((role) => (
+                      <option key={role.name} value={role.name}>
+                        {role.name}
+                      </option>
+                    ))}
                   </select>
+                  {roleOptions.find((role) => role.name === form.roleName)?.description ? (
+                    <span className="mt-2 block text-xs leading-5 text-zera-muted">
+                      {roleOptions.find((role) => role.name === form.roleName)?.description}
+                    </span>
+                  ) : null}
                 </label>
                 <Button className="w-full gap-2" disabled={saving}>
                   <Plus size={17} />
@@ -245,4 +268,61 @@ function UserMetric({ icon: Icon, label, value }) {
       <p className="mt-2 text-3xl font-bold text-zera-ink">{value}</p>
     </article>
   );
+}
+
+function buildRoleOptions(activeBusiness) {
+  const roles = activeBusiness?.roles || [];
+  const visibleRoles = roles.filter((role) => role.name !== "Owner");
+
+  if (visibleRoles.length > 0) {
+    return visibleRoles;
+  }
+
+  const type = (activeBusiness?.type || "").toLowerCase();
+  const posMode = activeBusiness?.posMode || "RETAIL_CHECKOUT";
+
+  if (posMode === "TABLE_SERVICE" || type.includes("bar") || type.includes("restaurant")) {
+    return [
+      { name: "Manager", description: "Manage daily restaurant operations." },
+      { name: "Waiter", description: "Take table orders and record table-service bills." },
+      { name: "Cashier", description: "Receive payments and close customer bills." }
+    ];
+  }
+
+  if (type.includes("pharmacy")) {
+    return [
+      { name: "Manager", description: "Manage pharmacy operations." },
+      { name: "Pharmacist", description: "Serve pharmacy customers and record medicine sales." },
+      { name: "Cashier", description: "Receive payments and run checkout." }
+    ];
+  }
+
+  if (type.includes("retail")) {
+    return [
+      { name: "Manager", description: "Manage retail shop operations." },
+      { name: "Store Keeper", description: "Support stock-facing shop duties and retail checkout." },
+      { name: "Cashier", description: "Run retail checkout and receive payments." }
+    ];
+  }
+
+  if (type.includes("supermarket")) {
+    return [
+      { name: "Manager", description: "Manage supermarket operations." },
+      { name: "Cashier", description: "Run fast checkout and receive payments." },
+      { name: "Store Keeper", description: "Support product and stock-facing supermarket work." }
+    ];
+  }
+
+  if (type.includes("hotel")) {
+    return [
+      { name: "Manager", description: "Manage daily hotel operations." },
+      { name: "Front Desk", description: "Serve guest-facing hotel workflows and record service sales." },
+      { name: "Cashier", description: "Receive payments and close service bills." }
+    ];
+  }
+
+  return [
+    { name: "Manager", description: "Manage daily operations." },
+    { name: "Cashier", description: "Run checkout and receive payments." }
+  ];
 }

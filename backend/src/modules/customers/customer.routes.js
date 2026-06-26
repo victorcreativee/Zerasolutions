@@ -73,7 +73,9 @@ customerRouter.post("/business/:businessId", async (req, res, next) => {
     }
 
     const membership = await getBusinessMembership(req.user.id, businessId);
-    const canManageCustomers = req.user.systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager", "Cashier"].includes(membership?.role?.name);
+    const canManageCustomers =
+      req.user.systemRole === "SYSTEM_ADMIN" ||
+      ["Owner", "Manager", "Cashier", "Waiter", "Store Keeper", "Pharmacist", "Front Desk"].includes(membership?.role?.name);
 
     if (!canManageCustomers) {
       throw new HttpError(403, "You do not have access to create customers.");
@@ -110,7 +112,9 @@ customerRouter.patch("/business/:businessId/:customerId", async (req, res, next)
     }
 
     const membership = await getBusinessMembership(req.user.id, businessId);
-    const canManageCustomers = req.user.systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager", "Cashier"].includes(membership?.role?.name);
+    const canManageCustomers =
+      req.user.systemRole === "SYSTEM_ADMIN" ||
+      ["Owner", "Manager", "Cashier", "Waiter", "Store Keeper", "Pharmacist", "Front Desk"].includes(membership?.role?.name);
 
     if (!canManageCustomers) {
       throw new HttpError(403, "You do not have access to update customers.");

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../../config/prisma.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { HttpError } from "../../utils/httpError.js";
+import { canRecordSale } from "../../utils/businessRoles.js";
 
 export const posRouter = Router();
 
@@ -177,7 +178,7 @@ posRouter.get("/readiness/:businessId/:branchId", async (req, res, next) => {
     }
 
     const roleName = membership?.role?.name || req.user.systemRole;
-    const roleAllowed = ["Owner", "Manager", "Cashier"].includes(roleName);
+    const roleAllowed = req.user.systemRole === "SYSTEM_ADMIN" || canRecordSale(roleName, business);
 
     res.json({
       readiness: {
@@ -422,13 +423,6 @@ posRouter.post("/sales", async (req, res, next) => {
       include: { role: true }
     });
 
-    const roleName = membership?.role?.name || req.user.systemRole;
-    const roleAllowed = ["Owner", "Manager", "Cashier"].includes(roleName);
-
-    if (!roleAllowed || (!membership && req.user.systemRole !== "SYSTEM_ADMIN")) {
-      throw new HttpError(403, "You do not have access to record sales for this business.");
-    }
-
     const [business, branch, posModule, customer, table] = await Promise.all([
       prisma.business.findUnique({
         where: { id: businessId }
@@ -472,6 +466,13 @@ posRouter.post("/sales", async (req, res, next) => {
 
     if (!business || business.status !== "ACTIVE") {
       throw new HttpError(400, "Business is not active.");
+    }
+
+    const roleName = membership?.role?.name || req.user.systemRole;
+    const roleAllowed = req.user.systemRole === "SYSTEM_ADMIN" || canRecordSale(roleName, business);
+
+    if (!roleAllowed || (!membership && req.user.systemRole !== "SYSTEM_ADMIN")) {
+      throw new HttpError(403, "You do not have access to record sales for this business.");
     }
 
     if (!branch || branch.status !== "ACTIVE") {

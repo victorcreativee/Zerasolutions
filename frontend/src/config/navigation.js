@@ -12,26 +12,29 @@ import {
   Wallet
 } from "lucide-react";
 
+const salesRoles = ["Owner", "Manager", "Cashier", "Waiter", "Store Keeper", "Pharmacist", "Front Desk"];
+const productRoles = ["Owner", "Manager", "Store Keeper", "Pharmacist"];
+
 export const businessNavigation = [
   {
     label: "Work",
     items: [
-      { label: "Dashboard", path: "/dashboard", icon: Home, roles: ["Owner", "Manager", "Cashier"] },
-      { label: "POS", path: "/pos", icon: ReceiptText, roles: ["Owner", "Manager", "Cashier"], modules: ["POS"] }
+      { label: "Dashboard", path: "/dashboard", icon: Home, roles: salesRoles },
+      { label: "POS", path: "/pos", icon: ReceiptText, roles: salesRoles, modules: ["POS"] }
     ]
   },
   {
     label: "Commerce",
     items: [
-      { label: "Sales", path: "/sales", icon: BarChart3, roles: ["Owner", "Manager", "Cashier"], modules: ["POS"] },
-      { label: "Customers", path: "/customers", icon: UserRound, roles: ["Owner", "Manager", "Cashier"], modules: ["POS"] },
-      { label: "Products", path: "/products", icon: Package, roles: ["Owner", "Manager"], modules: ["POS"] }
+      { label: "Sales", path: "/sales", icon: BarChart3, roles: salesRoles, modules: ["POS"] },
+      { label: "Customers", path: "/customers", icon: UserRound, roles: salesRoles, modules: ["POS"] },
+      { label: "Products", path: "/products", icon: Package, roles: productRoles, modules: ["POS"] }
     ]
   },
   {
     label: "Operations",
     items: [
-      { label: "Inventory", path: "/inventory", icon: Boxes, roles: ["Owner", "Manager"], modules: ["INVENTORY"] },
+      { label: "Inventory", path: "/inventory", icon: Boxes, roles: ["Owner", "Manager", "Store Keeper", "Pharmacist"], modules: ["INVENTORY"] },
       { label: "Operations", path: "/operations", icon: ClipboardList, roles: ["Owner", "Manager"], modules: ["OPERATIONS"] }
     ]
   },

@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../../config/prisma.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { HttpError } from "../../utils/httpError.js";
+import { getDefaultStaffRoleName, getMissingDefaultRoles } from "../../utils/businessRoles.js";
 
 export const userRouter = Router();
 
@@ -90,10 +91,32 @@ userRouter.post("/business/:businessId", async (req, res, next) => {
       throw new HttpError(409, "A user with this email already exists.");
     }
 
+    const business = await prisma.business.findUnique({
+      where: { id: businessId },
+      include: { roles: true }
+    });
+
+    if (!business) {
+      throw new HttpError(404, "Business was not found.");
+    }
+
+    const missingRoles = getMissingDefaultRoles(business.roles, business.type, business.posMode);
+
+    if (missingRoles.length > 0) {
+      await prisma.role.createMany({
+        data: missingRoles.map((missingRole) => ({
+          ...missingRole,
+          businessId
+        })),
+        skipDuplicates: true
+      });
+    }
+
+    const selectedRoleName = roleName || getDefaultStaffRoleName(business);
     const role = await prisma.role.findFirst({
       where: {
         businessId,
-        name: roleName || "Cashier"
+        name: selectedRoleName
       }
     });
 

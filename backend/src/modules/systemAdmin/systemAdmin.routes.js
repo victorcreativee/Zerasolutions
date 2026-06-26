@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "../../config/prisma.js";
 import { requireAuth, requireSystemAdmin } from "../../middleware/authMiddleware.js";
 import { HttpError } from "../../utils/httpError.js";
+import { getDefaultRolesForBusiness, getMissingDefaultRoles } from "../../utils/businessRoles.js";
 
 export const systemAdminRouter = Router();
 
@@ -32,10 +33,11 @@ function normalizePOSMode(value, businessType = "") {
 
 systemAdminRouter.get("/businesses", async (_req, res, next) => {
   try {
-    const businesses = await prisma.business.findMany({
+    let businesses = await prisma.business.findMany({
       include: {
         branches: true,
         modules: true,
+        roles: true,
         _count: {
           select: {
             products: true
@@ -57,6 +59,52 @@ systemAdminRouter.get("/businesses", async (_req, res, next) => {
       },
       orderBy: { createdAt: "desc" }
     });
+
+    const missingRoleGroups = businesses
+      .map((business) => ({
+        business,
+        roles: getMissingDefaultRoles(business.roles, business.type, business.posMode)
+      }))
+      .filter((group) => group.roles.length > 0);
+
+    if (missingRoleGroups.length > 0) {
+      for (const group of missingRoleGroups) {
+        await prisma.role.createMany({
+          data: group.roles.map((role) => ({
+            ...role,
+            businessId: group.business.id
+          })),
+          skipDuplicates: true
+        });
+      }
+
+      businesses = await prisma.business.findMany({
+        include: {
+          branches: true,
+          modules: true,
+          roles: true,
+          _count: {
+            select: {
+              products: true
+            }
+          },
+          memberships: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  name: true,
+                  email: true,
+                  status: true
+                }
+              },
+              role: true
+            }
+          }
+        },
+        orderBy: { createdAt: "desc" }
+      });
+    }
 
     res.json({ businesses });
   } catch (error) {
@@ -98,11 +146,7 @@ systemAdminRouter.post("/businesses", async (req, res, next) => {
           country: business.country || "Uganda",
           currency: business.currency || "UGX",
           roles: {
-            create: [
-              { name: "Owner", description: "Full access to the business." },
-              { name: "Manager", description: "Manage daily operations." },
-              { name: "Cashier", description: "Serve customers and run POS." }
-            ]
+            create: getDefaultRolesForBusiness(business.type, posMode)
           },
           modules: {
             create: defaultModules
@@ -159,6 +203,7 @@ systemAdminRouter.post("/businesses", async (req, res, next) => {
         include: {
           branches: true,
           modules: true,
+          roles: true,
           _count: {
             select: {
               products: true
@@ -223,6 +268,24 @@ systemAdminRouter.patch("/businesses/:businessId/system-settings", async (req, r
         }
       });
 
+      const expectedRoles = getDefaultRolesForBusiness(nextType, nextPOSMode);
+      const existingRoles = await tx.role.findMany({
+        where: { businessId },
+        select: { name: true }
+      });
+      const existingRoleNames = new Set(existingRoles.map((role) => role.name));
+      const missingRoles = expectedRoles.filter((role) => !existingRoleNames.has(role.name));
+
+      if (missingRoles.length > 0) {
+        await tx.role.createMany({
+          data: missingRoles.map((role) => ({
+            ...role,
+            businessId
+          })),
+          skipDuplicates: true
+        });
+      }
+
       if (nextPOSMode === "TABLE_SERVICE") {
         const branches = await tx.branch.findMany({
           where: { businessId },
@@ -252,6 +315,7 @@ systemAdminRouter.patch("/businesses/:businessId/system-settings", async (req, r
         include: {
           branches: true,
           modules: true,
+          roles: true,
           _count: {
             select: {
               products: true

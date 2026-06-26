@@ -96,7 +96,7 @@ productRouter.post("/business/:businessId", async (req, res, next) => {
     }
 
     const membership = await getBusinessMembership(req.user.id, businessId);
-    const canManageProducts = req.user.systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager"].includes(membership?.role?.name);
+    const canManageProducts = req.user.systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager", "Store Keeper", "Pharmacist"].includes(membership?.role?.name);
 
     if (!canManageProducts) {
       throw new HttpError(403, "Only the business owner or manager can create products.");
@@ -136,7 +136,7 @@ productRouter.patch("/business/:businessId/:productId", async (req, res, next) =
     }
 
     const membership = await getBusinessMembership(req.user.id, businessId);
-    const canManageProducts = req.user.systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager"].includes(membership?.role?.name);
+    const canManageProducts = req.user.systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager", "Store Keeper", "Pharmacist"].includes(membership?.role?.name);
 
     if (!canManageProducts) {
       throw new HttpError(403, "Only the business owner or manager can update products.");
@@ -187,7 +187,7 @@ productRouter.patch("/business/:businessId/:productId/status", async (req, res, 
     }
 
     const membership = await getBusinessMembership(req.user.id, businessId);
-    const canManageProducts = req.user.systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager"].includes(membership?.role?.name);
+    const canManageProducts = req.user.systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager", "Store Keeper", "Pharmacist"].includes(membership?.role?.name);
 
     if (!canManageProducts) {
       throw new HttpError(403, "Only the business owner or manager can update products.");

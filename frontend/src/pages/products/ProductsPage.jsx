@@ -62,6 +62,7 @@ export default function ProductsPage() {
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [categoryFilter, setCategoryFilter] = useState("");
+  const [visibleCount, setVisibleCount] = useState(80);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [updatingProductId, setUpdatingProductId] = useState("");
@@ -98,6 +99,8 @@ export default function ProductsPage() {
     return [...new Set(categories)].sort((first, second) => first.localeCompare(second));
   }, [products]);
   const filterCount = [typeFilter !== "ALL", statusFilter !== "ALL", Boolean(categoryFilter), Boolean(search)].filter(Boolean).length;
+  const visibleProducts = products.slice(0, visibleCount);
+  const hiddenProductCount = Math.max(products.length - visibleProducts.length, 0);
 
   useEffect(() => {
     if (!activeBusinessId) {
@@ -107,6 +110,10 @@ export default function ProductsPage() {
 
     loadProducts();
   }, [activeBusinessId, categoryFilter, statusFilter, typeFilter]);
+
+  useEffect(() => {
+    setVisibleCount(80);
+  }, [activeBusinessId, categoryFilter, products.length, search, statusFilter, typeFilter]);
 
   async function loadProducts(nextSearch = search) {
     if (!activeBusinessId) {
@@ -223,7 +230,7 @@ export default function ProductsPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="mx-auto max-w-7xl space-y-5">
       <section className="rounded-lg border border-zera-line bg-white p-6 shadow-soft">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
@@ -462,75 +469,158 @@ export default function ProductsPage() {
                 ) : null}
               </div>
 
-              <div className="space-y-3">
-                {!loading && products.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-zera-line p-5 text-sm text-zera-muted">
-                    No products found. Create the first product for this business.
-                  </div>
-                ) : null}
-
-                {products.map((product) => (
-                  <article key={product.id} className="rounded-md border border-zera-line p-4">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="font-bold">{product.name}</h4>
-                          <span
-                            className={`rounded-md px-2 py-1 text-xs font-semibold ${
-                              product.status === "ACTIVE" ? "bg-zera-mint text-zera-green" : "bg-red-50 text-red-700"
-                            }`}
-                          >
-                            {product.status === "ACTIVE" ? "Active" : "Inactive"}
-                          </span>
-                        </div>
-                        <p className="mt-2 text-xl font-bold">
-                          {formatMoney(product.price, activeBusiness.currency)}
-                          {product.unit ? <span className="text-sm font-semibold text-zera-muted"> / {product.unit}</span> : null}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold text-zera-muted">
-                          <span className="inline-flex items-center gap-1 rounded-md bg-zera-mint px-2 py-1 text-zera-green">
-                            <Boxes size={13} />
-                            {formatProductType(product.type)}
-                          </span>
-                          <span className="inline-flex items-center gap-1 rounded-md bg-[#f7faf8] px-2 py-1">
-                            <Tag size={13} />
-                            {product.category || "No category"}
-                          </span>
-                          <span className="inline-flex items-center gap-1 rounded-md bg-[#f7faf8] px-2 py-1">
-                            <Tag size={13} />
-                            {product.sku || "No SKU"}
-                          </span>
-                          <span className="inline-flex items-center gap-1 rounded-md bg-[#f7faf8] px-2 py-1">
-                            <Barcode size={13} />
-                            {product.barcode || "No barcode"}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="flex gap-2 sm:flex-col">
-                        <Button type="button" variant="secondary" className="gap-2 sm:w-28" onClick={() => handleEdit(product)}>
-                          <Pencil size={16} />
-                          Edit
-                        </Button>
-                        <Button
-                          type="button"
-                          variant={product.status === "ACTIVE" ? "secondary" : "primary"}
-                          className="sm:w-28"
-                          disabled={updatingProductId === product.id}
-                          onClick={() => handleStatusToggle(product)}
-                        >
-                          {product.status === "ACTIVE" ? "Pause" : "Activate"}
-                        </Button>
-                      </div>
-                    </div>
-                  </article>
-                ))}
-              </div>
+              <ProductTable
+                business={activeBusiness}
+                hiddenCount={hiddenProductCount}
+                loading={loading}
+                onEdit={handleEdit}
+                onLoadMore={() => setVisibleCount((current) => current + 80)}
+                onStatusToggle={handleStatusToggle}
+                products={visibleProducts}
+                totalCount={products.length}
+                updatingProductId={updatingProductId}
+              />
             </section>
           </section>
         </>
       )}
     </div>
   );
+}
+
+function ProductTable({ business, hiddenCount, loading, onEdit, onLoadMore, onStatusToggle, products, totalCount, updatingProductId }) {
+  if (!loading && totalCount === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-zera-line p-5 text-sm text-zera-muted">
+        No products found. Create the first product for this business.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-zera-line bg-white">
+      <div className="flex flex-col gap-2 border-b border-zera-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-bold">Catalog table</p>
+          <p className="mt-1 text-xs text-zera-muted">
+            Showing {loading ? "..." : products.length} of {loading ? "..." : totalCount} products
+          </p>
+        </div>
+        <p className="text-xs text-zera-muted">Use search and filters before scrolling large catalogs.</p>
+      </div>
+
+      <div className="overflow-x-auto">
+        <div className="max-h-[560px] min-w-[920px] overflow-y-auto">
+          <table className="w-full border-collapse text-left text-sm">
+            <thead className="sticky top-0 z-10 border-b border-zera-line bg-[#f7faf8] text-xs font-bold uppercase text-zera-muted">
+              <tr>
+                <th className="w-[30%] px-4 py-3">Product</th>
+                <th className="w-[14%] px-4 py-3">Type</th>
+                <th className="w-[16%] px-4 py-3">Category</th>
+                <th className="w-[16%] px-4 py-3">Code</th>
+                <th className="w-[12%] px-4 py-3 text-right">Price</th>
+                <th className="w-[12%] px-4 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zera-line">
+              {products.map((product) => (
+                <tr className="hover:bg-[#f7faf8]" key={product.id}>
+                  <td className="px-4 py-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate font-bold text-zera-ink">{product.name}</p>
+                        <StatusBadge status={product.status} />
+                      </div>
+                      <p className="mt-1 truncate text-xs text-zera-muted">{product.unit || "No unit"}</p>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <ProductTypeBadge type={product.type} />
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-[#f7faf8] px-2 py-1 text-xs font-semibold text-zera-muted">
+                      <Tag size={13} />
+                      <span className="truncate">{product.category || "No category"}</span>
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`inline-flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${
+                        product.sku || product.barcode ? "bg-[#f7faf8] text-zera-muted" : "bg-amber-50 text-amber-700"
+                      }`}
+                    >
+                      <Barcode size={13} />
+                      <span className="truncate">{product.sku || product.barcode || "Needs code"}</span>
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right font-bold">
+                    {formatMoney(product.price, business.currency)}
+                    {product.unit ? <span className="block text-xs font-semibold text-zera-muted">per {product.unit}</span> : null}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-2">
+                      <button
+                        className="inline-flex h-9 items-center gap-1 rounded-md border border-zera-line bg-white px-3 text-xs font-bold text-zera-ink hover:bg-zera-mint"
+                        type="button"
+                        onClick={() => onEdit(product)}
+                      >
+                        <Pencil size={14} />
+                        Edit
+                      </button>
+                      <button
+                        className={`inline-flex h-9 items-center rounded-md border px-3 text-xs font-bold ${
+                          product.status === "ACTIVE"
+                            ? "border-zera-line bg-white text-zera-ink hover:bg-red-50 hover:text-red-700"
+                            : "border-zera-green bg-zera-green text-white hover:bg-green-700"
+                        }`}
+                        disabled={updatingProductId === product.id}
+                        type="button"
+                        onClick={() => onStatusToggle(product)}
+                      >
+                        {product.status === "ACTIVE" ? "Pause" : "Activate"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {hiddenCount > 0 ? (
+        <div className="flex flex-col gap-3 border-t border-zera-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-zera-muted">{hiddenCount} more products match this view.</p>
+          <button
+            className="inline-flex min-h-10 items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-bold text-zera-ink hover:bg-zera-mint"
+            type="button"
+            onClick={onLoadMore}
+          >
+            Load more products
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function StatusBadge({ status }) {
+  return (
+    <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-bold ${status === "ACTIVE" ? "bg-zera-mint text-zera-green" : "bg-red-50 text-red-700"}`}>
+      {status === "ACTIVE" ? "Active" : "Paused"}
+    </span>
+  );
+}
+
+function ProductTypeBadge({ type }) {
+  const className =
+    type === "PHYSICAL"
+      ? "bg-zera-mint text-zera-green"
+      : type === "SERVICE"
+        ? "bg-blue-50 text-blue-700"
+        : "bg-amber-50 text-amber-700";
+
+  return <span className={`rounded-md px-2 py-1 text-xs font-bold ${className}`}>{formatProductType(type)}</span>;
 }
 
 function ProductTypePicker({ onChange, value }) {

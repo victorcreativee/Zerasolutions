@@ -7,6 +7,7 @@ import DashboardPage from "./pages/dashboard/DashboardPage.jsx";
 import PlaceholderPage from "./pages/dashboard/PlaceholderPage.jsx";
 import SettingsPage from "./pages/dashboard/SettingsPage.jsx";
 import UsersPage from "./pages/dashboard/UsersPage.jsx";
+import InventoryPage from "./pages/inventory/InventoryPage.jsx";
 import OpenBillsPage from "./pages/pos/OpenBillsPage.jsx";
 import POSPage from "./pages/pos/POSPage.jsx";
 import ProductsPage from "./pages/products/ProductsPage.jsx";
@@ -21,6 +22,7 @@ import DashboardLayout from "./layouts/DashboardLayout.jsx";
 
 const salesRoles = ["Owner", "Manager", "Cashier", "Waiter", "Store Keeper", "Pharmacist", "Front Desk"];
 const productRoles = ["Owner", "Manager", "Store Keeper", "Pharmacist"];
+const reportRoles = ["Owner", "Manager", "Cashier"];
 
 export default function App() {
   return (
@@ -48,7 +50,7 @@ export default function App() {
             <Route path="/products" element={<ProductsPage />} />
           </Route>
           <Route element={<BusinessModuleRoute moduleKey="INVENTORY" allowedRoles={["Owner", "Manager", "Store Keeper", "Pharmacist"]} />}>
-            <Route path="/inventory" element={<PlaceholderPage title="Inventory" moduleKey="INVENTORY" />} />
+            <Route path="/inventory" element={<InventoryPage />} />
           </Route>
           <Route element={<BusinessModuleRoute moduleKey="FINANCE" allowedRoles={["Owner"]} />}>
             <Route path="/finance" element={<PlaceholderPage title="Finance" moduleKey="FINANCE" />} />
@@ -56,7 +58,7 @@ export default function App() {
           <Route element={<BusinessModuleRoute moduleKey="OPERATIONS" allowedRoles={["Owner", "Manager"]} />}>
             <Route path="/operations" element={<PlaceholderPage title="Operations" moduleKey="OPERATIONS" />} />
           </Route>
-          <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={["Owner", "Manager"]} />}>
+          <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={reportRoles} />}>
             <Route path="/reports" element={<ReportsPage />} />
           </Route>
           <Route element={<BusinessOwnerRoute />}>

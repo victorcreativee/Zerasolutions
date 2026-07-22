@@ -1,13 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  AlertTriangle,
   ArrowRight,
+  BarChart3,
   Boxes,
   ClipboardCheck,
+  Hotel,
   ListChecks,
   MapPin,
   Package,
   PackageCheck,
+  Pill,
+  Printer,
   ReceiptText,
+  ShoppingBasket,
   Settings,
   Store,
   Table2,
@@ -22,6 +28,7 @@ import { useWorkspace } from "../../context/WorkspaceContext.jsx";
 import { getBusinessUsers } from "../../services/teamService.js";
 import { getActivePOSOrders, getPOSTables, getRecentSales } from "../../services/posService.js";
 import { getCustomers } from "../../services/customerService.js";
+import { getInventoryStock } from "../../services/inventoryService.js";
 import { getProducts } from "../../services/productService.js";
 
 const operationalRoles = ["Waiter", "Store Keeper", "Pharmacist", "Front Desk"];
@@ -35,25 +42,30 @@ export default function DashboardPage() {
   const [customers, setCustomers] = useState([]);
   const [tables, setTables] = useState([]);
   const [openBills, setOpenBills] = useState([]);
+  const [stockItems, setStockItems] = useState([]);
   const [loadingTeam, setLoadingTeam] = useState(false);
   const [loadingSales, setLoadingSales] = useState(false);
   const [loadingWorkData, setLoadingWorkData] = useState(false);
   const [loadingOpenBills, setLoadingOpenBills] = useState(false);
+  const [loadingStock, setLoadingStock] = useState(false);
 
   const activeModules = activeBusiness?.modules?.filter((module) => module.active) || [];
   const activeModuleKeys = activeModules.map((module) => module.key);
   const activeBranches = activeBusiness?.branches?.filter((branch) => branch.status === "ACTIVE") || [];
   const activeTeamUsers = teamUsers.filter((membership) => membership.user.status === "ACTIVE");
-  const completedSales = recentSales.filter((sale) => sale.status === "COMPLETED");
-  const salesTotal = completedSales.reduce((total, sale) => total + Number(sale.total), 0);
+  const completedSales = useMemo(() => recentSales.filter((sale) => sale.status === "COMPLETED"), [recentSales]);
   const posIsActive = activeModuleKeys.includes("POS");
+  const inventoryIsActive = activeModuleKeys.includes("INVENTORY");
   const posWorkflow = getPOSWorkflowInfo(activeBusiness);
   const isTableService = activeBusiness?.posMode === "TABLE_SERVICE";
   const cashierCanCloseBills = ["Owner", "Manager", "Cashier"].includes(activeRoleName);
   const POSWorkflowIcon = posWorkflow.icon;
   const isOperationalRole = operationalRoles.includes(activeRoleName);
+  const dashboardSales = useMemo(() => getRoleScopedSales(completedSales, activeRoleName, user?.id), [activeRoleName, completedSales, user?.id]);
+  const salesTotal = dashboardSales.reduce((total, sale) => total + Number(sale.total), 0);
   const activeProducts = products.filter((product) => product.status === "ACTIVE");
   const activeCustomers = customers.filter((customer) => customer.status === "ACTIVE");
+  const lowStockItems = stockItems.filter((stock) => Number(stock.reorderLevel) > 0 && Number(stock.quantity) <= Number(stock.reorderLevel));
   const productCategories = [...new Set(activeProducts.map((product) => product.category).filter(Boolean))].sort((first, second) =>
     first.localeCompare(second)
   );
@@ -66,7 +78,7 @@ export default function DashboardPage() {
   });
   const quickActions = buildQuickActions(activeRoleName, activeModuleKeys, activeBusiness);
 
-  const recentCompletedSales = useMemo(() => completedSales.slice(0, 5), [completedSales]);
+  const recentCompletedSales = useMemo(() => dashboardSales.slice(0, 5), [dashboardSales]);
   const roleDashboard = useMemo(
     () =>
       buildRoleDashboard({
@@ -74,9 +86,12 @@ export default function DashboardPage() {
         activeBusiness,
         activeCustomers,
         activeProducts,
-        completedSales,
+        completedSales: dashboardSales,
         currency: activeBusiness?.currency,
+        inventoryIsActive,
+        loadingStock,
         loadingWorkData,
+        lowStockItems,
         productCategories,
         recentCompletedSales,
         roleName: activeRoleName,
@@ -88,9 +103,12 @@ export default function DashboardPage() {
       activeCustomers,
       activeProducts,
       activeRoleName,
-      completedSales,
+      dashboardSales,
       activeBusiness?.currency,
       loadingWorkData,
+      inventoryIsActive,
+      loadingStock,
+      lowStockItems,
       productCategories,
       recentCompletedSales,
       tables
@@ -164,6 +182,25 @@ export default function DashboardPage() {
   }, [activeBranch?.id, activeBusiness?.id, activeBusiness?.posMode, user?.systemRole]);
 
   useEffect(() => {
+    if (!activeBusiness?.id || !activeBranch?.id || user?.systemRole === "SYSTEM_ADMIN" || !inventoryIsActive) {
+      setStockItems([]);
+      return;
+    }
+
+    async function loadStockOverview() {
+      try {
+        setLoadingStock(true);
+        const data = await getInventoryStock(activeBusiness.id, activeBranch.id);
+        setStockItems(data.stockItems || []);
+      } finally {
+        setLoadingStock(false);
+      }
+    }
+
+    loadStockOverview();
+  }, [activeBranch?.id, activeBusiness?.id, inventoryIsActive, user?.systemRole]);
+
+  useEffect(() => {
     if (!activeBusiness?.id || !activeBranch?.id || user?.systemRole === "SYSTEM_ADMIN" || !posIsActive || !isTableService || !cashierCanCloseBills) {
       setOpenBills([]);
       return;
@@ -208,8 +245,11 @@ export default function DashboardPage() {
         roleName={activeRoleName}
         roleDashboard={roleDashboard}
         salesTotal={salesTotal}
-        completedSales={completedSales}
+        completedSales={dashboardSales}
         posIsActive={posIsActive}
+        inventoryIsActive={inventoryIsActive}
+        loadingStock={loadingStock}
+        lowStockItems={lowStockItems}
         quickActions={quickActions}
         currency={activeBusiness.currency}
       />
@@ -241,7 +281,7 @@ export default function DashboardPage() {
           icon={ReceiptText}
           label="Today's sales"
           value={loadingSales ? "Loading..." : formatMoney(salesTotal, activeBusiness.currency)}
-          helper={`${completedSales.length} transaction${completedSales.length === 1 ? "" : "s"}`}
+          helper={`${dashboardSales.length} transaction${dashboardSales.length === 1 ? "" : "s"}`}
         />
         <StatCard
           icon={Users}
@@ -249,7 +289,16 @@ export default function DashboardPage() {
           value={loadingTeam ? "Loading..." : activeTeamUsers.length}
           helper={`${teamUsers.length} total account${teamUsers.length === 1 ? "" : "s"}`}
         />
-        <StatCard icon={Boxes} label="Enabled modules" value={activeModules.length} helper={activeModules.map((module) => module.key).join(", ") || "None"} />
+        {inventoryIsActive ? (
+          <StatCard
+            icon={AlertTriangle}
+            label="Low stock"
+            value={loadingStock ? "Loading..." : lowStockItems.length}
+            helper={lowStockItems.length ? "Needs attention" : "Stock looks calm"}
+          />
+        ) : (
+          <StatCard icon={Boxes} label="Enabled modules" value={activeModules.length} helper={activeModules.map((module) => module.key).join(", ") || "None"} />
+        )}
       </section>
 
       {posIsActive ? (
@@ -277,6 +326,10 @@ export default function DashboardPage() {
           loading={loadingOpenBills}
           openBills={openBills}
         />
+      ) : null}
+
+      {inventoryIsActive && lowStockItems.length ? (
+        <InventoryAttentionPanel currency={activeBusiness.currency} loading={loadingStock} lowStockItems={lowStockItems} />
       ) : null}
 
       <section className="grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
@@ -370,7 +423,20 @@ export default function DashboardPage() {
   );
 }
 
-function RoleDashboard({ activeBranch, activeBusiness, completedSales, currency, posIsActive, quickActions, roleDashboard, roleName, salesTotal }) {
+function RoleDashboard({
+  activeBranch,
+  activeBusiness,
+  completedSales,
+  currency,
+  inventoryIsActive,
+  loadingStock,
+  lowStockItems,
+  posIsActive,
+  quickActions,
+  roleDashboard,
+  roleName,
+  salesTotal
+}) {
   const PrimaryIcon = roleDashboard.icon;
 
   return (
@@ -397,6 +463,10 @@ function RoleDashboard({ activeBranch, activeBusiness, completedSales, currency,
           <StatCard icon={stat.icon} key={stat.label} label={stat.label} value={stat.value} helper={stat.helper} />
         ))}
       </section>
+
+      {inventoryIsActive && ["Store Keeper", "Pharmacist"].includes(roleName) && lowStockItems.length ? (
+        <InventoryAttentionPanel currency={currency} loading={loadingStock} lowStockItems={lowStockItems} />
+      ) : null}
 
       <section className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
         <article className="rounded-md border border-zera-line bg-white">
@@ -530,7 +600,7 @@ function CashierOpenBillsPanel({ currency, loading, openBills }) {
             <p className="text-xs font-bold uppercase text-zera-green">Cashier handoff</p>
             <h3 className="mt-1 text-lg font-bold">Open table bills</h3>
             <p className="mt-1 text-sm leading-6 text-zera-muted">
-              Bills printed or sent by waiters appear here. Receive payment to close the table and issue the final receipt.
+              Customer bills sent by waiters appear here. Receive payment, close the table, and print the final receipt from one queue.
             </p>
           </div>
         </div>
@@ -544,7 +614,7 @@ function CashierOpenBillsPanel({ currency, loading, openBills }) {
             <p className="text-lg font-bold">{loading ? "..." : formatMoney(totalDue, currency)}</p>
           </div>
           <Link className="inline-flex min-h-11 items-center justify-center rounded-md bg-zera-green px-4 text-sm font-semibold text-white hover:bg-green-700" to="/open-bills">
-            Open bills
+            Settle bills
           </Link>
         </div>
       </div>
@@ -560,11 +630,64 @@ function CashierOpenBillsPanel({ currency, loading, openBills }) {
                 </div>
                 <Table2 className="shrink-0 text-zera-green" size={18} />
               </div>
-              <p className="mt-3 text-sm font-bold">{formatMoney(order.total, currency)}</p>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <p className="text-sm font-bold">{formatMoney(order.total, currency)}</p>
+                <span className={`rounded-md px-2 py-1 text-xs font-bold ${order.status === "BILL_PRINTED" ? "bg-zera-mint text-zera-green" : "bg-amber-50 text-amber-700"}`}>
+                  {order.status === "BILL_PRINTED" ? "Bill printed" : "Open order"}
+                </span>
+              </div>
             </Link>
           ))}
         </div>
       ) : null}
+    </section>
+  );
+}
+
+function InventoryAttentionPanel({ currency, loading, lowStockItems }) {
+  return (
+    <section className="rounded-md border border-amber-200 bg-amber-50/60 p-4">
+      <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
+        <div className="flex items-start gap-3">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-white text-amber-700">
+            <AlertTriangle size={22} />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase text-amber-700">Inventory attention</p>
+            <h3 className="mt-1 text-lg font-bold">Low-stock items need follow-up</h3>
+            <p className="mt-1 text-sm leading-6 text-zera-muted">
+              Review items that reached their low stock alert before the next busy sales period.
+            </p>
+          </div>
+        </div>
+        <Link
+          className="inline-flex min-h-11 items-center justify-center rounded-md bg-zera-green px-4 text-sm font-semibold text-white hover:bg-green-700"
+          to="/inventory?view=low"
+        >
+          Open inventory
+        </Link>
+      </div>
+
+      {loading ? (
+        <div className="mt-4 rounded-md border border-dashed border-amber-200 bg-white/70 p-4 text-sm text-zera-muted">Loading stock attention...</div>
+      ) : (
+        <div className="mt-4 grid gap-2 md:grid-cols-3">
+          {lowStockItems.slice(0, 3).map((stock) => (
+            <Link className="rounded-md border border-amber-200 bg-white px-3 py-3 hover:border-amber-500" key={stock.id} to="/inventory?view=low">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold">{stock.product?.name || "Product"}</p>
+                  <p className="mt-1 truncate text-xs text-zera-muted">
+                    {Number(stock.quantity).toLocaleString()} left · alert {Number(stock.reorderLevel).toLocaleString()}
+                  </p>
+                </div>
+                <span className="shrink-0 rounded-md bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">Low</span>
+              </div>
+              <p className="mt-3 text-sm font-semibold text-zera-green">{formatMoney(stock.product?.price || 0, currency)}</p>
+            </Link>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
@@ -602,7 +725,10 @@ function buildRoleDashboard({
   activeProducts,
   completedSales,
   currency = "UGX",
+  inventoryIsActive,
+  loadingStock,
   loadingWorkData,
+  lowStockItems,
   productCategories,
   recentCompletedSales,
   roleName,
@@ -635,6 +761,12 @@ function buildRoleDashboard({
     subtitle: `${sale.customer?.name || "Walk-in"} · ${sale.branch?.name || branchName}`,
     badge: formatMoney(sale.total, currency)
   }));
+  const stockAttentionItems = lowStockItems.map((stock) => ({
+    id: stock.id,
+    title: stock.product?.name || "Product",
+    subtitle: `${Number(stock.quantity).toLocaleString()} left · alert ${Number(stock.reorderLevel).toLocaleString()}`,
+    badge: "Low stock"
+  }));
 
   if (roleName === "Waiter") {
     return {
@@ -656,7 +788,7 @@ function buildRoleDashboard({
       steps: [
         { icon: Table2, title: "Choose table", description: "Select the customer’s table before adding menu items." },
         { icon: ReceiptText, title: "Build bill", description: "Tap products into the cart and confirm quantities clearly." },
-        { icon: ClipboardCheck, title: "Record payment", description: "Close the bill with cash, card, or mobile money." }
+        { icon: Printer, title: "Print customer bill", description: "When the guest asks to pay, print the customer bill and hand it to cashier." }
       ],
       focusTitle: "Tables to serve",
       focusSubtitle: "Quick view of table setup for this branch.",
@@ -666,7 +798,7 @@ function buildRoleDashboard({
       emptyFocusText: "No tables are set for this branch yet. Ask the owner or manager to add tables.",
       todayTitle: "Today’s table bills",
       todaySubtitle: "Recent completed bills for this branch.",
-      guidance: "A waiter dashboard should stay light: table first, order second, payment last."
+      guidance: "A waiter dashboard should stay light: table first, order second, customer bill handoff last. Cashier owns payment."
     };
   }
 
@@ -675,32 +807,36 @@ function buildRoleDashboard({
       icon: PackageCheck,
       eyebrow: "Store keeper workspace",
       title: `${activeBusiness?.name || "Business"} catalog readiness`,
-      description: "Keep the selling catalog clean so cashiers can find products fast and sell without confusion.",
-      primaryAction: "Manage Products",
-      primaryPath: "/products",
-      loading: loadingWorkData,
+      description: "Keep products ready for checkout, receive deliveries, and follow up low-stock alerts before sales are affected.",
+      primaryAction: inventoryIsActive ? "Open Inventory" : "Manage Products",
+      primaryPath: inventoryIsActive ? "/inventory" : "/products",
+      loading: loadingWorkData || loadingStock,
       stats: [
         { icon: Package, label: "Active products", value: loadingWorkData ? "Loading..." : activeProducts.length, helper: "Ready to sell" },
+        inventoryIsActive
+          ? { icon: AlertTriangle, label: "Low stock", value: loadingStock ? "Loading..." : lowStockItems.length, helper: lowStockItems.length ? "Needs receiving" : "Stock looks calm" }
+          : { icon: ReceiptText, label: "Today's sales", value: formatMoney(salesTotal, currency), helper: `${completedSales.length} transactions` },
         { icon: Boxes, label: "Categories", value: productCategories.length, helper: productCategories.slice(0, 2).join(", ") || "Not grouped" },
-        { icon: ReceiptText, label: "Today's sales", value: formatMoney(salesTotal, currency), helper: `${completedSales.length} transactions` },
         { icon: MapPin, label: "Branch", value: branchName, helper: businessType }
       ],
       workTitle: "Store keeper flow",
-      workSubtitle: "Keep product data useful for the sales team.",
+      workSubtitle: "Keep product data and stock quantities useful for the sales team.",
       steps: [
-        { icon: Package, title: "Check catalog", description: "Make sure products have clear names, categories, units, and prices." },
-        { icon: ListChecks, title: "Prepare checkout", description: "Keep fast-moving items easy for cashiers to find." },
-        { icon: ReceiptText, title: "Watch sales", description: "Use sales history to notice products that need attention." }
+        { icon: AlertTriangle, title: "Check alerts", description: "Start with products where current stock reached the low stock alert." },
+        { icon: PackageCheck, title: "Receive stock", description: "Add delivered quantity to current stock without overwriting the balance." },
+        { icon: ListChecks, title: "Correct counts", description: "Use Set count only after a physical count or stock correction." }
       ],
-      focusTitle: "Active products",
-      focusSubtitle: "Products currently visible to POS.",
-      focusAction: "Manage products",
-      focusPath: "/products",
-      focusItems: productItems,
-      emptyFocusText: "No active products yet. Add products before the shop can sell confidently.",
+      focusTitle: inventoryIsActive ? "Low-stock attention" : "Active products",
+      focusSubtitle: inventoryIsActive ? "Products that need receiving or review." : "Products currently visible to POS.",
+      focusAction: inventoryIsActive ? "Open inventory" : "Manage products",
+      focusPath: inventoryIsActive ? "/inventory" : "/products",
+      focusItems: inventoryIsActive ? stockAttentionItems : productItems,
+      emptyFocusText: inventoryIsActive
+        ? "No low-stock items right now. Keep receiving stock when deliveries arrive."
+        : "No active products yet. Add products before the shop can sell confidently.",
       todayTitle: "Today’s product movement",
       todaySubtitle: "Sales activity that may affect stock follow-up.",
-      guidance: "Stock quantity tracking is coming later; for now, product clarity is the store keeper’s biggest lever."
+      guidance: "Use Receive stock for new deliveries. Use Set count only when you are correcting the actual shelf count."
     };
   }
 
@@ -715,7 +851,9 @@ function buildRoleDashboard({
       loading: loadingWorkData,
       stats: [
         { icon: Package, label: "Active items", value: loadingWorkData ? "Loading..." : activeProducts.length, helper: "Medicines and services" },
-        { icon: UserRound, label: "Customers", value: activeCustomers.length, helper: "Saved profiles" },
+        inventoryIsActive
+          ? { icon: AlertTriangle, label: "Low stock", value: loadingStock ? "Loading..." : lowStockItems.length, helper: lowStockItems.length ? "Needs review" : "Stock looks calm" }
+          : { icon: UserRound, label: "Customers", value: activeCustomers.length, helper: "Saved profiles" },
         { icon: ReceiptText, label: "Today's sales", value: formatMoney(salesTotal, currency), helper: `${completedSales.length} transactions` },
         { icon: MapPin, label: "Branch", value: branchName, helper: "Pharmacy counter" }
       ],
@@ -799,6 +937,22 @@ function dashboardDescription(roleName, branchName) {
   return "See today’s performance, operational readiness, and the actions that need your attention.";
 }
 
+function getRoleScopedSales(sales, roleName, userId) {
+  if (!userId || ["Owner", "Manager"].includes(roleName)) {
+    return sales;
+  }
+
+  if (roleName === "Waiter") {
+    return sales.filter((sale) => sale.posOrder?.waiter?.id === userId);
+  }
+
+  if (["Cashier", "Pharmacist", "Front Desk", "Store Keeper"].includes(roleName)) {
+    return sales.filter((sale) => sale.cashier?.id === userId);
+  }
+
+  return sales;
+}
+
 function buildSetupItems({ activeBranch, activeBusiness, activeRoleName, activeTeamUsers, posIsActive }) {
   const items = [
     { label: "Branch status", value: activeBranch?.name || "Select an active branch", ready: activeBranch?.status === "ACTIVE" },
@@ -825,12 +979,50 @@ function buildSetupItems({ activeBranch, activeBusiness, activeRoleName, activeT
 }
 
 function getPOSWorkflowInfo(business) {
+  const type = business?.type?.toLowerCase() || "";
+
   if (business?.posMode === "TABLE_SERVICE") {
     return {
       icon: Table2,
       title: "Table-service POS",
-      description: "Built for bars, restaurants, and table-based service. Staff select a table first, then build the bill and record payment.",
+      description: "Built for bars, restaurants, and table-based service. Waiters open table bills; cashiers receive payment, close the table, and issue the final receipt.",
       primaryRule: "Table required"
+    };
+  }
+
+  if (type.includes("pharmacy")) {
+    return {
+      icon: Pill,
+      title: "Pharmacy checkout POS",
+      description: "Built for pharmacy counter sales. Staff search medicines and services, attach a patient or customer when needed, and record payment clearly.",
+      primaryRule: "Patient optional"
+    };
+  }
+
+  if (type.includes("hotel")) {
+    return {
+      icon: Hotel,
+      title: "Front desk service POS",
+      description: "Built for hotel front-desk charges. Staff record guest-facing services now, with room folios and reservations planned for later modules.",
+      primaryRule: "Guest optional"
+    };
+  }
+
+  if (type.includes("supermarket")) {
+    return {
+      icon: ShoppingBasket,
+      title: "Supermarket checkout POS",
+      description: "Built for basket checkout. Staff search or scan products, confirm quantities, and keep the payment flow fast for queue-heavy sales.",
+      primaryRule: "Basket checkout"
+    };
+  }
+
+  if (type.includes("retail")) {
+    return {
+      icon: Store,
+      title: "Retail shop checkout POS",
+      description: "Built for shop-counter sales. Staff find products quickly, keep the cart simple, and record payment without table service steps.",
+      primaryRule: "Counter checkout"
     };
   }
 
@@ -857,9 +1049,43 @@ function formatTableStatus(status = "AVAILABLE") {
 function buildQuickActions(roleName, modules, business) {
   const actions = [];
 
+  if (roleName === "Store Keeper") {
+    if (modules.includes("INVENTORY")) {
+      actions.push({ label: "Inventory", helper: "Receive stock and review alerts", path: "/inventory", icon: Boxes });
+    }
+
+    actions.push({ label: "Products", helper: "Keep catalog clean", path: "/products", icon: Package });
+
+    if (modules.includes("POS")) {
+      actions.push({ label: "Sales history", helper: "Review stock-moving sales", path: "/sales", icon: Store });
+    }
+
+    return actions.slice(0, 4);
+  }
+
+  if (roleName === "Pharmacist") {
+    if (modules.includes("POS")) {
+      actions.push({ label: "New sale", helper: "Open pharmacy checkout", path: "/pos", icon: ReceiptText });
+    }
+
+    if (modules.includes("INVENTORY")) {
+      actions.push({ label: "Inventory", helper: "Review medicine stock alerts", path: "/inventory", icon: Boxes });
+    }
+
+    actions.push(
+      { label: "Products", helper: "Manage pharmacy catalog", path: "/products", icon: Package },
+      { label: "Customers", helper: "Find or create a customer", path: "/customers", icon: UserRound }
+    );
+
+    return actions.slice(0, 4);
+  }
+
   if (modules.includes("POS")) {
     if (business?.posMode === "TABLE_SERVICE" && ["Owner", "Manager", "Cashier"].includes(roleName)) {
-      actions.push({ label: "Open bills", helper: "Receive table payments", path: "/open-bills", icon: ClipboardCheck });
+      actions.push(
+        { label: "Settle bills", helper: "Receive payments and close tables", path: "/open-bills", icon: ClipboardCheck },
+        { label: "Staff reports", helper: "Waiter and cashier totals", path: "/reports", icon: BarChart3 }
+      );
     }
 
     actions.push(
@@ -871,6 +1097,10 @@ function buildQuickActions(roleName, modules, business) {
 
   if (["Owner", "Manager", "Store Keeper", "Pharmacist"].includes(roleName) && modules.includes("POS")) {
     actions.push({ label: "Products", helper: "Manage the sales catalog", path: "/products", icon: Package });
+  }
+
+  if (["Owner", "Manager", "Store Keeper", "Pharmacist"].includes(roleName) && modules.includes("INVENTORY")) {
+    actions.push({ label: "Inventory", helper: "Receive stock and review alerts", path: "/inventory", icon: Boxes });
   }
 
   if (roleName === "Owner") {

@@ -1,19 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Banknote, Boxes, CreditCard, MapPin, ReceiptText, Smartphone } from "lucide-react";
+import { BarChart3, Banknote, Boxes, CreditCard, MapPin, ReceiptText, Smartphone, UserRound, Users } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
 import { getRecentSales } from "../../services/posService.js";
 
-const defaultFilters = {
-  branchId: "",
-  dateFrom: "",
-  dateTo: ""
-};
+const periodOptions = [
+  { label: "Today", value: "today" },
+  { label: "This week", value: "week" },
+  { label: "This month", value: "month" }
+];
 
 export default function ReportsPage() {
   const { activeBusiness, activeBusinessId, branches } = useWorkspace();
   const [sales, setSales] = useState([]);
-  const [filters, setFilters] = useState(defaultFilters);
+  const [filters, setFilters] = useState(() => createDefaultFilters());
+  const [activePeriod, setActivePeriod] = useState("today");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const completedSales = sales.filter((sale) => sale.status === "COMPLETED");
@@ -23,6 +24,9 @@ export default function ReportsPage() {
   const paymentRows = useMemo(() => buildPaymentRows(completedSales), [completedSales]);
   const branchRows = useMemo(() => buildBranchRows(completedSales), [completedSales]);
   const productRows = useMemo(() => buildProductRows(completedSales), [completedSales]);
+  const waiterRows = useMemo(() => buildWaiterRows(completedSales), [completedSales]);
+  const cashierRows = useMemo(() => buildCashierRows(completedSales), [completedSales]);
+  const staffRows = useMemo(() => buildStaffPerformanceRows(waiterRows, cashierRows), [cashierRows, waiterRows]);
 
   useEffect(() => {
     if (!activeBusinessId) {
@@ -48,10 +52,21 @@ export default function ReportsPage() {
   }
 
   function updateFilter(key, value) {
+    setActivePeriod("custom");
     setFilters((current) => ({
       ...current,
       [key]: value
     }));
+  }
+
+  function applyPeriod(period) {
+    setActivePeriod(period);
+    setFilters((current) => ({ ...current, ...getPeriodRange(period) }));
+  }
+
+  function resetFilters() {
+    setActivePeriod("today");
+    setFilters(createDefaultFilters());
   }
 
   return (
@@ -81,6 +96,24 @@ export default function ReportsPage() {
           {error ? <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
 
           <section className="rounded-lg border border-zera-line bg-white p-5">
+            <div className="mb-4 flex flex-wrap gap-2">
+              {periodOptions.map((period) => (
+                <button
+                  key={period.value}
+                  type="button"
+                  className={`min-h-10 rounded-md border px-3 text-sm font-semibold transition ${
+                    activePeriod === period.value
+                      ? "border-zera-green bg-zera-green text-white"
+                      : "border-zera-line bg-white text-zera-ink hover:border-zera-green hover:bg-zera-mint hover:text-zera-green"
+                  }`}
+                  onClick={() => applyPeriod(period.value)}
+                >
+                  {period.label}
+                </button>
+              ))}
+              {activePeriod === "custom" ? <span className="inline-flex min-h-10 items-center rounded-md bg-[#f7faf8] px-3 text-sm font-semibold text-zera-muted">Custom range</span> : null}
+            </div>
+
             <div className="grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-zera-ink">Branch</span>
@@ -100,8 +133,8 @@ export default function ReportsPage() {
               <FilterInput label="From" value={filters.dateFrom} onChange={(value) => updateFilter("dateFrom", value)} />
               <FilterInput label="To" value={filters.dateTo} onChange={(value) => updateFilter("dateTo", value)} />
               <div className="flex items-end">
-                <Button type="button" variant="ghost" className="w-full px-3" onClick={() => setFilters(defaultFilters)}>
-                  Clear
+                <Button type="button" variant="ghost" className="w-full px-3" onClick={resetFilters}>
+                  Reset today
                 </Button>
               </div>
             </div>
@@ -115,10 +148,14 @@ export default function ReportsPage() {
           </section>
 
           <section className="grid gap-6 lg:grid-cols-3">
-            <ReportPanel title="Payment mix" rows={paymentRows} currency={activeBusiness.currency} iconMap={paymentIcons} />
-            <ReportPanel title="Branch sales" rows={branchRows} currency={activeBusiness.currency} fallbackIcon={MapPin} />
-            <ReportPanel title="Top products" rows={productRows} currency={activeBusiness.currency} fallbackIcon={Boxes} />
+            <ReportPanel title="Payment mix" rows={paymentRows} currency={activeBusiness.currency} iconMap={paymentIcons} unitLabel="receipt" />
+            <ReportPanel title="Branch sales" rows={branchRows} currency={activeBusiness.currency} fallbackIcon={MapPin} unitLabel="receipt" />
+            <ReportPanel title="Top products" rows={productRows} currency={activeBusiness.currency} fallbackIcon={Boxes} unitLabel="item" />
+            <ReportPanel title="Waiter service" rows={waiterRows} currency={activeBusiness.currency} fallbackIcon={Users} unitLabel="bill" />
+            <ReportPanel title="Cashier collection" rows={cashierRows} currency={activeBusiness.currency} fallbackIcon={UserRound} unitLabel="receipt" />
           </section>
+
+          <StaffPerformanceTable currency={activeBusiness.currency} rows={staffRows} />
 
           <section className="rounded-lg border border-zera-line bg-white p-5">
             <h3 className="text-lg font-bold">Report notes</h3>
@@ -183,13 +220,61 @@ function buildProductRows(sales) {
     .slice(0, 5);
 }
 
+function buildWaiterRows(sales) {
+  return Object.values(
+    sales.reduce((rows, sale) => {
+      const waiter = sale.posOrder?.waiter;
+      const key = waiter?.id || "no-waiter";
+      const current = rows[key] || { key, label: waiter?.name || "Counter sale", quantity: 0, total: 0 };
+      rows[key] = {
+        ...current,
+        quantity: current.quantity + 1,
+        total: current.total + Number(sale.total)
+      };
+      return rows;
+    }, {})
+  ).sort((a, b) => b.total - a.total);
+}
+
+function buildCashierRows(sales) {
+  return Object.values(
+    sales.reduce((rows, sale) => {
+      const key = sale.cashier?.id || "unknown-cashier";
+      const current = rows[key] || { key, label: sale.cashier?.name || "Unknown cashier", quantity: 0, total: 0 };
+      rows[key] = {
+        ...current,
+        quantity: current.quantity + 1,
+        total: current.total + Number(sale.total)
+      };
+      return rows;
+    }, {})
+  ).sort((a, b) => b.total - a.total);
+}
+
+function buildStaffPerformanceRows(waiterRows, cashierRows) {
+  return [
+    ...waiterRows.map((row) => ({
+      ...row,
+      key: `waiter-${row.key}`,
+      role: "Waiter",
+      unitLabel: "bill"
+    })),
+    ...cashierRows.map((row) => ({
+      ...row,
+      key: `cashier-${row.key}`,
+      role: "Cashier",
+      unitLabel: "receipt"
+    }))
+  ].sort((first, second) => second.total - first.total);
+}
+
 const paymentIcons = {
   CASH: Banknote,
   CARD: CreditCard,
   MOBILE_MONEY: Smartphone
 };
 
-function ReportPanel({ currency, fallbackIcon: FallbackIcon = BarChart3, iconMap = {}, rows, title }) {
+function ReportPanel({ currency, fallbackIcon: FallbackIcon = BarChart3, iconMap = {}, rows, title, unitLabel = "item" }) {
   const maxTotal = Math.max(...rows.map((row) => row.total), 1);
 
   return (
@@ -213,7 +298,10 @@ function ReportPanel({ currency, fallbackIcon: FallbackIcon = BarChart3, iconMap
                   </div>
                   <div>
                     <p className="font-bold">{row.label}</p>
-                    <p className="mt-1 text-xs text-zera-muted">{row.quantity} item{row.quantity === 1 ? "" : "s"}</p>
+                    <p className="mt-1 text-xs text-zera-muted">
+                      {row.quantity} {unitLabel}
+                      {row.quantity === 1 ? "" : "s"}
+                    </p>
                   </div>
                 </div>
                 <p className="font-bold">{formatMoney(row.total, currency)}</p>
@@ -224,6 +312,53 @@ function ReportPanel({ currency, fallbackIcon: FallbackIcon = BarChart3, iconMap
             </article>
           );
         })}
+      </div>
+    </section>
+  );
+}
+
+function StaffPerformanceTable({ currency, rows }) {
+  return (
+    <section className="rounded-lg border border-zera-line bg-white p-5">
+      <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h3 className="text-lg font-bold">Staff performance</h3>
+          <p className="mt-1 text-sm text-zera-muted">Waiter service and cashier collections for the selected period.</p>
+        </div>
+      </div>
+
+      <div className="mt-4 overflow-x-auto">
+        <table className="min-w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-zera-line text-xs uppercase text-zera-muted">
+              <th className="py-3 pr-4 font-bold">Staff</th>
+              <th className="py-3 pr-4 font-bold">Role</th>
+              <th className="py-3 pr-4 font-bold">Activity</th>
+              <th className="py-3 text-right font-bold">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length ? (
+              rows.map((row) => (
+                <tr className="border-b border-zera-line last:border-0" key={row.key}>
+                  <td className="py-3 pr-4 font-bold text-zera-ink">{row.label}</td>
+                  <td className="py-3 pr-4 text-zera-muted">{row.role}</td>
+                  <td className="py-3 pr-4 text-zera-muted">
+                    {row.quantity} {row.unitLabel}
+                    {row.quantity === 1 ? "" : "s"}
+                  </td>
+                  <td className="py-3 text-right font-bold text-zera-ink">{formatMoney(row.total, currency)}</td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td className="py-6 text-center text-zera-muted" colSpan="4">
+                  No staff activity for this filter.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </section>
   );
@@ -266,6 +401,39 @@ function Note({ label, value }) {
 
 function countItems(sales) {
   return sales.reduce((total, sale) => total + (sale.items?.reduce((itemTotal, item) => itemTotal + item.quantity, 0) || 0), 0);
+}
+
+function createDefaultFilters() {
+  return {
+    branchId: "",
+    ...getPeriodRange("today")
+  };
+}
+
+function getPeriodRange(period) {
+  const today = new Date();
+  const start = new Date(today);
+
+  if (period === "week") {
+    const day = start.getDay() || 7;
+    start.setDate(start.getDate() - day + 1);
+  }
+
+  if (period === "month") {
+    start.setDate(1);
+  }
+
+  return {
+    dateFrom: toDateInputValue(start),
+    dateTo: toDateInputValue(today)
+  };
+}
+
+function toDateInputValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function formatPayment(method) {

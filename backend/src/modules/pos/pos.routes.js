@@ -122,6 +122,136 @@ function canOpenTableBill(roleName, systemRole, business) {
   return systemRole === "SYSTEM_ADMIN" || canRecordSale(roleName, business);
 }
 
+async function getPhysicalSaleQuantities(transaction, businessId, saleItems) {
+  const quantitiesByProduct = saleItems.reduce((totals, item) => {
+    totals.set(item.productId, (totals.get(item.productId) || 0) + item.quantity);
+    return totals;
+  }, new Map());
+  const productIds = [...quantitiesByProduct.keys()];
+
+  if (productIds.length === 0) {
+    return [];
+  }
+
+  const physicalProducts = await transaction.product.findMany({
+    where: {
+      businessId,
+      id: { in: productIds },
+      type: "PHYSICAL"
+    },
+    select: {
+      id: true,
+      name: true
+    }
+  });
+
+  return physicalProducts.map((product) => ({
+    product,
+    quantity: quantitiesByProduct.get(product.id) || 0
+  }));
+}
+
+async function deductStockForSale(transaction, { branchId, businessId, receiptNumber, saleItems, userId }) {
+  if (!transaction.inventoryStock || !transaction.stockAdjustment) {
+    throw new HttpError(503, "Prisma Client is out of date. Restart the backend and run npx prisma generate.");
+  }
+
+  const stockItems = await getPhysicalSaleQuantities(transaction, businessId, saleItems);
+
+  for (const item of stockItems) {
+    const currentStock = await transaction.inventoryStock.upsert({
+      where: {
+        productId_branchId: {
+          productId: item.product.id,
+          branchId
+        }
+      },
+      create: {
+        businessId,
+        branchId,
+        productId: item.product.id,
+        quantity: 0,
+        reorderLevel: 0
+      },
+      update: {}
+    });
+    const nextQuantity = currentStock.quantity - item.quantity;
+
+    await transaction.inventoryStock.update({
+      where: { id: currentStock.id },
+      data: { quantity: nextQuantity }
+    });
+
+    await transaction.stockAdjustment.create({
+      data: {
+        type: "DECREASE",
+        quantityBefore: currentStock.quantity,
+        quantityChange: -item.quantity,
+        quantityAfter: nextQuantity,
+        note: `Sale ${receiptNumber}`,
+        businessId,
+        branchId,
+        productId: item.product.id,
+        userId
+      }
+    });
+  }
+}
+
+async function restoreStockForVoidedSale(transaction, { businessId, receiptNumber, userId }) {
+  if (!transaction.inventoryStock || !transaction.stockAdjustment) {
+    throw new HttpError(503, "Prisma Client is out of date. Restart the backend and run npx prisma generate.");
+  }
+
+  const saleDeductions = await transaction.stockAdjustment.findMany({
+    where: {
+      businessId,
+      note: `Sale ${receiptNumber}`,
+      type: "DECREASE"
+    }
+  });
+
+  for (const deduction of saleDeductions) {
+    const currentStock = await transaction.inventoryStock.upsert({
+      where: {
+        productId_branchId: {
+          productId: deduction.productId,
+          branchId: deduction.branchId
+        }
+      },
+      create: {
+        businessId,
+        branchId: deduction.branchId,
+        productId: deduction.productId,
+        quantity: 0,
+        reorderLevel: 0
+      },
+      update: {}
+    });
+    const restoredQuantity = Math.abs(deduction.quantityChange);
+    const nextQuantity = currentStock.quantity + restoredQuantity;
+
+    await transaction.inventoryStock.update({
+      where: { id: currentStock.id },
+      data: { quantity: nextQuantity }
+    });
+
+    await transaction.stockAdjustment.create({
+      data: {
+        type: "INCREASE",
+        quantityBefore: currentStock.quantity,
+        quantityChange: restoredQuantity,
+        quantityAfter: nextQuantity,
+        note: `Voided ${receiptNumber}`,
+        businessId,
+        branchId: deduction.branchId,
+        productId: deduction.productId,
+        userId
+      }
+    });
+  }
+}
+
 async function assertBusinessAccess({ businessId, userId, systemRole }) {
   const membership = await prisma.businessUser.findUnique({
     where: {
@@ -747,6 +877,14 @@ posRouter.patch("/orders/:orderId/pay", async (req, res, next) => {
         }
       });
 
+      await deductStockForSale(transaction, {
+        businessId: existingOrder.businessId,
+        branchId: existingOrder.branchId,
+        receiptNumber: paidSale.receiptNumber,
+        saleItems,
+        userId: req.user.id
+      });
+
       await transaction.pOSOrder.update({
         where: {
           id: existingOrder.id
@@ -1018,6 +1156,16 @@ posRouter.get("/sales/business/:businessId", async (req, res, next) => {
               }
             }
           }
+        },
+        posOrder: {
+          include: {
+            waiter: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
         }
       },
       orderBy: { createdAt: "desc" },
@@ -1069,52 +1217,62 @@ posRouter.patch("/sales/business/:businessId/:saleId/void", async (req, res, nex
       throw new HttpError(400, "Sale is already voided.");
     }
 
-    const sale = await prisma.sale.update({
-      where: { id: existingSale.id },
-      data: { status: "VOIDED" },
-      include: {
-        branch: {
-          select: {
-            id: true,
-            name: true
-          }
-        },
-        cashier: {
-          select: {
-            id: true,
-            name: true
-          }
-        },
-        customer: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-            email: true
-          }
-        },
-        table: {
-          select: {
-            id: true,
-            name: true,
-            seats: true,
-            status: true
-          }
-        },
-        items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                type: true,
-                category: true,
-                unit: true
+    const sale = await prisma.$transaction(async (transaction) => {
+      const voidedSale = await transaction.sale.update({
+        where: { id: existingSale.id },
+        data: { status: "VOIDED" },
+        include: {
+          branch: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          cashier: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          customer: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              email: true
+            }
+          },
+          table: {
+            select: {
+              id: true,
+              name: true,
+              seats: true,
+              status: true
+            }
+          },
+          items: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  type: true,
+                  category: true,
+                  unit: true
+                }
               }
             }
           }
         }
-      }
+      });
+
+      await restoreStockForVoidedSale(transaction, {
+        businessId,
+        receiptNumber: voidedSale.receiptNumber,
+        userId: req.user.id
+      });
+
+      return voidedSale;
     });
 
     res.json({ sale });
@@ -1265,76 +1423,90 @@ posRouter.post("/sales", async (req, res, next) => {
     const subtotal = saleItems.reduce((total, item) => total + Number(item.lineTotal), 0);
     const receiptNumber = `ZS-${Date.now()}`;
 
-    const sale = await prisma.sale.create({
-      data: {
-        receiptNumber,
-        subtotal: subtotal.toFixed(2),
-        total: subtotal.toFixed(2),
-        paymentMethod,
+    const sale = await prisma.$transaction(async (transaction) => {
+      const recordedSale = await transaction.sale.create({
+        data: {
+          receiptNumber,
+          subtotal: subtotal.toFixed(2),
+          total: subtotal.toFixed(2),
+          paymentMethod,
+          businessId,
+          branchId,
+          customerId: customer?.id || null,
+          tableId: table?.id || null,
+          cashierId: req.user.id,
+          items: {
+            create: saleItems
+          }
+        }
+      });
+
+      await deductStockForSale(transaction, {
         businessId,
         branchId,
-        customerId: customer?.id || null,
-        tableId: table?.id || null,
-        cashierId: req.user.id,
-        items: {
-          create: saleItems
-        }
-      },
-      include: {
-        branch: {
-          select: {
-            id: true,
-            name: true
+        receiptNumber,
+        saleItems,
+        userId: req.user.id
+      });
+
+      if (table?.id) {
+        await transaction.pOSTable.update({
+          where: {
+            id: table.id
+          },
+          data: {
+            status: "AVAILABLE"
           }
-        },
-        cashier: {
-          select: {
-            id: true,
-            name: true
-          }
-        },
-        customer: {
-          select: {
-            id: true,
-            name: true,
-            phone: true,
-            email: true
-          }
-        },
-        table: {
-          select: {
-            id: true,
-            name: true,
-            seats: true,
-            status: true
-          }
-        },
-        items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                type: true,
-                category: true,
-                unit: true
+        });
+      }
+
+      return transaction.sale.findUnique({
+        where: { id: recordedSale.id },
+        include: {
+          branch: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          cashier: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          customer: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              email: true
+            }
+          },
+          table: {
+            select: {
+              id: true,
+              name: true,
+              seats: true,
+              status: true
+            }
+          },
+          items: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  type: true,
+                  category: true,
+                  unit: true
+                }
               }
             }
           }
         }
-      }
-    });
-
-    if (table?.id) {
-      await prisma.pOSTable.update({
-        where: {
-          id: table.id
-        },
-        data: {
-          status: "AVAILABLE"
-        }
       });
-    }
+    });
 
     res.status(201).json({ sale });
   } catch (error) {

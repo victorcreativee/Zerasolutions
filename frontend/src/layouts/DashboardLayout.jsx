@@ -47,7 +47,7 @@ export default function DashboardLayout() {
 
     const activeBusiness = businesses.find((business) => business.id === activeBusinessId);
     const activeModuleKeys = activeBusiness?.modules?.filter((module) => module.active).map((module) => module.key) || [];
-    return getBusinessNavigationForMode(getVisibleNavigation(businessNavigation, activeRoleName, activeModuleKeys), activeBusiness?.posMode);
+    return getBusinessNavigationForMode(getVisibleNavigation(businessNavigation, activeRoleName, activeModuleKeys), activeBusiness);
   }, [activeBusinessId, activeRoleName, businesses, isSystemAdmin]);
 
   useEffect(() => {
@@ -246,7 +246,9 @@ export default function DashboardLayout() {
   );
 }
 
-function getBusinessNavigationForMode(groups, posMode) {
+function getBusinessNavigationForMode(groups, business) {
+  const posMode = business?.posMode;
+
   return groups
     .map((group) => ({
       ...group,
@@ -259,9 +261,35 @@ function getBusinessNavigationForMode(groups, posMode) {
 
       return {
         ...item,
-        label: posMode === "TABLE_SERVICE" ? "Table POS" : "Checkout POS"
+        label: getPOSNavigationLabel(business)
       };
         })
     }))
     .filter((group) => group.items.length);
+}
+
+function getPOSNavigationLabel(business) {
+  const type = business?.type?.toLowerCase() || "";
+
+  if (business?.posMode === "TABLE_SERVICE") {
+    return "Table POS";
+  }
+
+  if (type.includes("pharmacy")) {
+    return "Pharmacy POS";
+  }
+
+  if (type.includes("hotel")) {
+    return "Front Desk POS";
+  }
+
+  if (type.includes("supermarket")) {
+    return "Supermarket POS";
+  }
+
+  if (type.includes("retail")) {
+    return "Retail POS";
+  }
+
+  return "Checkout POS";
 }

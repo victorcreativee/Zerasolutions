@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Banknote, CreditCard, Printer, ReceiptText, RefreshCcw, Smartphone, Table2, UserRound } from "lucide-react";
+import { Banknote, CheckCircle2, Clock3, CreditCard, Printer, ReceiptText, RefreshCcw, Smartphone, Table2, UserRound } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import PrintableBill from "../../components/PrintableBill.jsx";
 import PrintableReceipt from "../../components/PrintableReceipt.jsx";
@@ -11,6 +11,7 @@ export default function OpenBillsPage() {
   const [orders, setOrders] = useState([]);
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("CASH");
+  const [billFilter, setBillFilter] = useState("ALL");
   const [billToPrint, setBillToPrint] = useState(null);
   const [lastSale, setLastSale] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -19,8 +20,13 @@ export default function OpenBillsPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
-  const selectedOrder = orders.find((order) => order.id === selectedOrderId) || orders[0] || null;
+  const billStats = useMemo(() => buildBillQueueStats(orders), [orders]);
+  const sortedOrders = useMemo(() => sortBillsForCashier(orders), [orders]);
+  const visibleOrders = useMemo(() => filterBillsForCashier(sortedOrders, billFilter), [billFilter, sortedOrders]);
+  const selectedOrder = visibleOrders.find((order) => order.id === selectedOrderId) || visibleOrders[0] || null;
   const totalDue = orders.reduce((total, order) => total + Number(order.total), 0);
+  const printedBills = orders.filter((order) => order.status === "BILL_PRINTED");
+  const freshOrders = orders.filter((order) => order.status === "OPEN");
   const paymentMethods = [
     { value: "CASH", label: "Cash", icon: Banknote },
     { value: "MOBILE_MONEY", label: "Mobile money", icon: Smartphone },
@@ -48,7 +54,8 @@ export default function OpenBillsPage() {
       setError("");
       const data = await getActivePOSOrders(activeBusinessId, activeBranchId);
       setOrders(data);
-      setSelectedOrderId((current) => (data.some((order) => order.id === current) ? current : data[0]?.id || ""));
+      const sortedData = sortBillsForCashier(data);
+      setSelectedOrderId((current) => (sortedData.some((order) => order.id === current) ? current : sortedData[0]?.id || ""));
     } catch (apiError) {
       setError(apiError.response?.data?.message || "Unable to load open bills.");
     } finally {
@@ -123,9 +130,9 @@ export default function OpenBillsPage() {
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-sm font-semibold text-zera-green">Cashier workspace</p>
-            <h2 className="mt-2 text-2xl font-bold sm:text-3xl">Open table bills</h2>
+            <h2 className="mt-2 text-2xl font-bold sm:text-3xl">Payment queue</h2>
             <p className="mt-3 max-w-3xl leading-7 text-zera-muted">
-              Receive payments for customer bills sent from table service. Payment closes the bill, frees the table, and creates the final receipt.
+              Settle customer bills from table service. Print a customer bill when needed, receive payment, free the table, and issue the final receipt.
             </p>
           </div>
           <Button type="button" variant="secondary" className="gap-2" onClick={loadOpenBills}>
@@ -138,21 +145,59 @@ export default function OpenBillsPage() {
       {error ? <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
       {message ? <div className="rounded-md bg-zera-mint px-4 py-3 text-sm font-semibold text-zera-green">{message}</div> : null}
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 md:grid-cols-4">
         <Metric icon={ReceiptText} label="Open bills" value={loading ? "..." : orders.length} />
+        <Metric icon={CheckCircle2} label="Printed bills" value={loading ? "..." : printedBills.length} />
+        <Metric icon={Clock3} label="New orders" value={loading ? "..." : freshOrders.length} />
         <Metric icon={Table2} label="Branch" value={activeBranch?.name || "No branch"} />
-        <Metric icon={Banknote} label="Amount due" value={loading ? "..." : formatMoney(totalDue, activeBusiness.currency)} />
+      </section>
+
+      <section className="rounded-lg border border-zera-line bg-white p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase text-zera-green">Amount waiting</p>
+            <h3 className="mt-1 text-2xl font-bold">{loading ? "Loading..." : formatMoney(totalDue, activeBusiness.currency)}</h3>
+          </div>
+          <p className="max-w-2xl text-sm leading-6 text-zera-muted">
+            Use <span className="font-semibold text-zera-ink">Print customer bill</span> for a guest copy before payment. Use{" "}
+            <span className="font-semibold text-zera-ink">Receive payment</span> only when the cashier has collected money.
+          </p>
+        </div>
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
         <article className="rounded-lg border border-zera-line bg-white p-5">
           <div className="mb-5 flex items-center justify-between gap-3">
             <div>
-              <h3 className="text-lg font-bold">Bills waiting for payment</h3>
+              <h3 className="text-lg font-bold">Waiting bills</h3>
               <p className="mt-1 text-sm text-zera-muted">
-                {loading ? "Loading..." : `${orders.length} open bill${orders.length === 1 ? "" : "s"}`}
+                {loading ? "Loading..." : `${visibleOrders.length} of ${orders.length} bill${orders.length === 1 ? "" : "s"} shown`}
               </p>
             </div>
+          </div>
+
+          <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+            {[
+              { label: "All bills", value: "ALL", count: billStats.all },
+              { label: "Ready to pay", value: "READY", count: billStats.ready },
+              { label: "Needs bill", value: "NEEDS_BILL", count: billStats.needsBill }
+            ].map((filter) => (
+              <button
+                key={filter.value}
+                type="button"
+                className={`min-h-10 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
+                  billFilter === filter.value
+                    ? "border-zera-green bg-zera-green text-white"
+                    : "border-zera-line bg-white text-zera-ink hover:border-zera-green hover:bg-zera-mint hover:text-zera-green"
+                }`}
+                onClick={() => setBillFilter(filter.value)}
+              >
+                {filter.label}
+                <span className={`ml-2 rounded-md px-2 py-0.5 text-xs ${billFilter === filter.value ? "bg-white/20 text-white" : "bg-[#f7faf8] text-zera-muted"}`}>
+                  {filter.count}
+                </span>
+              </button>
+            ))}
           </div>
 
           <div className="space-y-3">
@@ -164,7 +209,15 @@ export default function OpenBillsPage() {
               </div>
             ) : null}
 
-            {orders.map((order) => {
+            {!loading && orders.length > 0 && visibleOrders.length === 0 ? (
+              <div className="rounded-md border border-dashed border-zera-line bg-[#f7faf8] p-6 text-center">
+                <ReceiptText className="mx-auto text-zera-green" size={28} />
+                <h4 className="mt-3 font-bold">No bills in this view</h4>
+                <p className="mt-1 text-sm text-zera-muted">Choose another queue filter to see more bills.</p>
+              </div>
+            ) : null}
+
+            {visibleOrders.map((order) => {
               const isSelected = selectedOrder?.id === order.id;
 
               return (
@@ -183,10 +236,11 @@ export default function OpenBillsPage() {
                       <p className="mt-1 truncate text-xs text-zera-muted">
                         {order.customer?.name || "Walk-in customer"} · served by {order.waiter?.name || "staff"}
                       </p>
+                      <p className="mt-1 text-xs text-zera-muted">Updated {formatTime(order.updatedAt || order.createdAt)}</p>
                     </div>
                     <div className="text-right">
                       <p className="font-bold">{formatMoney(order.total, activeBusiness.currency)}</p>
-                      <span className="mt-2 inline-flex rounded-md bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">
+                      <span className={`mt-2 inline-flex rounded-md px-2 py-1 text-xs font-bold ${order.status === "BILL_PRINTED" ? "bg-zera-mint text-zera-green" : "bg-amber-50 text-amber-700"}`}>
                         {formatOrderStatus(order.status)}
                       </span>
                     </div>
@@ -211,7 +265,15 @@ export default function OpenBillsPage() {
                     <h3 className="mt-1 text-2xl font-bold">{selectedOrder.table?.name || "Table bill"}</h3>
                     <p className="mt-2 text-sm text-zera-muted">{selectedOrder.orderNumber}</p>
                   </div>
-                  <span className="rounded-md bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">{formatOrderStatus(selectedOrder.status)}</span>
+                  <span className={`rounded-md px-3 py-2 text-xs font-bold ${selectedOrder.status === "BILL_PRINTED" ? "bg-zera-mint text-zera-green" : "bg-amber-50 text-amber-700"}`}>
+                    {formatOrderStatus(selectedOrder.status)}
+                  </span>
+                </div>
+
+                <div className="mt-4 rounded-md bg-[#f7faf8] px-3 py-3 text-sm text-zera-muted">
+                  {selectedOrder.status === "BILL_PRINTED"
+                    ? "Customer bill has been printed. Receive payment when the guest pays, then print the final receipt."
+                    : "This order is open. Print a customer bill first if the guest needs to review the bill before paying."}
                 </div>
 
                 <div className="mt-5 grid gap-3 sm:grid-cols-3">
@@ -265,11 +327,11 @@ export default function OpenBillsPage() {
                 <div className="mt-5 grid gap-3 sm:grid-cols-2">
                   <Button type="button" variant="secondary" className="gap-2" disabled={printingBill} onClick={() => handlePrintBill(selectedOrder)}>
                     <Printer size={18} />
-                    Print bill
+                    Print customer bill
                   </Button>
                   <Button type="button" className="gap-2" disabled={savingPayment} onClick={handleReceivePayment}>
                     <ReceiptText size={18} />
-                    {savingPayment ? "Receiving..." : "Receive payment"}
+                    {savingPayment ? "Receiving..." : "Receive payment & close table"}
                   </Button>
                 </div>
               </>
@@ -335,6 +397,48 @@ function InfoBlock({ icon: Icon, label, value }) {
   );
 }
 
+function sortBillsForCashier(orders) {
+  return [...orders].sort((first, second) => {
+    const firstPriority = first.status === "BILL_PRINTED" ? 0 : 1;
+    const secondPriority = second.status === "BILL_PRINTED" ? 0 : 1;
+
+    if (firstPriority !== secondPriority) {
+      return firstPriority - secondPriority;
+    }
+
+    return new Date(second.updatedAt || second.createdAt) - new Date(first.updatedAt || first.createdAt);
+  });
+}
+
+function buildBillQueueStats(orders) {
+  return orders.reduce(
+    (stats, order) => {
+      stats.all += 1;
+
+      if (order.status === "BILL_PRINTED") {
+        stats.ready += 1;
+      } else {
+        stats.needsBill += 1;
+      }
+
+      return stats;
+    },
+    { all: 0, needsBill: 0, ready: 0 }
+  );
+}
+
+function filterBillsForCashier(orders, billFilter) {
+  if (billFilter === "READY") {
+    return orders.filter((order) => order.status === "BILL_PRINTED");
+  }
+
+  if (billFilter === "NEEDS_BILL") {
+    return orders.filter((order) => order.status !== "BILL_PRINTED");
+  }
+
+  return orders;
+}
+
 function formatMoney(value, currency = "UGX") {
   return `${currency} ${Number(value).toLocaleString()}`;
 }
@@ -342,7 +446,19 @@ function formatMoney(value, currency = "UGX") {
 function formatOrderStatus(status = "OPEN") {
   return status
     .toLowerCase()
-    .split("_")
+    .replace("_", " ")
+    .split(" ")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+function formatTime(value) {
+  if (!value) {
+    return "recently";
+  }
+
+  return new Intl.DateTimeFormat("en", {
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(new Date(value));
 }

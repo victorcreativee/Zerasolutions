@@ -15,6 +15,7 @@ import {
 const salesRoles = ["Owner", "Manager", "Cashier", "Waiter", "Store Keeper", "Pharmacist", "Front Desk"];
 const cashierRoles = ["Owner", "Manager", "Cashier"];
 const productRoles = ["Owner", "Manager", "Store Keeper", "Pharmacist"];
+const reportRoles = ["Owner", "Manager", "Cashier"];
 
 export const businessNavigation = [
   {
@@ -27,10 +28,10 @@ export const businessNavigation = [
   {
     label: "Commerce",
     items: [
-      { label: "Open bills", path: "/open-bills", icon: ClipboardList, roles: cashierRoles, modules: ["POS"], tableServiceOnly: true },
+      { label: "Settle bills", path: "/open-bills", icon: ClipboardList, roles: cashierRoles, modules: ["POS"], tableServiceOnly: true },
       { label: "Sales", path: "/sales", icon: BarChart3, roles: salesRoles, modules: ["POS"] },
       { label: "Customers", path: "/customers", icon: UserRound, roles: salesRoles, modules: ["POS"] },
-      { label: "Products", path: "/products", icon: Package, roles: productRoles, modules: ["POS"] }
+      { label: "Products", path: "/products", icon: Package, roles: productRoles, modules: ["POS", "INVENTORY"] }
     ]
   },
   {
@@ -43,7 +44,7 @@ export const businessNavigation = [
   {
     label: "Insights",
     items: [
-      { label: "Reports", path: "/reports", icon: BarChart3, roles: ["Owner", "Manager"], modules: ["REPORTS", "POS"] },
+      { label: "Reports", path: "/reports", icon: BarChart3, roles: reportRoles, modules: ["REPORTS", "POS"] },
       { label: "Finance", path: "/finance", icon: Wallet, roles: ["Owner"], modules: ["FINANCE"] }
     ]
   },
@@ -67,7 +68,7 @@ const routeMetadata = {
   "/account": { title: "Account", section: "Personal settings" },
   "/dashboard": { title: "Dashboard", section: "Workspace" },
   "/pos": { title: "Point of Sale", section: "Work" },
-  "/open-bills": { title: "Open Bills", section: "Commerce" },
+  "/open-bills": { title: "Settle Bills", section: "Commerce" },
   "/sales": { title: "Sales", section: "Commerce" },
   "/customers": { title: "Customers", section: "Commerce" },
   "/products": { title: "Products", section: "Commerce" },

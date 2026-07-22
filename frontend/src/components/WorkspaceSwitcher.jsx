@@ -1,4 +1,4 @@
-import { ChevronDown, MapPin, Store, Table2 } from "lucide-react";
+import { ChevronDown, Hotel, MapPin, Pill, ShoppingBasket, Store, Table2 } from "lucide-react";
 
 export default function WorkspaceSwitcher({
   activeBranchId,
@@ -80,6 +80,8 @@ export default function WorkspaceSwitcher({
 }
 
 function getPOSModeInfo(business) {
+  const type = business?.type?.toLowerCase() || "";
+
   if (business?.posMode === "TABLE_SERVICE") {
     return {
       icon: Table2,
@@ -87,8 +89,36 @@ function getPOSModeInfo(business) {
     };
   }
 
+  if (type.includes("pharmacy")) {
+    return {
+      icon: Pill,
+      label: "Pharmacy counter"
+    };
+  }
+
+  if (type.includes("hotel")) {
+    return {
+      icon: Hotel,
+      label: "Front desk"
+    };
+  }
+
+  if (type.includes("supermarket")) {
+    return {
+      icon: ShoppingBasket,
+      label: "Supermarket checkout"
+    };
+  }
+
+  if (type.includes("retail")) {
+    return {
+      icon: Store,
+      label: "Retail checkout"
+    };
+  }
+
   return {
     icon: Store,
-    label: "Retail checkout"
+    label: "Checkout"
   };
 }

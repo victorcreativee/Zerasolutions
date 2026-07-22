@@ -61,6 +61,13 @@ enum PaymentMethod {
   CARD
   MOBILE_MONEY
 }
+
+enum StockAdjustmentType {
+  SET
+  INCREASE
+  DECREASE
+}
+
 enum POSMode {
   RETAIL_CHECKOUT
   TABLE_SERVICE
@@ -97,6 +104,7 @@ model User {
   memberships BusinessUser[]
   sales        Sale[]
   posOrders    POSOrder[]
+  stockAdjustments StockAdjustment[]
 }
 
 model Business {
@@ -119,6 +127,8 @@ model Business {
   roles       Role[]
   sales       Sale[]
   posOrders   POSOrder[]
+  inventoryStocks InventoryStock[]
+  stockAdjustments StockAdjustment[]
 }
 
 model Branch {
@@ -134,6 +144,8 @@ model Branch {
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   sales    Sale[]
   posOrders POSOrder[]
+  inventoryStocks InventoryStock[]
+  stockAdjustments StockAdjustment[]
 
   @@index([businessId])
 }
@@ -198,6 +210,8 @@ model Product {
   business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
   saleItems SaleItem[]
   posOrderItems POSOrderItem[]
+  inventoryStocks InventoryStock[]
+  stockAdjustments StockAdjustment[]
 
   @@unique([businessId, sku])
   @@unique([businessId, barcode])
@@ -269,6 +283,50 @@ model SaleItem {
   @@index([saleId])
   @@index([productId])
 }
+
+model InventoryStock {
+  id           String   @id @default(cuid())
+  quantity     Int      @default(0)
+  reorderLevel Int      @default(0)
+  productId    String
+  branchId     String
+  businessId   String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Cascade)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, branchId])
+  @@index([businessId])
+  @@index([branchId])
+}
+
+model StockAdjustment {
+  id             String              @id @default(cuid())
+  type           StockAdjustmentType @default(SET)
+  quantityBefore Int
+  quantityChange Int
+  quantityAfter  Int
+  note           String?
+  productId      String
+  branchId       String
+  businessId     String
+  userId         String
+  createdAt      DateTime            @default(now())
+
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  branch   Branch   @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([businessId])
+  @@index([branchId])
+  @@index([productId])
+  @@index([userId])
+}
+
 model POSTable {
   id         String         @id @default(cuid())
   name       String

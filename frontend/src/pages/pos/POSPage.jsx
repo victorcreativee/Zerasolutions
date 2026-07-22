@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Minus, Plus, Printer, ReceiptText, Search, ShoppingCart, Store, Table2, Trash2, UserRound, X } from "lucide-react";
+import { Hotel, Minus, Pill, Plus, Printer, ReceiptText, Search, ShoppingBasket, ShoppingCart, Store, Table2, Trash2, UserRound, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import Button from "../../components/Button.jsx";
 import PrintableBill from "../../components/PrintableBill.jsx";
@@ -29,6 +29,7 @@ export default function POSPage() {
   const [customerSearch, setCustomerSearch] = useState("");
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [selectedTableId, setSelectedTableId] = useState("");
+  const [tableFilter, setTableFilter] = useState("ALL");
   const [newTableName, setNewTableName] = useState("");
   const [productCategoryFilter, setProductCategoryFilter] = useState("");
   const [lastSale, setLastSale] = useState(null);
@@ -85,8 +86,11 @@ export default function POSPage() {
     () => tables.find((table) => table.id === selectedTableId) || null,
     [tables, selectedTableId]
   );
-  const orderForReview = reviewMode === "PAY_ORDER" ? activeTableOrder : reviewMode === "ORDER" ? sentOrderForBill : null;
-  const orderSentInModal = reviewMode === "ORDER" && Boolean(sentOrderForBill);
+  const tableStats = useMemo(() => buildTableStats(tables), [tables]);
+  const visibleTables = useMemo(() => filterTablesForPOS(tables, tableFilter), [tableFilter, tables]);
+  const isTableOrderReview = isTableService && reviewMode !== "PAY_ORDER";
+  const orderForReview = reviewMode === "PAY_ORDER" ? activeTableOrder : isTableOrderReview ? sentOrderForBill : null;
+  const orderSentInModal = isTableOrderReview && Boolean(sentOrderForBill);
   const reviewItems =
     orderForReview
       ? orderForReview.items?.map((item) => ({
@@ -282,6 +286,11 @@ export default function POSPage() {
       return;
     }
 
+    if (isTableService) {
+      await handleSendTableOrder();
+      return;
+    }
+
     setSavingSale(true);
     setSaleError("");
     setSaleMessage("");
@@ -397,7 +406,7 @@ export default function POSPage() {
   function openReview(nextMode) {
     setSaleError("");
     setSentOrderForBill(null);
-    setReviewMode(nextMode);
+    setReviewMode(isTableService && nextMode === "SALE" ? "ORDER" : nextMode);
     setReviewOpen(true);
   }
 
@@ -434,7 +443,7 @@ export default function POSPage() {
           <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[28rem]">
             <StatusPill label={activeBusiness?.name || "No business"} helper="Business" ready={Boolean(activeBusiness)} />
             <StatusPill label={activeBranch?.name || "No branch"} helper="Branch" ready={branchReady} />
-            <StatusPill label={posModeLabel(posMode)} helper="Sales mode" ready={Boolean(activeBusiness)} />
+            <StatusPill label={modeInfo.title} helper="Sales mode" ready={Boolean(activeBusiness)} />
             <StatusPill label={activeRoleName || "No role"} helper="Access" ready={roleReady} />
           </div>
         </div>
@@ -460,6 +469,11 @@ export default function POSPage() {
                   ))}
                 </div>
               </div>
+              <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                <StatusPill label={modeInfo.workflow} helper="Workflow" ready />
+                <StatusPill label={modeInfo.requirement} helper="Rule" ready />
+                <StatusPill label={modeInfo.nextFoundation} helper="Next foundation" ready />
+              </div>
             </div>
           </section>
 
@@ -482,12 +496,10 @@ export default function POSPage() {
                     Current: {selectedTable.name}
                     {activeTableOrder ? (
                       <span className="ml-2 text-zera-ink">
-                        · Open bill {formatMoney(activeOrderSubtotal, activeBusiness?.currency)}
+                        · {activeTableOrder.status === "BILL_PRINTED" ? "Bill printed" : "Open bill"} {formatMoney(activeOrderSubtotal, activeBusiness?.currency)}
                       </span>
                     ) : selectedTable.serviceSummary?.todaySalesCount ? (
-                      <span className="ml-2 text-zera-ink">
-                        · {formatMoney(selectedTable.serviceSummary.todaySalesTotal, activeBusiness?.currency)} today
-                      </span>
+                      <span className="ml-2 text-zera-ink">· Paid today</span>
                     ) : null}
                   </div>
                 ) : null}
@@ -495,50 +507,81 @@ export default function POSPage() {
 
               {tableError ? <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{tableError}</p> : null}
 
-              <div className="grid gap-2 sm:grid-cols-4">
-                {tables.map((table) => (
+              <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
+                {[
+                  { label: "All tables", value: "ALL", count: tableStats.all },
+                  { label: "Open orders", value: "OPEN", count: tableStats.open },
+                  { label: "Bill printed", value: "BILL_PRINTED", count: tableStats.billPrinted },
+                  { label: "Available", value: "AVAILABLE", count: tableStats.available }
+                ].map((filter) => (
                   <button
-                    key={table.id}
+                    key={filter.value}
                     type="button"
-                    className={`min-h-24 rounded-md border px-3 py-3 text-left transition ${
-                      selectedTableId === table.id ? "border-zera-green bg-zera-mint text-zera-ink" : "border-zera-line bg-[#f7faf8] hover:border-zera-green"
+                    className={`min-h-10 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
+                      tableFilter === filter.value
+                        ? "border-zera-green bg-zera-green text-white"
+                        : "border-zera-line bg-white text-zera-ink hover:border-zera-green hover:bg-zera-mint hover:text-zera-green"
                     }`}
-                    onClick={() => setSelectedTableId(table.id)}
+                    onClick={() => setTableFilter(filter.value)}
                   >
-                    <span className="flex items-start justify-between gap-2">
-                      <span className="block font-bold">{table.name}</span>
-                      {table.serviceSummary?.activeOrder ? (
-                        <span className="rounded-md bg-white px-2 py-1 text-[11px] font-bold text-amber-700">
-                          Open bill
-                        </span>
-                      ) : table.serviceSummary?.todaySalesCount ? (
-                        <span className="rounded-md bg-white px-2 py-1 text-[11px] font-bold text-zera-green">
-                          Paid
-                        </span>
-                      ) : null}
+                    {filter.label}
+                    <span className={`ml-2 rounded-md px-2 py-0.5 text-xs ${tableFilter === filter.value ? "bg-white/20 text-white" : "bg-[#f7faf8] text-zera-muted"}`}>
+                      {filter.count}
                     </span>
-                    <span className="mt-2 block text-xs text-zera-muted">
-                      {table.seats} seats · {formatTableStatus(table.status)}
-                    </span>
-                    <span className="mt-2 block text-xs font-semibold text-zera-ink">
-                      {table.serviceSummary?.activeOrder
-                        ? formatMoney(table.serviceSummary.activeOrder.total, activeBusiness?.currency)
-                        : table.serviceSummary?.todaySalesCount
-                        ? formatMoney(table.serviceSummary.todaySalesTotal, activeBusiness?.currency)
-                        : "No sales today"}
-                    </span>
-                    {table.serviceSummary?.activeOrder ? (
-                      <span className="mt-1 block truncate text-xs text-zera-muted">{table.serviceSummary.activeOrder.orderNumber}</span>
-                    ) : table.serviceSummary?.lastReceiptNumber ? (
-                      <span className="mt-1 block truncate text-xs text-zera-muted">Last: {table.serviceSummary.lastReceiptNumber}</span>
-                    ) : null}
                   </button>
                 ))}
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-4">
+                {visibleTables.map((table) => {
+                  const tableState = getTableServiceState(table);
+
+                  return (
+                    <button
+                      key={table.id}
+                      type="button"
+                      className={`min-h-24 rounded-md border px-3 py-3 text-left transition ${
+                        selectedTableId === table.id ? "border-zera-green bg-zera-mint text-zera-ink" : "border-zera-line bg-[#f7faf8] hover:border-zera-green"
+                      }`}
+                      onClick={() => setSelectedTableId(table.id)}
+                    >
+                      <span className="flex items-start justify-between gap-2">
+                        <span className="block font-bold">{table.name}</span>
+                        <span className={`rounded-md bg-white px-2 py-1 text-[11px] font-bold ${tableState.className}`}>
+                          {tableState.label}
+                        </span>
+                      </span>
+                      <span className="mt-2 block text-xs text-zera-muted">
+                        {table.seats} seats · {formatTableStatus(table.status)}
+                      </span>
+                      <span className="mt-2 block text-xs font-semibold text-zera-ink">
+                        {table.serviceSummary?.activeOrder
+                          ? formatMoney(table.serviceSummary.activeOrder.total, activeBusiness?.currency)
+                          : table.serviceSummary?.todaySalesCount
+                          ? "Ready for next guest"
+                          : "Ready"}
+                      </span>
+                      {table.serviceSummary?.activeOrder ? (
+                        <span className="mt-1 block truncate text-xs text-zera-muted">
+                          {table.serviceSummary.activeOrder.status === "BILL_PRINTED" ? "Waiting cashier" : table.serviceSummary.activeOrder.orderNumber}
+                        </span>
+                      ) : table.serviceSummary?.lastReceiptNumber ? (
+                        <span className="mt-1 block truncate text-xs text-zera-muted">Closed today</span>
+                      ) : null}
+                    </button>
+                  );
+                })}
               </div>
 
               {!loadingTables && !tables.length ? (
                 <div className="rounded-md border border-dashed border-zera-line bg-[#f7faf8] p-5 text-sm text-zera-muted">
                   No tables exist for this branch yet. Owners and managers can add the first table below.
+                </div>
+              ) : null}
+
+              {!loadingTables && tables.length > 0 && visibleTables.length === 0 ? (
+                <div className="rounded-md border border-dashed border-zera-line bg-[#f7faf8] p-5 text-sm text-zera-muted">
+                  No tables match this filter.
                 </div>
               ) : null}
 
@@ -897,7 +940,13 @@ export default function POSPage() {
                 onClick={() => (isTableService ? openTableReview() : openReview("SALE"))}
               >
                 <ReceiptText size={18} />
-                {canPaySelectedTableBill ? "Receive table payment" : canPrintSelectedTableBill ? "Print customer bill" : modeInfo.reviewButtonLabel}
+                {getPrimaryPOSActionLabel({
+                  canPaySelectedTableBill,
+                  canPrintSelectedTableBill,
+                  cartItems,
+                  isTableService,
+                  reviewButtonLabel: modeInfo.reviewButtonLabel
+                })}
               </Button>
               {reviewDisabledReason ? <p className="text-sm text-zera-muted">{reviewDisabledReason}</p> : null}
             </div>
@@ -911,17 +960,17 @@ export default function POSPage() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold text-zera-green">
-                  {reviewMode === "PAY_ORDER" ? "Cashier payment" : orderSentInModal ? "Customer bill" : reviewMode === "ORDER" ? "Table order" : "Draft sale"}
+                  {reviewMode === "PAY_ORDER" ? "Cashier payment" : orderSentInModal ? "Customer bill" : isTableOrderReview ? "Table order" : "Draft sale"}
                 </p>
                 <h3 className="mt-1 text-2xl font-bold">
-                  {reviewMode === "PAY_ORDER" ? "Receive payment" : orderSentInModal ? "Print customer bill" : reviewMode === "ORDER" ? "Send to table bill" : "Review cart"}
+                  {reviewMode === "PAY_ORDER" ? "Receive payment" : orderSentInModal ? "Print customer bill" : isTableOrderReview ? "Send table order" : "Review cart"}
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-zera-muted">
                   {reviewMode === "PAY_ORDER"
                     ? "Cashier confirms payment, closes the table bill, frees the table, and prints the final receipt."
                     : orderSentInModal
                       ? "The order has been added to the table bill. Print the customer bill when the guest asks to pay; payment and receipt remain with cashier."
-                      : reviewMode === "ORDER"
+                      : isTableOrderReview
                       ? "Waiter sends these items to the open table bill. Payment and receipt happen later at cashier."
                       : "Confirm the cart and record a manual sale. Payment integrations and inventory deductions are not connected yet."}
                 </p>
@@ -955,7 +1004,7 @@ export default function POSPage() {
 
             <div className="mt-5 rounded-md border border-zera-line p-4">
               <div className="flex items-center justify-between">
-                <span className="font-bold">{reviewMode === "PAY_ORDER" ? "Amount due" : reviewMode === "ORDER" ? "Order total" : "Draft total"}</span>
+                <span className="font-bold">{reviewMode === "PAY_ORDER" ? "Amount due" : isTableOrderReview ? "Order total" : "Draft total"}</span>
                 <span className="text-2xl font-bold">{formatMoney(reviewSubtotal, activeBusiness?.currency)}</span>
               </div>
             </div>
@@ -978,7 +1027,7 @@ export default function POSPage() {
               </div>
             ) : null}
 
-            {reviewMode !== "ORDER" ? (
+            {!isTableOrderReview ? (
               <label className="mt-5 block">
                 <span className="mb-2 block text-sm font-medium text-zera-ink">Payment method</span>
                 <select
@@ -996,7 +1045,7 @@ export default function POSPage() {
             {saleError ? <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{saleError}</p> : null}
             {orderSentInModal ? (
               <p className="mt-4 rounded-md bg-zera-mint px-3 py-2 text-sm font-semibold text-zera-green">
-                Order sent. Print the customer bill to finish this waiter handoff.
+                Order sent. Print the customer bill when the guest asks to pay, then cashier will close the table.
               </p>
             ) : null}
 
@@ -1019,14 +1068,14 @@ export default function POSPage() {
                   <Button
                     type="button"
                     disabled={savingSale || savingOrder}
-                    onClick={reviewMode === "PAY_ORDER" ? handlePayTableOrder : reviewMode === "ORDER" ? handleSendTableOrder : handleRecordSale}
+                    onClick={reviewMode === "PAY_ORDER" ? handlePayTableOrder : isTableOrderReview ? handleSendTableOrder : handleRecordSale}
                   >
                     {savingSale || savingOrder
                       ? "Saving..."
                       : reviewMode === "PAY_ORDER"
                         ? "Receive payment"
-                        : reviewMode === "ORDER"
-                          ? "Send order"
+                        : isTableOrderReview
+                          ? "Send table order"
                           : "Record sale"}
                   </Button>
                 </>
@@ -1075,12 +1124,75 @@ function getEffectivePOSMode(business) {
   return "RETAIL_CHECKOUT";
 }
 
-function posModeLabel(posMode) {
-  return posMode === "TABLE_SERVICE" ? "Table-service POS" : "Retail checkout POS";
-}
-
 function formatTableStatus(status = "AVAILABLE") {
   return status.toLowerCase().replace("_", " ");
+}
+
+function getTableServiceState(table) {
+  const activeOrder = table.serviceSummary?.activeOrder;
+
+  if (activeOrder?.status === "BILL_PRINTED") {
+    return {
+      label: "Bill printed",
+      className: "text-amber-700"
+    };
+  }
+
+  if (activeOrder) {
+    return {
+      label: "Open order",
+      className: "text-amber-700"
+    };
+  }
+
+  if (table.serviceSummary?.todaySalesCount) {
+    return {
+      label: "Closed",
+      className: "text-zera-green"
+    };
+  }
+
+  return {
+    label: "Available",
+    className: "text-zera-muted"
+  };
+}
+
+function buildTableStats(tables) {
+  return tables.reduce(
+    (stats, table) => {
+      const activeOrder = table.serviceSummary?.activeOrder;
+
+      stats.all += 1;
+
+      if (activeOrder?.status === "BILL_PRINTED") {
+        stats.billPrinted += 1;
+      } else if (activeOrder) {
+        stats.open += 1;
+      } else {
+        stats.available += 1;
+      }
+
+      return stats;
+    },
+    { all: 0, available: 0, billPrinted: 0, open: 0 }
+  );
+}
+
+function filterTablesForPOS(tables, tableFilter) {
+  if (tableFilter === "OPEN") {
+    return tables.filter((table) => table.serviceSummary?.activeOrder && table.serviceSummary.activeOrder.status !== "BILL_PRINTED");
+  }
+
+  if (tableFilter === "BILL_PRINTED") {
+    return tables.filter((table) => table.serviceSummary?.activeOrder?.status === "BILL_PRINTED");
+  }
+
+  if (tableFilter === "AVAILABLE") {
+    return tables.filter((table) => !table.serviceSummary?.activeOrder);
+  }
+
+  return tables;
 }
 
 function getReviewDisabledReason({ cartItems, isTableService, selectedTableId, activeTableOrder, canPayTableBills }) {
@@ -1107,7 +1219,29 @@ function getReviewDisabledReason({ cartItems, isTableService, selectedTableId, a
   return "Add menu items to open this table bill.";
 }
 
+function getPrimaryPOSActionLabel({ canPaySelectedTableBill, canPrintSelectedTableBill, cartItems, isTableService, reviewButtonLabel }) {
+  if (!isTableService) {
+    return reviewButtonLabel;
+  }
+
+  if (cartItems.length) {
+    return "Send table order";
+  }
+
+  if (canPaySelectedTableBill) {
+    return "Receive table payment";
+  }
+
+  if (canPrintSelectedTableBill) {
+    return "Print customer bill";
+  }
+
+  return "Select table and add items";
+}
+
 function getPOSModeInfo(posMode, roleName = "", businessType = "") {
+  const normalizedType = businessType.toLowerCase();
+
   if (posMode === "TABLE_SERVICE") {
     return {
       icon: Table2,
@@ -1124,6 +1258,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       requirement: "Table required before checkout",
       workflow: "Table first, order second, cashier payment last",
       workflowSteps: ["Choose table", "Add order", "Cashier closes bill"],
+      nextFoundation: "Kitchen tickets later",
       counterHint: "Staff select a table before adding items.",
       customerTitle: "Customer",
       customerSearchPlaceholder: "Search saved customers",
@@ -1132,9 +1267,9 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
     };
   }
 
-  if (roleName === "Pharmacist" || businessType.toLowerCase().includes("pharmacy")) {
+  if (roleName === "Pharmacist" || normalizedType.includes("pharmacy")) {
     return {
-      icon: Store,
+      icon: Pill,
       kicker: "Pharmacy counter",
       title: "Pharmacy checkout POS",
       shortTitle: "pharmacy checkout",
@@ -1148,6 +1283,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       requirement: "No table required",
       workflow: "Customer optional, item check, payment last",
       workflowSteps: ["Find item", "Confirm quantity", "Record payment"],
+      nextFoundation: "Batch and expiry later",
       counterHint: "Pharmacy sales use customer lookup and quick product search.",
       customerTitle: "Patient / customer",
       customerSearchPlaceholder: "Search patient or customer",
@@ -1156,9 +1292,9 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
     };
   }
 
-  if (roleName === "Front Desk" || businessType.toLowerCase().includes("hotel")) {
+  if (roleName === "Front Desk" || normalizedType.includes("hotel")) {
     return {
-      icon: Store,
+      icon: Hotel,
       kicker: "Front desk",
       title: "Front desk service POS",
       shortTitle: "service checkout",
@@ -1172,11 +1308,62 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       requirement: "No table required",
       workflow: "Guest optional, service charge, payment last",
       workflowSteps: ["Choose guest", "Add service", "Record payment"],
+      nextFoundation: "Rooms and folios later",
       counterHint: "Front desk sales are built around guest services and charges.",
       customerTitle: "Guest / customer",
       customerSearchPlaceholder: "Search guest or customer",
       customerSelectLabel: "Guest or customer",
       walkInLabel: "Walk-in guest"
+    };
+  }
+
+  if (normalizedType.includes("supermarket")) {
+    return {
+      icon: ShoppingBasket,
+      kicker: "Supermarket checkout",
+      title: "Supermarket checkout POS",
+      shortTitle: "supermarket checkout",
+      description: "Move fast through basket sales with barcode-ready search, clear quantities, and simple payment.",
+      productSectionTitle: "Basket entry",
+      productEntryHint: "Search product, category, SKU, or barcode before adding items to the basket.",
+      emptyCartText: "Tap active supermarket items to prepare the customer basket.",
+      reviewTitle: "Basket review",
+      reviewDescription: "Confirm the basket and payment method before recording the supermarket sale.",
+      reviewButtonLabel: "Review basket sale",
+      requirement: "No table required",
+      workflow: "Scan/search, basket, payment last",
+      workflowSteps: ["Find item", "Build basket", "Record payment"],
+      nextFoundation: "Barcode stock sync later",
+      counterHint: "Supermarket checkout prioritizes fast search, quantities, and barcode flow.",
+      customerTitle: "Customer",
+      customerSearchPlaceholder: "Search saved customers",
+      customerSelectLabel: "Sale customer",
+      walkInLabel: "Walk-in customer"
+    };
+  }
+
+  if (normalizedType.includes("retail")) {
+    return {
+      icon: Store,
+      kicker: "Retail counter",
+      title: "Retail shop checkout POS",
+      shortTitle: "retail checkout",
+      description: "Run fast shop-counter sales with customer selection available for repeat buyers and account history later.",
+      productSectionTitle: "Product entry",
+      productEntryHint: "Search products, categories, SKU, or barcode before adding items to the cart.",
+      emptyCartText: "Tap active retail items to prepare a checkout cart.",
+      reviewTitle: "Checkout review",
+      reviewDescription: "Confirm the cart and payment method before recording the retail sale.",
+      reviewButtonLabel: "Review retail sale",
+      requirement: "No table required",
+      workflow: "Product first, cart second, payment last",
+      workflowSteps: ["Find product", "Check cart", "Record payment"],
+      nextFoundation: "Inventory sync later",
+      counterHint: "Retail checkout focuses on clear product search and simple payment.",
+      customerTitle: "Customer",
+      customerSearchPlaceholder: "Search saved customers",
+      customerSelectLabel: "Sale customer",
+      walkInLabel: "Walk-in customer"
     };
   }
 
@@ -1196,6 +1383,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       requirement: "No table required",
       workflow: "Catalog first, cart second, payment last",
       workflowSteps: ["Find product", "Check cart", "Record payment"],
+      nextFoundation: "Stock controls later",
       counterHint: "Store checkout focuses on clear product search and catalog accuracy.",
       customerTitle: "Customer",
       customerSearchPlaceholder: "Search saved customers",
@@ -1219,6 +1407,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
     requirement: "No table required",
     workflow: "Cart first, customer optional, payment last",
     workflowSteps: ["Add products", "Attach customer", "Record payment"],
+    nextFoundation: "Inventory sync later",
     counterHint: "Counter sales are optimized for fast product search and simple payment.",
     customerTitle: "Customer",
     customerSearchPlaceholder: "Search saved customers",

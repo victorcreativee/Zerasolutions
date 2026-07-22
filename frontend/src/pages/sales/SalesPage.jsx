@@ -5,17 +5,18 @@ import PrintableReceipt from "../../components/PrintableReceipt.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
 import { getRecentSales, voidSale } from "../../services/posService.js";
 
+const periodOptions = [
+  { label: "Today", value: "today" },
+  { label: "This week", value: "week" },
+  { label: "This month", value: "month" }
+];
+
 export default function SalesPage() {
   const { activeBusiness, activeBusinessId, activeRoleName, branches } = useWorkspace();
   const [sales, setSales] = useState([]);
   const [selectedSaleId, setSelectedSaleId] = useState("");
-  const [filters, setFilters] = useState({
-    branchId: "",
-    dateFrom: "",
-    dateTo: "",
-    paymentMethod: "",
-    status: ""
-  });
+  const [filters, setFilters] = useState(() => createDefaultFilters());
+  const [activePeriod, setActivePeriod] = useState("today");
   const [loading, setLoading] = useState(false);
   const [voidingSaleId, setVoidingSaleId] = useState("");
   const [error, setError] = useState("");
@@ -63,6 +64,7 @@ export default function SalesPage() {
   }
 
   function updateFilter(key, value) {
+    setActivePeriod("custom");
     setFilters((current) => ({
       ...current,
       [key]: value
@@ -70,13 +72,13 @@ export default function SalesPage() {
   }
 
   function clearFilters() {
-    setFilters({
-      branchId: "",
-      dateFrom: "",
-      dateTo: "",
-      paymentMethod: "",
-      status: ""
-    });
+    setActivePeriod("today");
+    setFilters(createDefaultFilters());
+  }
+
+  function applyPeriod(period) {
+    setActivePeriod(period);
+    setFilters((current) => ({ ...current, ...getPeriodRange(period) }));
   }
 
   async function handleVoidSale(sale) {
@@ -144,6 +146,24 @@ export default function SalesPage() {
               </div>
             </div>
 
+            <div className="mb-4 flex flex-wrap gap-2">
+              {periodOptions.map((period) => (
+                <button
+                  key={period.value}
+                  type="button"
+                  className={`min-h-10 rounded-md border px-3 text-sm font-semibold transition ${
+                    activePeriod === period.value
+                      ? "border-zera-green bg-zera-green text-white"
+                      : "border-zera-line bg-white text-zera-ink hover:border-zera-green hover:bg-zera-mint hover:text-zera-green"
+                  }`}
+                  onClick={() => applyPeriod(period.value)}
+                >
+                  {period.label}
+                </button>
+              ))}
+              {activePeriod === "custom" ? <span className="inline-flex min-h-10 items-center rounded-md bg-[#f7faf8] px-3 text-sm font-semibold text-zera-muted">Custom range</span> : null}
+            </div>
+
             <div className="grid gap-3 md:grid-cols-6">
               <label className="block md:col-span-2">
                 <span className="mb-2 block text-sm font-medium text-zera-ink">Branch</span>
@@ -190,7 +210,7 @@ export default function SalesPage() {
             </div>
 
             <Button type="button" variant="ghost" className="mt-4 px-3" onClick={clearFilters}>
-              Clear filters
+              Reset today
             </Button>
           </section>
 
@@ -225,7 +245,12 @@ export default function SalesPage() {
                           <h4 className="font-bold">{sale.receiptNumber}</h4>
                           <p className="mt-1 text-sm text-zera-muted">{formatDate(sale.createdAt)}</p>
                           <p className="mt-1 text-xs font-semibold text-zera-muted">{sale.customer?.name || "Walk-in customer"}</p>
-                          {sale.table?.name ? <p className="mt-1 text-xs font-semibold text-zera-green">{sale.table.name}</p> : null}
+                          {sale.table?.name ? (
+                            <p className="mt-1 text-xs font-semibold text-zera-green">
+                              {sale.table.name}
+                              {sale.posOrder?.waiter?.name ? ` · ${sale.posOrder.waiter.name}` : ""}
+                            </p>
+                          ) : null}
                         </div>
                         <div className="text-right">
                           <p className="font-bold">{formatMoney(sale.total, activeBusiness.currency)}</p>
@@ -258,9 +283,10 @@ export default function SalesPage() {
                     <ReceiptInfo icon={ReceiptText} label="Table" value={selectedSale.table?.name || "Counter sale"} />
                   </div>
 
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div className="mt-3 grid gap-3 sm:grid-cols-3">
                     <ReceiptInfo icon={paymentIcon(selectedSale.paymentMethod)} label="Payment" value={formatPayment(selectedSale.paymentMethod)} />
                     <ReceiptInfo icon={UserRound} label="Cashier" value={selectedSale.cashier?.name || "Not set"} />
+                    <ReceiptInfo icon={UserRound} label="Waiter" value={selectedSale.posOrder?.waiter?.name || "Counter sale"} />
                   </div>
 
                   <div className="mt-5 space-y-3">
@@ -376,6 +402,41 @@ function paymentIcon(method) {
 
 function formatPayment(method) {
   return method.replace("_", " ").toLowerCase();
+}
+
+function createDefaultFilters() {
+  return {
+    branchId: "",
+    paymentMethod: "",
+    status: "",
+    ...getPeriodRange("today")
+  };
+}
+
+function getPeriodRange(period) {
+  const today = new Date();
+  const start = new Date(today);
+
+  if (period === "week") {
+    const day = start.getDay() || 7;
+    start.setDate(start.getDate() - day + 1);
+  }
+
+  if (period === "month") {
+    start.setDate(1);
+  }
+
+  return {
+    dateFrom: toDateInputValue(start),
+    dateTo: toDateInputValue(today)
+  };
+}
+
+function toDateInputValue(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function formatMoney(value, currency = "UGX") {

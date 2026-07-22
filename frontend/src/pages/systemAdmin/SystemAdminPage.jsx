@@ -1,28 +1,25 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Boxes,
   Building2,
   CheckCircle2,
-  ChevronDown,
-  Eye,
   Hotel,
   KeyRound,
   MapPin,
   Pill,
   Plus,
+  RefreshCw,
   Search,
   Settings,
   ShieldCheck,
   ShoppingBasket,
   Store,
-  UserRound,
   Users,
   Utensils
 } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import Input from "../../components/Input.jsx";
 import PageHeader from "../../components/PageHeader.jsx";
-import StatCard from "../../components/StatCard.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
 import { updateBranchStatus, updateBusinessModule } from "../../services/setupService.js";
 import { getSystemBusinesses, provisionBusiness, updateSystemBusinessSettings } from "../../services/systemAdminService.js";
@@ -45,49 +42,79 @@ const businessTypeOptions = [
     label: "Bar and restaurant",
     posMode: "TABLE_SERVICE",
     icon: Utensils,
-    helper: "Table orders, waiter flow, bar tabs, and restaurant-style checkout."
+    helper: "Tables, waiters, open bills, and cashier settlement."
   },
   {
     value: "Retail shop",
     label: "Retail shop",
     posMode: "RETAIL_CHECKOUT",
     icon: Store,
-    helper: "Simple counter sales for daily retail shop workflows."
+    helper: "Simple counter sales for daily shop workflows."
   },
   {
     value: "Supermarket",
     label: "Supermarket",
     posMode: "RETAIL_CHECKOUT",
     icon: ShoppingBasket,
-    helper: "Fast item scanning and basket checkout foundation."
+    helper: "Fast checkout for baskets, barcodes, and many products."
   },
   {
     value: "Pharmacy",
     label: "Pharmacy",
     posMode: "RETAIL_CHECKOUT",
     icon: Pill,
-    helper: "Retail checkout now, batch and medicine controls later."
+    helper: "Pharmacy sales now, batch and medicine controls later."
   },
   {
     value: "Hotel",
     label: "Hotel",
     posMode: "RETAIL_CHECKOUT",
     icon: Hotel,
-    helper: "Guest, room, folio, and service sales will come later."
+    helper: "Front-desk service sales now, room and folio workflows later."
   }
 ];
 
-const adminTabs = [
-  { key: "overview", label: "Overview", icon: ShieldCheck },
-  { key: "create", label: "Create", icon: Plus },
-  { key: "businesses", label: "Directory", icon: Store },
-  { key: "details", label: "Details", icon: Building2 },
-  { key: "settings", label: "Settings", icon: Settings }
+const platformProducts = [
+  {
+    key: "POS",
+    title: "Zera POS",
+    icon: Store,
+    summary: "Fast sales for retail shops, supermarkets, pharmacies, bars, and restaurants.",
+    detail: "Supports retail checkout and table-service workflows so each business sells in the way that matches its daily work."
+  },
+  {
+    key: "INVENTORY",
+    title: "Inventory",
+    icon: Boxes,
+    summary: "Products, stock visibility, branches, and warehouse foundations.",
+    detail: "Designed to grow from simple product records into stock transfers, reorder alerts, and multi-location inventory."
+  },
+  {
+    key: "FINANCE",
+    title: "Finance",
+    icon: ShieldCheck,
+    summary: "Cash, expenses, payment tracking, and business reporting.",
+    detail: "Keeps owner and manager finance workflows understandable before adding heavier accounting features."
+  },
+  {
+    key: "OPERATIONS",
+    title: "Operations",
+    icon: Settings,
+    summary: "Business-type workflows for restaurants, hotels, pharmacies, and services.",
+    detail: "Keeps Zera modular so every business sees the tools it needs, not a crowded ERP interface."
+  },
+  {
+    key: "REPORTS",
+    title: "Reports",
+    icon: Users,
+    summary: "Daily, weekly, and monthly summaries for owners and managers.",
+    detail: "Turns POS, inventory, and team activity into clear decisions without overwhelming small business teams."
+  }
 ];
 
 const selectedBusinessStorageKey = "zera_system_admin_selected_business";
 
-function getBusinessTypeOption(type) {
+function getBusinessTypeOption(type = "") {
   return businessTypeOptions.find((option) => option.value === type) || businessTypeOptions[1];
 }
 
@@ -96,7 +123,8 @@ export default function SystemAdminPage() {
   const [businesses, setBusinesses] = useState([]);
   const [form, setForm] = useState(defaultForm);
   const [selectedBusinessId, setSelectedBusinessId] = useState(() => localStorage.getItem(selectedBusinessStorageKey) || "");
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeSection, setActiveSection] = useState("overview");
+  const [selectedProductKey, setSelectedProductKey] = useState("POS");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -105,7 +133,6 @@ export default function SystemAdminPage() {
   const [branchSavingId, setBranchSavingId] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const selectedType = getBusinessTypeOption(form.businessType);
 
   useEffect(() => {
     if (user?.systemRole === "SYSTEM_ADMIN") {
@@ -120,9 +147,7 @@ export default function SystemAdminPage() {
       return;
     }
 
-    const selectedStillExists = businesses.some((business) => business.id === selectedBusinessId);
-
-    if (!selectedStillExists) {
+    if (!businesses.some((business) => business.id === selectedBusinessId)) {
       setSelectedBusinessId(businesses[0].id);
     }
   }, [businesses, selectedBusinessId]);
@@ -141,7 +166,7 @@ export default function SystemAdminPage() {
     }
 
     return businesses.filter((business) => {
-      const owner = business.memberships?.find((membership) => membership.role?.name === "Owner");
+      const owner = getOwner(business);
       return [business.name, business.type, business.country, business.currency, business.posMode, owner?.user?.name, owner?.user?.email]
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(searchTerm));
@@ -149,10 +174,6 @@ export default function SystemAdminPage() {
   }, [businesses, search]);
 
   const selectedBusiness = businesses.find((business) => business.id === selectedBusinessId) || filteredBusinesses[0] || null;
-  const selectedOwner = selectedBusiness?.memberships?.find((membership) => membership.role?.name === "Owner");
-  const selectedActiveBranches = selectedBusiness?.branches?.filter((branch) => branch.status === "ACTIVE") || [];
-  const selectedActiveModules = selectedBusiness?.modules?.filter((module) => module.active) || [];
-  const selectedActiveUsers = selectedBusiness?.memberships?.filter((membership) => membership.user.status === "ACTIVE") || [];
   const platformTotals = useMemo(
     () => ({
       businesses: businesses.length,
@@ -166,6 +187,7 @@ export default function SystemAdminPage() {
   async function loadBusinesses() {
     try {
       setLoading(true);
+      setError("");
       const data = await getSystemBusinesses();
       setBusinesses(data);
     } catch (apiError) {
@@ -175,6 +197,12 @@ export default function SystemAdminPage() {
     }
   }
 
+  function selectBusiness(businessId) {
+    setSelectedBusinessId(businessId);
+    setMessage("");
+    setError("");
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
@@ -182,6 +210,7 @@ export default function SystemAdminPage() {
     setSaving(true);
 
     try {
+      const selectedType = getBusinessTypeOption(form.businessType);
       const business = await provisionBusiness({
         business: {
           name: form.businessName,
@@ -203,7 +232,7 @@ export default function SystemAdminPage() {
 
       setBusinesses((current) => [business, ...current]);
       setSelectedBusinessId(business.id);
-      setActiveTab("details");
+      setActiveSection("settings");
       setMessage(`Business created. Owner login: ${form.ownerEmail}`);
       setForm(defaultForm);
     } catch (apiError) {
@@ -213,15 +242,24 @@ export default function SystemAdminPage() {
     }
   }
 
-  function openBusinessDetails(businessId) {
-    setSelectedBusinessId(businessId);
-    setActiveTab("details");
-  }
+  async function handleBusinessSettingsSave(payload) {
+    if (!selectedBusiness) {
+      return;
+    }
 
-  function selectBusiness(businessId) {
-    setSelectedBusinessId(businessId);
-    setMessage("");
     setError("");
+    setMessage("");
+    setSettingsSaving(true);
+
+    try {
+      const updatedBusiness = await updateSystemBusinessSettings(selectedBusiness.id, payload);
+      setBusinesses((current) => current.map((business) => (business.id === updatedBusiness.id ? updatedBusiness : business)));
+      setMessage(`${updatedBusiness.name} settings updated.`);
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || "Unable to update business settings.");
+    } finally {
+      setSettingsSaving(false);
+    }
   }
 
   async function handleModuleToggle(key, active) {
@@ -250,26 +288,6 @@ export default function SystemAdminPage() {
       setError(apiError.response?.data?.message || "Unable to update module settings.");
     } finally {
       setModuleSavingKey("");
-    }
-  }
-
-  async function handleBusinessSettingsSave(payload) {
-    if (!selectedBusiness) {
-      return;
-    }
-
-    setError("");
-    setMessage("");
-    setSettingsSaving(true);
-
-    try {
-      const updatedBusiness = await updateSystemBusinessSettings(selectedBusiness.id, payload);
-      setBusinesses((current) => current.map((business) => (business.id === updatedBusiness.id ? updatedBusiness : business)));
-      setMessage(`${updatedBusiness.name} settings updated.`);
-    } catch (apiError) {
-      setError(apiError.response?.data?.message || "Unable to update business settings.");
-    } finally {
-      setSettingsSaving(false);
     }
   }
 
@@ -319,290 +337,632 @@ export default function SystemAdminPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-7xl flex-col gap-4 lg:h-[calc(100dvh-104px)] lg:min-h-0">
+    <div className="mx-auto flex max-w-7xl flex-col gap-4">
       <PageHeader
         eyebrow="Platform operations"
-        title="Business control center"
-        description="Choose a company, define how it operates, and keep each workspace ready without crowding the business user experience."
+        title="System admin"
+        description="Manage Zera as a modular business platform, then give each company only the tools it needs."
         action={
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-            <CurrentBusinessSelector
-              businesses={businesses}
-              loading={loading}
-              onChange={selectBusiness}
-              onOpenBusinesses={() => setActiveTab("businesses")}
-              onOpenDetails={() => setActiveTab("details")}
-              onOpenSettings={() => setActiveTab("settings")}
-              selectedBusiness={selectedBusiness}
-            />
-            <Button className="shrink-0 gap-2" onClick={() => setActiveTab("create")}>
-              <Plus size={17} />
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button type="button" variant="secondary" className="gap-2" onClick={loadBusinesses}>
+              <RefreshCw size={16} />
+              Refresh
+            </Button>
+            <Button type="button" className="gap-2" onClick={() => setActiveSection("create")}>
+              <Plus size={16} />
               New business
             </Button>
           </div>
         }
       />
 
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <StatCard icon={Building2} label="Businesses" value={loading ? "..." : platformTotals.businesses} helper="Customer workspaces" />
-        <StatCard icon={MapPin} label="Branches" value={loading ? "..." : platformTotals.branches} helper="Connected locations" />
-        <StatCard icon={Users} label="Users" value={loading ? "..." : platformTotals.users} helper="Owner and staff accounts" />
-        <StatCard icon={Boxes} label="Products" value={loading ? "..." : platformTotals.products} helper="Across all businesses" />
-      </section>
+      <SystemAdminNav activeSection={activeSection} onChange={setActiveSection} />
 
       {error ? <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
       {message ? <div className="rounded-md bg-zera-mint px-4 py-3 text-sm font-semibold text-zera-green">{message}</div> : null}
 
-      <section className="flex min-h-0 flex-1 flex-col rounded-md border border-zera-line bg-white">
-        <div className="border-b border-zera-line p-3">
-          <div className="flex gap-1 overflow-x-auto">
-            {adminTabs.map((tab) => (
-              <AdminTabButton key={tab.key} active={activeTab === tab.key} icon={tab.icon} label={tab.label} onClick={() => setActiveTab(tab.key)} />
-            ))}
-          </div>
-        </div>
+      {activeSection === "overview" ? (
+        <OverviewSection
+          businesses={businesses}
+          filteredBusinesses={filteredBusinesses}
+          loading={loading}
+          onCreate={() => setActiveSection("create")}
+          onManage={() => setActiveSection("settings")}
+          onProductSelect={setSelectedProductKey}
+          onSearch={setSearch}
+          onSelect={selectBusiness}
+          platformTotals={platformTotals}
+          search={search}
+          selectedBusiness={selectedBusiness}
+          selectedProductKey={selectedProductKey}
+        />
+      ) : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
-          {activeTab === "create" ? (
-            <div className="mb-5 flex items-center justify-between gap-4 rounded-md border border-zera-line bg-zera-surface px-4 py-3">
-              <div>
-                <p className="text-xs font-bold uppercase text-zera-green">New workspace</p>
-                <p className="mt-1 text-sm font-semibold">Create a business and its first owner account.</p>
-              </div>
-              <Button type="button" variant="ghost" className="shrink-0" onClick={() => setActiveTab("overview")}>
-                Cancel
-              </Button>
-            </div>
-          ) : null}
+      {activeSection === "create" ? (
+        <CreateBusinessPanel
+          form={form}
+          onCancel={() => setActiveSection("overview")}
+          onChange={setForm}
+          onSubmit={handleSubmit}
+          saving={saving}
+        />
+      ) : null}
 
-          {activeTab === "overview" ? (
-            <OverviewTab
-              businesses={businesses}
-              loading={loading}
-              onOpenBusiness={openBusinessDetails}
-              onOpenSettings={(businessId) => {
-                selectBusiness(businessId);
-                setActiveTab("settings");
-              }}
-              selectedBusiness={selectedBusiness}
-            />
-          ) : null}
-
-          {activeTab === "create" ? (
-            <CreateBusinessTab
-              form={form}
-              onChange={setForm}
-              onSubmit={handleSubmit}
-              saving={saving}
-              selectedType={selectedType}
-            />
-          ) : null}
-
-          {activeTab === "businesses" ? (
-            <BusinessesTab
-              businesses={businesses}
-              filteredBusinesses={filteredBusinesses}
-              loading={loading}
-              onOpenBusiness={openBusinessDetails}
-              onSelectBusiness={selectBusiness}
-              search={search}
-              selectedBusiness={selectedBusiness}
-              setSearch={setSearch}
-            />
-          ) : null}
-
-          {activeTab === "details" ? (
-            <BusinessDetailsTab
-              activeBranches={selectedActiveBranches}
-              activeModules={selectedActiveModules}
-              activeUsers={selectedActiveUsers}
-              business={selectedBusiness}
-              owner={selectedOwner}
-            />
-          ) : null}
-
-          {activeTab === "settings" ? (
-            <SettingsTab
-              business={selectedBusiness}
-              branchSavingId={branchSavingId}
-              moduleSavingKey={moduleSavingKey}
-              onBranchStatusChange={handleBranchStatusChange}
-              onBusinessSave={handleBusinessSettingsSave}
-              onModuleToggle={handleModuleToggle}
-              onOpenBusinesses={() => setActiveTab("businesses")}
-              settingsSaving={settingsSaving}
-            />
-          ) : null}
-        </div>
-      </section>
+      {activeSection === "settings" ? (
+        <SettingsSection
+          branchSavingId={branchSavingId}
+          business={selectedBusiness}
+          businesses={businesses}
+          filteredBusinesses={filteredBusinesses}
+          loading={loading}
+          onCreate={() => setActiveSection("create")}
+          onSearch={setSearch}
+          onSelect={selectBusiness}
+          moduleSavingKey={moduleSavingKey}
+          onBranchStatusChange={handleBranchStatusChange}
+          onBusinessSave={handleBusinessSettingsSave}
+          onModuleToggle={handleModuleToggle}
+          search={search}
+          settingsSaving={settingsSaving}
+        />
+      ) : null}
     </div>
   );
 }
 
-function OverviewTab({ businesses, loading, onOpenBusiness, onOpenSettings, selectedBusiness }) {
-  const setupHealth = getPlatformSetupHealth(businesses);
+function SystemAdminNav({ activeSection, onChange }) {
+  const sections = [
+    { key: "overview", label: "Overview" },
+    { key: "create", label: "Create" },
+    { key: "settings", label: "Settings" }
+  ];
 
   return (
-    <div className="grid min-w-0 gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-      <section className="min-w-0 rounded-lg border border-zera-line bg-[#f7faf8] p-4 sm:p-5">
-        <SectionTitle icon={CheckCircle2} title="Setup health" subtitle="Readiness checks across all business accounts." />
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <SetupHealthRow
-            label="Owner assigned"
-            detail="Every business needs a primary owner account."
-            value={loading ? "..." : `${setupHealth.withOwner}/${businesses.length}`}
-            ready={!loading && setupHealth.withOwner === businesses.length && businesses.length > 0}
-          />
-          <SetupHealthRow
-            label="Active branch"
-            detail="At least one location is ready for daily operations."
-            value={loading ? "..." : `${setupHealth.withActiveBranch}/${businesses.length}`}
-            ready={!loading && setupHealth.withActiveBranch === businesses.length && businesses.length > 0}
-          />
-          <SetupHealthRow
-            label="POS enabled"
-            detail="The sales foundation is available to the business."
-            value={loading ? "..." : `${setupHealth.withPOS}/${businesses.length}`}
-            ready={!loading && setupHealth.withPOS === businesses.length && businesses.length > 0}
-          />
-          <SetupHealthRow
-            label="Ready to operate"
-            detail="Owner, branch, and POS are all prepared."
-            value={loading ? "..." : `${setupHealth.ready}/${businesses.length}`}
-            ready={!loading && setupHealth.ready === businesses.length && businesses.length > 0}
-          />
-        </div>
-      </section>
-
-      <article className="min-w-0 rounded-lg border border-zera-line p-4 sm:p-5">
-        <SectionTitle icon={Store} title="Selected workspace" subtitle="The header selector controls which company these actions affect." />
-        {selectedBusiness ? (
-          <div className="mt-4 space-y-4">
-            <div className="rounded-md border border-zera-green/20 bg-zera-mint/50 p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0">
-                  <p className="text-xs font-bold uppercase text-zera-green">Currently managing</p>
-                  <h3 className="mt-1 truncate text-xl font-bold">{selectedBusiness.name}</h3>
-                  <p className="mt-1 text-sm text-zera-muted">
-                    {selectedBusiness.type || "Business type not set"} · {formatPOSMode(selectedBusiness.posMode || getBusinessTypeOption(selectedBusiness.type).posMode)}
-                  </p>
-                </div>
-                <StatusPill label={selectedBusiness.status?.toLowerCase() || "active"} />
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <CompactFact label="Branches" value={`${selectedBusiness.branches?.filter((branch) => branch.status === "ACTIVE").length || 0}/${selectedBusiness.branches?.length || 0}`} />
-              <CompactFact label="Modules" value={`${selectedBusiness.modules?.filter((module) => module.active).length || 0}/${selectedBusiness.modules?.length || 0}`} />
-              <CompactFact label="Users" value={`${selectedBusiness.memberships?.filter((membership) => membership.user.status === "ACTIVE").length || 0}/${selectedBusiness.memberships?.length || 0}`} />
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button className="gap-2" onClick={() => onOpenBusiness(selectedBusiness.id)}>
-                <Eye size={16} />
-                Open details
-              </Button>
-              <Button className="gap-2" variant="secondary" onClick={() => onOpenSettings(selectedBusiness.id)}>
-                <Settings size={16} />
-                Settings
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <EmptyState text="Create or select a company to begin managing its workspace." />
-        )}
-      </article>
-    </div>
+    <nav className="flex w-fit rounded-md border border-zera-line bg-white p-1">
+      {sections.map((section) => (
+        <button
+          key={section.key}
+          type="button"
+          className={`min-h-9 rounded-md px-4 text-sm font-semibold transition ${
+            activeSection === section.key ? "bg-zera-green text-white" : "text-zera-muted hover:bg-zera-mint hover:text-zera-ink"
+          }`}
+          onClick={() => onChange(section.key)}
+        >
+          {section.label}
+        </button>
+      ))}
+    </nav>
   );
 }
 
-function CreateBusinessTab({ form, onChange, onSubmit, saving, selectedType }) {
+function OverviewSection({
+  businesses,
+  filteredBusinesses,
+  loading,
+  onCreate,
+  onManage,
+  onProductSelect,
+  onSearch,
+  onSelect,
+  platformTotals,
+  search,
+  selectedBusiness,
+  selectedProductKey
+}) {
+  const selectedProduct = platformProducts.find((product) => product.key === selectedProductKey) || platformProducts[0];
+
   return (
-    <form className="mx-auto max-w-5xl" onSubmit={onSubmit}>
-      <div className="mb-5 rounded-lg border border-zera-line bg-[#f7faf8] p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <section className="space-y-4">
+      <article className="rounded-lg border border-zera-line bg-white p-5">
+        <div className="grid gap-5 lg:grid-cols-[1fr_360px] lg:items-center">
           <div>
-            <p className="text-sm font-semibold text-zera-green">Create business</p>
-            <h3 className="mt-1 text-2xl font-bold">Set up a new customer workspace</h3>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-zera-muted">
-              Start with the business identity, choose how sales should work, then hand the owner a clean login to continue setup.
+            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Zera Solutions</p>
+            <h2 className="mt-2 text-2xl font-bold text-zera-ink">Simple business software for African SMEs</h2>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-zera-muted">
+              Zera is built for pharmacies, supermarkets, retail shops, bars, restaurants, hotels, warehouses, and service businesses.
+              System Admin decides the business type and active modules, while each business owner gets a focused workspace for daily work.
             </p>
           </div>
-          <div className="rounded-md bg-white px-4 py-3">
-            <p className="text-xs font-semibold uppercase text-zera-muted">Selected POS</p>
-            <p className="mt-1 font-bold text-zera-green">{formatPOSMode(selectedType.posMode)}</p>
+          <div className="grid grid-cols-2 gap-2">
+            <OverviewStat label="Businesses" value={loading ? "..." : platformTotals.businesses} />
+            <OverviewStat label="Branches" value={loading ? "..." : platformTotals.branches} />
+            <OverviewStat label="Users" value={loading ? "..." : platformTotals.users} />
+            <OverviewStat label="Products" value={loading ? "..." : platformTotals.products} />
           </div>
         </div>
+      </article>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <section className="rounded-lg border border-zera-line bg-white p-4">
+          <SectionTitle icon={Boxes} title="Products" subtitle="Select a Zera product foundation to understand what it controls." />
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {platformProducts.map((product) => (
+              <ProductCard
+                key={product.key}
+                product={product}
+                selected={product.key === selectedProduct.key}
+                onSelect={() => onProductSelect(product.key)}
+              />
+            ))}
+          </div>
+          <SelectedProductPanel product={selectedProduct} />
+        </section>
+
+        <BusinessOverviewSelector
+          businesses={businesses}
+          filteredBusinesses={filteredBusinesses}
+          loading={loading}
+          onCreate={onCreate}
+          onManage={onManage}
+          onSearch={onSearch}
+          onSelect={onSelect}
+          search={search}
+          selectedBusiness={selectedBusiness}
+        />
+      </div>
+    </section>
+  );
+}
+
+function OverviewStat({ label, value }) {
+  return (
+    <div className="rounded-md bg-[#f7faf8] px-3 py-3">
+      <p className="text-xs font-bold uppercase text-zera-muted">{label}</p>
+      <p className="mt-1 text-xl font-bold">{value}</p>
+    </div>
+  );
+}
+
+function ProductCard({ onSelect, product, selected }) {
+  const Icon = product.icon;
+
+  return (
+    <button
+      type="button"
+      className={`rounded-md border p-4 text-left transition ${
+        selected ? "border-zera-green bg-zera-mint shadow-soft" : "border-zera-line bg-white hover:border-zera-green hover:bg-[#f7faf8]"
+      }`}
+      onClick={onSelect}
+    >
+      <div className="flex items-start gap-3">
+        <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${selected ? "bg-white" : "bg-zera-mint"} text-zera-green`}>
+          <Icon size={19} />
+        </div>
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="font-bold">{product.title}</h3>
+            {selected ? <CheckCircle2 size={16} className="text-zera-green" /> : null}
+          </div>
+          <p className="mt-1 text-sm leading-6 text-zera-muted">{product.summary}</p>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function SelectedProductPanel({ product }) {
+  return (
+    <div className="mt-4 rounded-md border border-zera-green/20 bg-[#f7faf8] p-4">
+      <p className="text-sm font-semibold text-zera-green">{product.title}</p>
+      <p className="mt-1 text-sm leading-6 text-zera-muted">{product.detail}</p>
+    </div>
+  );
+}
+
+function BusinessOverviewSelector({
+  businesses,
+  filteredBusinesses,
+  loading,
+  onCreate,
+  onManage,
+  onSearch,
+  onSelect,
+  search,
+  selectedBusiness
+}) {
+  const owner = getOwner(selectedBusiness);
+  const posMode = selectedBusiness?.posMode || getBusinessTypeOption(selectedBusiness?.type).posMode;
+
+  return (
+    <aside className="rounded-lg border border-zera-line bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <SectionTitle icon={Building2} title="Business" subtitle="Choose the company you want to manage." />
+        <button
+          type="button"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green transition hover:bg-green-100"
+          onClick={onCreate}
+          aria-label="Create business"
+        >
+          <Plus size={18} />
+        </button>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[1fr_0.85fr]">
-        <section className="rounded-lg border border-zera-line p-5">
-          <SectionTitle icon={Building2} title="Business setup" subtitle="Account basics, first branch, and business type." />
+      <label className="mt-4 flex min-h-10 items-center gap-2 rounded-md border border-zera-line bg-[#f7faf8] px-3 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
+        <Search size={17} className="text-zera-muted" />
+        <span className="sr-only">Search businesses</span>
+        <input
+          className="w-full border-0 bg-transparent text-sm outline-none"
+          placeholder="Search business or owner"
+          value={search}
+          onChange={(event) => onSearch(event.target.value)}
+        />
+      </label>
 
-          <div className="mt-5 space-y-5">
+      <label className="mt-3 block">
+        <span className="mb-2 block text-xs font-bold uppercase text-zera-muted">Selected company</span>
+        <select
+          className="min-h-11 w-full rounded-md border border-zera-line bg-white px-3 text-sm font-semibold text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+          value={selectedBusiness?.id || ""}
+          onChange={(event) => onSelect(event.target.value)}
+          disabled={loading || filteredBusinesses.length === 0}
+        >
+          {!selectedBusiness ? <option value="">No business selected</option> : null}
+          {filteredBusinesses.map((business) => (
+            <option key={business.id} value={business.id}>
+              {business.name} - {business.type || "Business"}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div className="mt-3">
+        {!loading && businesses.length === 0 ? <EmptyState text="No businesses yet. Create the first workspace." /> : null}
+        {!loading && businesses.length > 0 && filteredBusinesses.length === 0 ? <EmptyState text="No businesses match your search." /> : null}
+        {selectedBusiness ? (
+          <div className="rounded-md border border-zera-green/20 bg-[#f7faf8] p-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-base font-bold">{selectedBusiness.name}</p>
+                <p className="mt-1 truncate text-sm text-zera-muted">
+                  {selectedBusiness.type || "Business type not set"} / {selectedBusiness.country || "Country not set"} /{" "}
+                  {selectedBusiness.currency || "Currency not set"}
+                </p>
+              </div>
+              <StatusPill label={selectedBusiness.status?.toLowerCase() || "active"} />
+            </div>
+            <div className="mt-3 grid gap-2">
+              <CompactBusinessFact label="POS mode" value={formatPOSMode(posMode, selectedBusiness.type)} />
+              <CompactBusinessFact label="Owner" value={owner?.user?.email || "Not assigned"} />
+              <CompactBusinessFact label="Branches" value={`${selectedBusiness.branches?.length || 0}`} />
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      <Button type="button" className="mt-4 w-full gap-2" onClick={onManage} disabled={!selectedBusiness}>
+        <Settings size={16} />
+        Manage business
+      </Button>
+    </aside>
+  );
+}
+
+function CompactBusinessFact({ label, value }) {
+  return (
+    <div className="flex min-h-9 items-center justify-between gap-3 rounded-md bg-white px-3 py-2">
+      <span className="shrink-0 text-xs font-bold uppercase text-zera-muted">{label}</span>
+      <span className="truncate text-right text-sm font-semibold text-zera-ink">{value}</span>
+    </div>
+  );
+}
+
+function SettingsSection({
+  branchSavingId,
+  business,
+  businesses,
+  filteredBusinesses,
+  loading,
+  moduleSavingKey,
+  onBranchStatusChange,
+  onBusinessSave,
+  onCreate,
+  onModuleToggle,
+  onSearch,
+  onSelect,
+  search,
+  settingsSaving
+}) {
+  return (
+    <section className="space-y-4">
+      <SettingsBusinessSelector
+        business={business}
+        businesses={businesses}
+        filteredBusinesses={filteredBusinesses}
+        loading={loading}
+        onCreate={onCreate}
+        onSearch={onSearch}
+        onSelect={onSelect}
+        search={search}
+      />
+      <BusinessWorkspace
+        branchSavingId={branchSavingId}
+        business={business}
+        moduleSavingKey={moduleSavingKey}
+        onBranchStatusChange={onBranchStatusChange}
+        onBusinessSave={onBusinessSave}
+        onCreate={onCreate}
+        onModuleToggle={onModuleToggle}
+        settingsSaving={settingsSaving}
+      />
+    </section>
+  );
+}
+
+function SettingsBusinessSelector({ business, businesses, filteredBusinesses, loading, onCreate, onSearch, onSelect, search }) {
+  const owner = getOwner(business);
+  const posMode = business?.posMode || getBusinessTypeOption(business?.type).posMode;
+  const activeBranches = business?.branches?.filter((branch) => branch.status === "ACTIVE") || [];
+  const activeModules = business?.modules?.filter((module) => module.active) || [];
+  const activeUsers = business?.memberships?.filter((membership) => membership.user.status === "ACTIVE") || [];
+  const selectOptions = business && !filteredBusinesses.some((item) => item.id === business.id) ? [business, ...filteredBusinesses] : filteredBusinesses;
+
+  return (
+    <section className="rounded-lg border border-zera-line bg-white p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Business settings</p>
+          <h2 className="mt-1 text-xl font-bold">Manage company controls</h2>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-zera-muted">
+            Choose one business, then update its type, modules, branches, and access rules.
+          </p>
+        </div>
+        <Button type="button" variant="secondary" className="w-fit shrink-0 gap-2 self-start" onClick={onCreate}>
+          <Plus size={16} />
+          New business
+        </Button>
+      </div>
+
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)]">
+        <select
+          className="min-h-11 w-full rounded-md border border-zera-line bg-white px-3 text-sm font-semibold text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+          value={business?.id || ""}
+          onChange={(event) => onSelect(event.target.value)}
+          disabled={loading || selectOptions.length === 0}
+        >
+          {!business ? <option value="">Select business</option> : null}
+          {selectOptions.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.name} - {item.type || "Business"}
+            </option>
+          ))}
+        </select>
+        <label className="flex min-h-11 items-center gap-2 rounded-md border border-zera-line bg-[#f7faf8] px-3 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
+          <Search size={17} className="text-zera-muted" />
+          <span className="sr-only">Search businesses</span>
+          <input
+            className="w-full border-0 bg-transparent text-sm outline-none"
+            placeholder="Search business, type, owner, or country"
+            value={search}
+            onChange={(event) => onSearch(event.target.value)}
+          />
+        </label>
+      </div>
+
+      {!loading && businesses.length === 0 ? (
+        <div className="mt-4">
+          <EmptyState text="No businesses yet. Create the first workspace." />
+        </div>
+      ) : null}
+      {!loading && businesses.length > 0 && filteredBusinesses.length === 0 ? (
+        <div className="mt-4">
+          <EmptyState text="No businesses match your search." />
+        </div>
+      ) : null}
+
+      {business ? (
+        <div className="mt-4 rounded-md border border-zera-line bg-[#f7faf8] p-3">
+          <div className="grid gap-3 lg:grid-cols-[minmax(260px,1fr)_repeat(4,minmax(96px,120px))] lg:items-center">
+            <div className="min-w-0 rounded-md bg-white px-3 py-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="truncate text-lg font-bold">{business.name}</h3>
+                <StatusPill label={business.status?.toLowerCase() || "active"} />
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs font-semibold text-zera-muted">
+                <span className="rounded-md bg-[#f7faf8] px-2 py-1">{business.type || "Business type not set"}</span>
+                <span className="rounded-md bg-[#f7faf8] px-2 py-1">{formatPOSMode(posMode, business.type)}</span>
+                <span className="rounded-md bg-[#f7faf8] px-2 py-1">{business.currency || "Currency not set"}</span>
+              </div>
+              <p className="mt-1 truncate text-sm text-zera-muted">Owner: {owner?.user?.email || "Not assigned"}</p>
+            </div>
+            <CompactFact label="Branches" value={`${activeBranches.length}/${business.branches?.length || 0}`} />
+            <CompactFact label="Modules" value={`${activeModules.length}/${business.modules?.length || 0}`} />
+            <CompactFact label="Users" value={`${activeUsers.length}/${business.memberships?.length || 0}`} />
+            <CompactFact label="Products" value={business._count?.products || 0} />
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function BusinessDirectory({ businesses, filteredBusinesses, loading, onCreate, onSearch, onSelect, search, selectedBusiness }) {
+  return (
+    <aside className="flex min-h-0 flex-col rounded-lg border border-zera-line bg-white">
+      <div className="border-b border-zera-line p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-bold">Businesses</h3>
+            <p className="mt-1 text-sm text-zera-muted">{loading ? "Loading..." : `${filteredBusinesses.length} of ${businesses.length} shown`}</p>
+          </div>
+          <button
+            type="button"
+            className="flex h-10 w-10 items-center justify-center rounded-md bg-zera-mint text-zera-green transition hover:bg-green-100"
+            onClick={onCreate}
+            aria-label="Create business"
+          >
+            <Plus size={18} />
+          </button>
+        </div>
+
+        <label className="mt-3 flex min-h-11 items-center gap-2 rounded-md border border-zera-line bg-[#f7faf8] px-3 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
+          <Search size={17} className="text-zera-muted" />
+          <span className="sr-only">Search businesses</span>
+          <input
+            className="w-full border-0 bg-transparent text-sm outline-none"
+            placeholder="Search business or owner"
+            value={search}
+            onChange={(event) => onSearch(event.target.value)}
+          />
+        </label>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+        {!loading && businesses.length === 0 ? <EmptyState text="No businesses yet. Create the first workspace." /> : null}
+        {!loading && businesses.length > 0 && filteredBusinesses.length === 0 ? <EmptyState text="No businesses match your search." /> : null}
+        {filteredBusinesses.map((business) => (
+          <BusinessDirectoryItem
+            key={business.id}
+            business={business}
+            selected={selectedBusiness?.id === business.id}
+            onSelect={() => onSelect(business.id)}
+          />
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+function BusinessDirectoryItem({ business, onSelect, selected }) {
+  const owner = getOwner(business);
+  const mode = business.posMode || getBusinessTypeOption(business.type).posMode;
+
+  return (
+    <button
+      type="button"
+      className={`w-full rounded-md border p-2.5 text-left transition ${
+        selected ? "border-zera-green bg-zera-mint shadow-soft" : "border-zera-line bg-white hover:border-zera-green hover:bg-[#f7faf8]"
+      }`}
+      onClick={onSelect}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-bold">{business.name}</p>
+          <p className="mt-1 truncate text-xs text-zera-muted">
+            {business.type || "Business type not set"} / {formatPOSMode(mode, business.type)}
+          </p>
+          <p className="mt-1 truncate text-xs text-zera-muted">Owner: {owner?.user?.email || "Not assigned"}</p>
+        </div>
+        {selected ? <CheckCircle2 size={18} className="shrink-0 text-zera-green" /> : null}
+      </div>
+    </button>
+  );
+}
+
+function BusinessWorkspace({
+  branchSavingId,
+  business,
+  moduleSavingKey,
+  onBranchStatusChange,
+  onBusinessSave,
+  onCreate,
+  onModuleToggle,
+  settingsSaving
+}) {
+  if (!business) {
+    return (
+      <section className="flex min-h-[520px] flex-col items-center justify-center rounded-lg border border-zera-line bg-white p-8 text-center">
+        <Building2 size={34} className="text-zera-green" />
+        <h3 className="mt-4 text-xl font-bold">Select a business</h3>
+        <p className="mt-2 max-w-md text-sm leading-6 text-zera-muted">
+          Choose a business from the list or create a new workspace for a customer.
+        </p>
+        <Button type="button" className="mt-5 gap-2" onClick={onCreate}>
+          <Plus size={16} />
+          New business
+        </Button>
+      </section>
+    );
+  }
+
+  const owner = getOwner(business);
+
+  return (
+    <section className="space-y-4">
+      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+        <div className="space-y-4">
+          <BusinessSettingsCard business={business} onSave={onBusinessSave} saving={settingsSaving} />
+          <BranchesCard branchSavingId={branchSavingId} business={business} onBranchStatusChange={onBranchStatusChange} />
+        </div>
+
+        <div className="space-y-4">
+          <ModulesCard business={business} moduleSavingKey={moduleSavingKey} onModuleToggle={onModuleToggle} />
+          <TeamCard business={business} owner={owner} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CreateBusinessPanel({ form, onCancel, onChange, onSubmit, saving }) {
+  const selectedType = getBusinessTypeOption(form.businessType);
+
+  return (
+    <form className="rounded-lg border border-zera-line bg-white p-5" onSubmit={onSubmit}>
+      <div className="flex flex-col gap-3 border-b border-zera-line pb-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-zera-green">New business</p>
+          <h2 className="mt-1 text-2xl font-bold">Create workspace</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-zera-muted">
+            Set the business type, first branch, and owner login. The business type decides the POS experience.
+          </p>
+        </div>
+        <Button type="button" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-[1fr_0.9fr]">
+        <section className="space-y-4">
+          <SectionTitle icon={Building2} title="Business profile" subtitle="Basic identity and operating model" />
+          <Input
+            label="Business name"
+            placeholder="Bamboo Bar and Restaurant"
+            value={form.businessName}
+            onChange={(event) => onChange({ ...form, businessName: event.target.value })}
+            required
+          />
+          <BusinessTypeSelect value={form.businessType} onChange={(businessType) => onChange({ ...form, businessType })} />
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input label="Country" value={form.country} onChange={(event) => onChange({ ...form, country: event.target.value })} />
+            <Input label="Currency" value={form.currency} onChange={(event) => onChange({ ...form, currency: event.target.value.toUpperCase() })} />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Input label="Branch name" value={form.branchName} onChange={(event) => onChange({ ...form, branchName: event.target.value })} />
             <Input
-              label="Business name"
-              placeholder="Bamboo Bar and Restaurant"
-              value={form.businessName}
-              onChange={(event) => onChange({ ...form, businessName: event.target.value })}
-              required
+              label="Branch location"
+              placeholder="Kampala, Lubaga..."
+              value={form.branchLocation}
+              onChange={(event) => onChange({ ...form, branchLocation: event.target.value })}
             />
-
-            <BusinessTypePicker value={form.businessType} onChange={(businessType) => onChange({ ...form, businessType })} />
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input label="Country" value={form.country} onChange={(event) => onChange({ ...form, country: event.target.value })} />
-              <Input
-                label="Currency"
-                value={form.currency}
-                onChange={(event) => onChange({ ...form, currency: event.target.value.toUpperCase() })}
-              />
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Input label="Branch name" value={form.branchName} onChange={(event) => onChange({ ...form, branchName: event.target.value })} />
-              <Input
-                label="Branch location"
-                placeholder="Kampala, Lubaga..."
-                value={form.branchLocation}
-                onChange={(event) => onChange({ ...form, branchLocation: event.target.value })}
-              />
-            </div>
           </div>
         </section>
 
-        <section className="rounded-lg border border-zera-line bg-[#f7faf8] p-5">
-          <SectionTitle icon={KeyRound} title="Owner login" subtitle="First admin account for this business." />
-
-          <div className="mt-5 space-y-4">
-            <Input label="Owner name" value={form.ownerName} onChange={(event) => onChange({ ...form, ownerName: event.target.value })} required />
-            <Input
-              label="Owner email"
-              type="email"
-              value={form.ownerEmail}
-              onChange={(event) => onChange({ ...form, ownerEmail: event.target.value })}
-              required
-            />
-            <Input
-              label="Temporary password"
-              type="text"
-              value={form.ownerPassword}
-              onChange={(event) => onChange({ ...form, ownerPassword: event.target.value })}
-              required
-              minLength={8}
-            />
-          </div>
-
-          <div className="mt-5 rounded-md border border-zera-line bg-white p-4">
+        <section className="space-y-4 rounded-lg bg-[#f7faf8] p-4">
+          <SectionTitle icon={KeyRound} title="Owner login" subtitle="First admin account for this business" />
+          <Input label="Owner name" value={form.ownerName} onChange={(event) => onChange({ ...form, ownerName: event.target.value })} required />
+          <Input
+            label="Owner email"
+            type="email"
+            value={form.ownerEmail}
+            onChange={(event) => onChange({ ...form, ownerEmail: event.target.value })}
+            required
+          />
+          <Input
+            label="Temporary password"
+            type="text"
+            value={form.ownerPassword}
+            onChange={(event) => onChange({ ...form, ownerPassword: event.target.value })}
+            required
+            minLength={8}
+          />
+          <div className="rounded-md border border-zera-line bg-white p-4">
             <p className="text-sm font-semibold text-zera-green">POS foundation</p>
-            <p className="mt-1 text-lg font-bold">{formatPOSMode(selectedType.posMode)}</p>
+            <p className="mt-1 font-bold">{formatPOSMode(selectedType.posMode, selectedType.value)}</p>
             <p className="mt-2 text-sm leading-6 text-zera-muted">{selectedType.helper}</p>
           </div>
-
-          <Button className="mt-5 w-full gap-2" disabled={saving}>
-            <Plus size={17} />
-            {saving ? "Creating business..." : "Create business account"}
+          <Button className="w-full gap-2" disabled={saving}>
+            <Plus size={16} />
+            {saving ? "Creating..." : "Create business"}
           </Button>
         </section>
       </div>
@@ -610,518 +970,191 @@ function CreateBusinessTab({ form, onChange, onSubmit, saving, selectedType }) {
   );
 }
 
-function BusinessesTab({
-  businesses,
-  filteredBusinesses,
-  loading,
-  onOpenBusiness,
-  onSelectBusiness,
-  search,
-  selectedBusiness,
-  setSearch
-}) {
-  return (
-    <div className="mx-auto max-w-5xl">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <SectionTitle icon={Store} title="Company directory" subtitle={loading ? "Loading business accounts..." : "Search, select, or open a company workspace."} />
-        <label className="block md:w-96">
-          <span className="sr-only">Search businesses</span>
-          <div className="flex min-h-12 items-center gap-2 rounded-md border border-zera-line bg-white px-3 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
-            <Search size={18} className="text-zera-muted" />
-            <input
-              className="w-full border-0 bg-transparent text-base outline-none"
-              placeholder="Search business or owner"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
-        </label>
-      </div>
-
-      <div className="mt-5 grid gap-3">
-        {!loading && businesses.length === 0 ? <EmptyState text="No business accounts have been created yet." /> : null}
-        {!loading && businesses.length > 0 && filteredBusinesses.length === 0 ? <EmptyState text="No businesses match your search." /> : null}
-        {filteredBusinesses.map((business) => (
-          <BusinessListItem
-            key={business.id}
-            business={business}
-            selected={selectedBusiness?.id === business.id}
-            onOpenDetails={() => onOpenBusiness(business.id)}
-            onSelect={() => onSelectBusiness(business.id)}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function BusinessDetailsTab({ activeBranches, activeModules, activeUsers, business, owner }) {
-  if (!business) {
-    return <EmptyState text="Select a business from the directory to view its setup details." />;
-  }
-
-  return (
-    <div className="space-y-5">
-      <section className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
-        <article className="rounded-lg border border-zera-line bg-[#f7faf8] p-5">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-zera-green">Selected business</p>
-              <h3 className="mt-1 truncate text-2xl font-bold">{business.name}</h3>
-              <p className="mt-2 text-sm text-zera-muted">
-                {business.type || "Business type not set"} · {business.country || "Country not set"} · {business.currency}
-              </p>
-            </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <StatusPill label={business.status?.toLowerCase() || "active"} />
-              <StatusPill label={formatPOSMode(business.posMode || getBusinessTypeOption(business.type).posMode)} />
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <DetailMetric icon={MapPin} label="Branches" value={`${activeBranches.length}/${business.branches?.length || 0}`} />
-            <DetailMetric icon={Boxes} label="Modules" value={`${activeModules.length}/${business.modules?.length || 0}`} />
-            <DetailMetric icon={Users} label="Users" value={`${activeUsers.length}/${business.memberships?.length || 0}`} />
-            <DetailMetric icon={Store} label="Products" value={business._count?.products || 0} />
-          </div>
-        </article>
-
-        <div className="grid gap-5">
-          <InfoPanel icon={UserRound} title="Owner login" subtitle="Primary business admin">
-            <p className="font-semibold">{owner?.user?.name || "Owner not set"}</p>
-            <p className="mt-1 text-sm text-zera-muted">{owner?.user?.email || "Email not set"}</p>
-          </InfoPanel>
-
-          <InfoPanel icon={Utensils} title="POS foundation" subtitle="Driven by business type">
-            <p className="font-semibold">{formatPOSMode(business.posMode || getBusinessTypeOption(business.type).posMode)}</p>
-            <p className="mt-2 text-sm leading-6 text-zera-muted">{getBusinessTypeOption(business.type).helper}</p>
-          </InfoPanel>
-        </div>
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-2">
-        <InfoPanel icon={MapPin} title="Branches" subtitle="Locations connected to this business">
-          <div className="space-y-3">
-            {business.branches?.length ? (
-              business.branches.map((branch) => (
-                <div key={branch.id} className="rounded-md bg-[#f7faf8] px-3 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-semibold">{branch.name}</p>
-                    <StatusPill label={branch.status === "ACTIVE" ? "Active" : "Inactive"} />
-                  </div>
-                  <p className="mt-1 text-sm text-zera-muted">{branch.location || "Location not set"}</p>
-                </div>
-              ))
-            ) : (
-              <EmptyState text="No branches yet." />
-            )}
-          </div>
-        </InfoPanel>
-
-        <InfoPanel icon={Users} title="Users" subtitle="Owner and staff accounts">
-          <div className="space-y-3">
-            {business.memberships?.map((membership) => (
-              <div key={membership.id} className="rounded-md bg-[#f7faf8] px-3 py-3">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <p className="font-semibold">{membership.user.name}</p>
-                    <p className="mt-1 text-sm text-zera-muted">{membership.user.email}</p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <span className="rounded-md bg-white px-2 py-1 text-xs font-semibold text-zera-muted">
-                      {membership.role?.name || "No role"}
-                    </span>
-                    <StatusPill label={membership.user.status === "ACTIVE" ? "Active" : "Inactive"} />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </InfoPanel>
-      </section>
-    </div>
-  );
-}
-
-function SettingsTab({
-  branchSavingId,
-  business,
-  moduleSavingKey,
-  onBranchStatusChange,
-  onBusinessSave,
-  onModuleToggle,
-  onOpenBusinesses,
-  settingsSaving
-}) {
+function BusinessSettingsCard({ business, onSave, saving }) {
   const [settingsForm, setSettingsForm] = useState(() => getBusinessSettingsForm(business));
 
   useEffect(() => {
     setSettingsForm(getBusinessSettingsForm(business));
   }, [business?.id, business?.name, business?.type, business?.country, business?.currency, business?.status, business?.posMode]);
 
-  if (!business) {
-    return (
-      <div className="mx-auto max-w-3xl">
-        <EmptyState text="Select a business first, then come back to Settings to manage modules and platform controls." />
-        <Button className="mt-4 gap-2" onClick={onOpenBusinesses}>
-          <Store size={17} />
-          Choose business
-        </Button>
-      </div>
-    );
-  }
-
-  const activeModules = business.modules?.filter((module) => module.active) || [];
   const selectedType = getBusinessTypeOption(settingsForm.type);
 
-  function submitSettings(event) {
+  function handleSubmit(event) {
     event.preventDefault();
-    onBusinessSave({
+    onSave({
       ...settingsForm,
       posMode: selectedType.posMode
     });
   }
 
   return (
-    <div className="space-y-5">
-      <section className="rounded-lg border border-zera-line bg-[#f7faf8] p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <SectionTitle icon={Settings} title="Business settings" subtitle="System-level controls for the selected business." />
-          <div className="flex flex-wrap gap-2">
-            <StatusPill label={business.status?.toLowerCase() || "active"} />
-            <StatusPill label={formatPOSMode(business.posMode || getBusinessTypeOption(business.type).posMode)} />
-            <StatusPill label={`${activeModules.length}/${business.modules?.length || 0} modules active`} />
-          </div>
+    <form className="rounded-lg border border-zera-line bg-white p-4" onSubmit={handleSubmit}>
+      <SectionTitle icon={Settings} title="Business controls" subtitle="System-owned settings for this workspace" />
+      <div className="mt-4 space-y-4">
+        <Input
+          label="Business name"
+          value={settingsForm.name}
+          onChange={(event) => setSettingsForm({ ...settingsForm, name: event.target.value })}
+          required
+        />
+        <BusinessTypeSelect value={settingsForm.type} onChange={(type) => setSettingsForm({ ...settingsForm, type })} />
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Country"
+            value={settingsForm.country}
+            onChange={(event) => setSettingsForm({ ...settingsForm, country: event.target.value })}
+          />
+          <Input
+            label="Currency"
+            value={settingsForm.currency}
+            onChange={(event) => setSettingsForm({ ...settingsForm, currency: event.target.value.toUpperCase() })}
+          />
         </div>
-      </section>
-
-      <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
-        <div className="space-y-5">
-          <form className="rounded-lg border border-zera-line p-5" onSubmit={submitSettings}>
-            <SectionTitle icon={Building2} title="Business profile" subtitle="Identity, type, currency, and workspace access." />
-
-            <div className="mt-5 space-y-4">
-              <Input
-                label="Business name"
-                value={settingsForm.name}
-                onChange={(event) => setSettingsForm({ ...settingsForm, name: event.target.value })}
-                required
-              />
-
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-zera-ink">Type of business</span>
-                <select
-                  className="min-h-12 w-full rounded-md border border-zera-line bg-white px-3 text-base text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
-                  value={settingsForm.type}
-                  onChange={(event) => setSettingsForm({ ...settingsForm, type: event.target.value })}
-                >
-                  {businessTypeOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Input
-                  label="Country"
-                  value={settingsForm.country}
-                  onChange={(event) => setSettingsForm({ ...settingsForm, country: event.target.value })}
-                />
-                <Input
-                  label="Currency"
-                  value={settingsForm.currency}
-                  onChange={(event) => setSettingsForm({ ...settingsForm, currency: event.target.value.toUpperCase() })}
-                />
-              </div>
-
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-zera-ink">Business status</span>
-                <select
-                  className="min-h-12 w-full rounded-md border border-zera-line bg-white px-3 text-base text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
-                  value={settingsForm.status}
-                  onChange={(event) => setSettingsForm({ ...settingsForm, status: event.target.value })}
-                >
-                  <option value="ACTIVE">Active</option>
-                  <option value="INACTIVE">Inactive</option>
-                </select>
-              </label>
-            </div>
-
-            <div className="mt-5 rounded-md border border-zera-line bg-[#f7faf8] p-4">
-              <p className="text-sm font-semibold text-zera-green">Resulting POS foundation</p>
-              <p className="mt-1 font-bold">{formatPOSMode(selectedType.posMode)}</p>
-              <p className="mt-2 text-sm leading-6 text-zera-muted">{selectedType.helper}</p>
-            </div>
-
-            <Button className="mt-5 w-full" disabled={settingsSaving}>
-              {settingsSaving ? "Saving settings..." : "Save business settings"}
-            </Button>
-          </form>
-
-          <section className="rounded-lg border border-zera-line p-5">
-            <SectionTitle icon={MapPin} title="Branch access" subtitle="Keep locations active only when they are ready to operate." />
-
-            <div className="mt-5 space-y-3">
-              {business.branches?.length ? (
-                business.branches.map((branch) => (
-                  <div key={branch.id} className="flex flex-col gap-3 rounded-md bg-[#f7faf8] p-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                      <p className="font-semibold">{branch.name}</p>
-                      <p className="mt-1 text-sm text-zera-muted">{branch.location || "Location not set"}</p>
-                    </div>
-                    <button
-                      type="button"
-                      className={`min-h-10 rounded-md px-4 text-sm font-semibold transition ${
-                        branch.status === "ACTIVE"
-                          ? "border border-zera-line bg-white text-zera-muted hover:border-red-200 hover:bg-red-50 hover:text-red-700"
-                          : "bg-zera-green text-white hover:bg-[#116832]"
-                      } disabled:cursor-not-allowed disabled:opacity-60`}
-                      disabled={branchSavingId === branch.id}
-                      onClick={() => onBranchStatusChange(branch.id, branch.status === "ACTIVE" ? "INACTIVE" : "ACTIVE")}
-                    >
-                      {branchSavingId === branch.id
-                        ? "Saving..."
-                        : branch.status === "ACTIVE"
-                          ? "Deactivate branch"
-                          : "Activate branch"}
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <EmptyState text="No branches are connected to this business." />
-              )}
-            </div>
-          </section>
+        <label className="block">
+          <span className="mb-2 block text-sm font-semibold text-zera-ink">Business status</span>
+          <select
+            className="min-h-11 w-full rounded-md border border-zera-line bg-white px-3 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+            value={settingsForm.status}
+            onChange={(event) => setSettingsForm({ ...settingsForm, status: event.target.value })}
+          >
+            <option value="ACTIVE">Active</option>
+            <option value="INACTIVE">Inactive</option>
+          </select>
+        </label>
+        <div className="rounded-md bg-[#f7faf8] p-3">
+          <p className="text-sm font-semibold text-zera-green">{formatPOSMode(selectedType.posMode, selectedType.value)}</p>
+          <p className="mt-1 text-sm leading-6 text-zera-muted">{selectedType.helper}</p>
         </div>
-
-        <section className="rounded-lg border border-zera-line p-5">
-          <SectionTitle icon={Boxes} title="Module activation" subtitle="Choose which foundations this business can access." />
-
-          <div className="mt-5 rounded-md border border-zera-line bg-[#f7faf8] p-4">
-            <p className="font-semibold">Keep the workspace focused</p>
-            <p className="mt-2 text-sm leading-6 text-zera-muted">
-              Enable a module only when the business is ready to use it. This keeps navigation simple for cashiers, managers, and owners.
-            </p>
-          </div>
-
-          <div className="mt-5 grid gap-3">
-            {(business.modules || []).map((module) => (
-              <ModuleToggleCard
-                key={module.id}
-                module={module}
-                saving={moduleSavingKey === module.key}
-                onToggle={(active) => onModuleToggle(module.key, active)}
-              />
-            ))}
-          </div>
-        </section>
+        <Button className="w-full" disabled={saving}>
+          {saving ? "Saving..." : "Save controls"}
+        </Button>
       </div>
-    </div>
+    </form>
   );
 }
 
-function AdminTabButton({ active, icon: Icon, label, onClick }) {
+function BusinessTypeSelect({ onChange, value }) {
+  const selectedType = getBusinessTypeOption(value);
+
   return (
-    <button
-      type="button"
-      className={`inline-flex min-h-11 shrink-0 items-center gap-2 rounded-md px-4 text-sm font-semibold transition ${
-        active ? "bg-zera-green text-white shadow-soft" : "bg-[#f7faf8] text-zera-muted hover:bg-zera-mint hover:text-zera-ink"
-      }`}
-      onClick={onClick}
-    >
-      <Icon size={17} />
-      {label}
-    </button>
+    <label className="block">
+      <span className="mb-2 block text-sm font-semibold text-zera-ink">Type of business</span>
+      <select
+        className="min-h-11 w-full rounded-md border border-zera-line bg-white px-3 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {businessTypeOptions.map((option) => (
+          <option key={option.value} value={option.value}>
+            {option.label}
+          </option>
+        ))}
+      </select>
+      <p className="mt-2 rounded-md bg-[#f7faf8] px-3 py-2 text-sm leading-6 text-zera-muted">
+        {formatPOSMode(selectedType.posMode, selectedType.value)}. {selectedType.helper}
+      </p>
+    </label>
   );
 }
 
-function CurrentBusinessSelector({ businesses, loading, onChange, onOpenBusinesses, onOpenDetails, onOpenSettings, selectedBusiness }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const selectorRef = useRef(null);
-  const selectedOwner = selectedBusiness?.memberships?.find((membership) => membership.role?.name === "Owner");
-  const selectedMode = selectedBusiness?.posMode || getBusinessTypeOption(selectedBusiness?.type).posMode;
-  const visibleBusinesses = useMemo(() => {
-    const searchTerm = query.trim().toLowerCase();
-
-    if (!searchTerm) {
-      return businesses;
-    }
-
-    return businesses.filter((business) => {
-      const owner = business.memberships?.find((membership) => membership.role?.name === "Owner");
-      return [business.name, business.type, business.country, business.currency, business.posMode, owner?.user?.name, owner?.user?.email]
-        .filter(Boolean)
-        .some((value) => value.toLowerCase().includes(searchTerm));
-    });
-  }, [businesses, query]);
-
-  useEffect(() => {
-    function closeOnOutsideClick(event) {
-      if (selectorRef.current && !selectorRef.current.contains(event.target)) {
-        setOpen(false);
-      }
-    }
-
-    function closeOnEscape(event) {
-      if (event.key === "Escape") {
-        setOpen(false);
-      }
-    }
-
-    document.addEventListener("mousedown", closeOnOutsideClick);
-    document.addEventListener("keydown", closeOnEscape);
-
-    return () => {
-      document.removeEventListener("mousedown", closeOnOutsideClick);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, []);
-
-  function chooseBusiness(businessId) {
-    onChange(businessId);
-    setOpen(false);
-    setQuery("");
-  }
-
+function ModulesCard({ business, moduleSavingKey, onModuleToggle }) {
   return (
-    <div ref={selectorRef} className="relative w-full sm:w-auto">
+    <section className="rounded-lg border border-zera-line bg-white p-4">
+      <SectionTitle icon={Boxes} title="Modules" subtitle="Enable only what this business needs now" />
+      <div className="mt-4 grid gap-2">
+        {(business.modules || []).map((module) => (
+          <ModuleToggleRow
+            key={module.id}
+            module={module}
+            saving={moduleSavingKey === module.key}
+            onToggle={(active) => onModuleToggle(module.key, active)}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ModuleToggleRow({ module, onToggle, saving }) {
+  return (
+    <div className="flex items-center justify-between gap-4 rounded-md bg-[#f7faf8] px-3 py-3">
+      <div className="min-w-0">
+        <p className="font-semibold">{module.name || module.key}</p>
+        <p className="mt-1 text-sm text-zera-muted">{getModuleDescription(module.key)}</p>
+      </div>
       <button
         type="button"
-        className="flex min-h-12 w-full min-w-0 items-center gap-3 rounded-md border border-zera-line bg-white px-3 text-left transition hover:border-zera-green focus:border-zera-green focus:outline-none focus:ring-4 focus:ring-zera-green/10 sm:w-[380px]"
-        aria-expanded={open}
-        aria-haspopup="listbox"
-        disabled={loading || businesses.length === 0}
-        onClick={() => setOpen((current) => !current)}
+        className={`relative h-8 w-14 shrink-0 rounded-full transition ${
+          module.active ? "bg-zera-green" : "bg-zera-line"
+        } disabled:cursor-not-allowed disabled:opacity-70`}
+        onClick={() => onToggle(!module.active)}
+        disabled={saving}
+        aria-label={`${module.active ? "Disable" : "Enable"} ${module.name || module.key}`}
       >
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-          <Building2 size={17} />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-bold uppercase text-zera-muted">Manage company</p>
-          <p className="truncate text-sm font-bold text-zera-ink">
-            {loading ? "Loading companies..." : selectedBusiness?.name || "No companies yet"}
-          </p>
-          {selectedBusiness ? (
-            <p className="mt-0.5 truncate text-[11px] font-medium text-zera-muted">
-              {formatPOSMode(selectedMode)} · {selectedBusiness.currency} · {selectedOwner?.user?.email || "owner pending"}
-            </p>
-          ) : null}
-        </div>
-        <ChevronDown className={`shrink-0 text-zera-muted transition ${open ? "rotate-180" : ""}`} size={16} />
+        <span className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition ${module.active ? "left-7" : "left-1"}`} />
       </button>
-
-      {open ? (
-        <div className="absolute right-0 z-30 mt-2 w-[min(460px,calc(100vw-32px))] overflow-hidden rounded-md border border-zera-line bg-white shadow-xl">
-          <div className="border-b border-zera-line p-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-bold uppercase text-zera-muted">Switch company</p>
-                <p className="mt-0.5 text-xs text-zera-muted">{businesses.length} workspaces available</p>
-              </div>
-              {selectedBusiness ? <StatusPill label="current selected" /> : null}
-            </div>
-            <label className="mt-2 flex min-h-10 items-center gap-2 rounded-md border border-zera-line px-3 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
-              <Search size={16} className="shrink-0 text-zera-muted" />
-              <span className="sr-only">Search companies</span>
-              <input
-                autoFocus
-                className="w-full border-0 bg-transparent text-sm outline-none"
-                placeholder="Search name, type, or owner"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-              />
-            </label>
-          </div>
-
-          <div className="max-h-72 overflow-y-auto p-2" role="listbox" aria-label="Companies">
-            {visibleBusinesses.length ? (
-              visibleBusinesses.map((business) => {
-                const selected = business.id === selectedBusiness?.id;
-                const owner = business.memberships?.find((membership) => membership.role?.name === "Owner");
-                const mode = business.posMode || getBusinessTypeOption(business.type).posMode;
-
-                return (
-                  <button
-                    key={business.id}
-                    type="button"
-                    className={`flex w-full items-center gap-3 rounded-md px-3 py-3 text-left transition ${
-                      selected ? "bg-zera-mint text-zera-ink" : "hover:bg-[#f7faf8]"
-                    }`}
-                    role="option"
-                    aria-selected={selected}
-                    onClick={() => chooseBusiness(business.id)}
-                  >
-                    <div
-                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${
-                        selected ? "bg-white text-zera-green" : "bg-[#f7faf8] text-zera-muted"
-                      }`}
-                    >
-                      <Store size={17} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <p className="truncate text-sm font-bold">{business.name}</p>
-                        {selected ? <span className="shrink-0 rounded-md bg-white px-2 py-0.5 text-[11px] font-bold text-zera-green">Current</span> : null}
-                      </div>
-                      <p className="mt-0.5 truncate text-xs text-zera-muted">
-                        {business.type || "Business"} · {formatPOSMode(mode)} · {business.currency}
-                      </p>
-                      <p className="mt-0.5 truncate text-xs text-zera-muted">Owner: {owner?.user?.email || "Not assigned"}</p>
-                    </div>
-                    {selected ? <CheckCircle2 size={18} className="shrink-0 text-zera-green" /> : null}
-                  </button>
-                );
-              })
-            ) : (
-              <p className="px-3 py-6 text-center text-sm text-zera-muted">No companies match your search.</p>
-            )}
-          </div>
-
-          <div className="border-t border-zera-line bg-[#f7faf8] p-2">
-            {selectedBusiness ? (
-              <div className="mb-2 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  className="flex min-h-10 items-center justify-center gap-2 rounded-md bg-white px-3 text-sm font-semibold text-zera-ink transition hover:bg-zera-mint"
-                  onClick={() => {
-                    setOpen(false);
-                    onOpenDetails();
-                  }}
-                >
-                  <Eye size={15} />
-                  Details
-                </button>
-                <button
-                  type="button"
-                  className="flex min-h-10 items-center justify-center gap-2 rounded-md bg-white px-3 text-sm font-semibold text-zera-ink transition hover:bg-zera-mint"
-                  onClick={() => {
-                    setOpen(false);
-                    onOpenSettings();
-                  }}
-                >
-                  <Settings size={15} />
-                  Settings
-                </button>
-              </div>
-            ) : null}
-            <button
-              type="button"
-              className="flex min-h-10 w-full items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold text-zera-green transition hover:bg-zera-mint"
-              onClick={() => {
-                setOpen(false);
-                onOpenBusinesses();
-              }}
-            >
-              <Building2 size={16} />
-              View all {businesses.length} businesses
-            </button>
-          </div>
-        </div>
-      ) : null}
     </div>
+  );
+}
+
+function BranchesCard({ branchSavingId, business, onBranchStatusChange }) {
+  return (
+    <section className="rounded-lg border border-zera-line bg-white p-4">
+      <SectionTitle icon={MapPin} title="Branches" subtitle="Locations connected to this business" />
+      <div className="mt-4 space-y-2">
+        {business.branches?.length ? (
+          business.branches.map((branch) => (
+            <div key={branch.id} className="flex flex-col gap-3 rounded-md bg-[#f7faf8] px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-semibold">{branch.name}</p>
+                <p className="mt-1 text-sm text-zera-muted">{branch.location || "Location not set"}</p>
+              </div>
+              <button
+                type="button"
+                className={`min-h-10 rounded-md px-4 text-sm font-semibold transition ${
+                  branch.status === "ACTIVE"
+                    ? "border border-zera-line bg-white text-zera-muted hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                    : "bg-zera-green text-white hover:bg-[#116832]"
+                } disabled:cursor-not-allowed disabled:opacity-60`}
+                disabled={branchSavingId === branch.id}
+                onClick={() => onBranchStatusChange(branch.id, branch.status === "ACTIVE" ? "INACTIVE" : "ACTIVE")}
+              >
+                {branchSavingId === branch.id ? "Saving..." : branch.status === "ACTIVE" ? "Deactivate" : "Activate"}
+              </button>
+            </div>
+          ))
+        ) : (
+          <EmptyState text="No branches are connected to this business." />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function TeamCard({ business, owner }) {
+  return (
+    <section className="rounded-lg border border-zera-line bg-white p-4">
+      <SectionTitle icon={Users} title="Access" subtitle="Owner and staff accounts" />
+      <div className="mt-4 rounded-md bg-[#f7faf8] p-3">
+        <p className="text-xs font-bold uppercase text-zera-muted">Owner</p>
+        <p className="mt-1 font-semibold">{owner?.user?.name || "Owner not set"}</p>
+        <p className="mt-1 text-sm text-zera-muted">{owner?.user?.email || "Email not set"}</p>
+      </div>
+      <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+        {business.memberships?.map((membership) => (
+          <div key={membership.id} className="flex items-center justify-between gap-3 rounded-md bg-[#f7faf8] px-3 py-3">
+            <div className="min-w-0">
+              <p className="truncate font-semibold">{membership.user.name}</p>
+              <p className="mt-1 truncate text-sm text-zera-muted">{membership.user.email}</p>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-1">
+              <StatusPill label={membership.role?.name || "No role"} muted />
+              <StatusPill label={membership.user.status === "ACTIVE" ? "Active" : "Inactive"} muted={membership.user.status !== "ACTIVE"} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -1134,213 +1167,56 @@ function CompactFact({ label, value }) {
   );
 }
 
-function BusinessListItem({ business, onOpenDetails, onSelect, selected }) {
-  const owner = business.memberships?.find((membership) => membership.role?.name === "Owner");
-  const mode = business.posMode || getBusinessTypeOption(business.type).posMode;
-
-  return (
-    <article
-      className={`w-full rounded-md border p-4 text-left transition ${
-        selected ? "border-zera-green bg-zera-mint/60 shadow-soft" : "border-zera-line bg-white hover:border-zera-green/60"
-      }`}
-    >
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <h4 className="truncate font-bold">{business.name}</h4>
-            {selected ? (
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-white px-2 py-1 text-[11px] font-bold text-zera-green">
-                <CheckCircle2 size={13} />
-                Current
-              </span>
-            ) : null}
-          </div>
-          <p className="mt-1 text-sm text-zera-muted">
-            {business.type || "Business"} · {business.country || "Country not set"} · {business.currency}
-          </p>
-          <p className="mt-1 truncate text-sm text-zera-muted">
-            Owner: {owner?.user?.name || "Not set"} {owner?.user?.email ? `(${owner.user.email})` : ""}
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="flex flex-wrap gap-2">
-                <StatusPill label={formatPOSMode(mode)} />
-                <StatusPill label={`${business.branches?.length || 0} branch${business.branches?.length === 1 ? "" : "es"}`} />
-              </div>
-          <div className="flex gap-2">
-            {!selected ? (
-              <Button className="flex-1 sm:flex-none" variant="secondary" onClick={onSelect}>
-                Select
-              </Button>
-            ) : null}
-            <Button className="flex-1 gap-2 sm:flex-none" onClick={onOpenDetails}>
-              <Eye size={16} />
-              Details
-            </Button>
-          </div>
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function BusinessTypePicker({ onChange, value }) {
-  const selectedOption = getBusinessTypeOption(value);
-
-  return (
-    <div>
-      <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <label className="block text-sm font-semibold text-zera-ink">Type of business</label>
-          <p className="text-sm text-zera-muted">This controls the POS experience the business will receive.</p>
-        </div>
-      </div>
-      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
-        {businessTypeOptions.map((option) => {
-          const Icon = option.icon;
-          const selected = value === option.value;
-
-          return (
-            <button
-              key={option.value}
-              type="button"
-              className={`min-h-24 rounded-md border p-3 text-left transition ${
-                selected ? "border-zera-green bg-zera-mint/70 shadow-soft" : "border-zera-line bg-white hover:border-zera-green hover:bg-[#f7faf8]"
-              }`}
-              onClick={() => onChange(option.value)}
-            >
-              <div className="flex h-full flex-col justify-between gap-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-zera-green">
-                    <Icon size={19} />
-                  </div>
-                  {selected ? <CheckCircle2 size={17} className="shrink-0 text-zera-green" /> : null}
-                </div>
-                <div>
-                  <p className="text-sm font-bold leading-5">{option.label}</p>
-                  <p className="mt-1 text-[11px] font-semibold uppercase text-zera-muted">{formatPOSMode(option.posMode)}</p>
-                </div>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-      <div className="mt-3 rounded-md border border-zera-green/20 bg-zera-mint/50 px-3 py-3">
-        <p className="text-sm font-semibold text-zera-green">{selectedOption.label} workflow</p>
-        <p className="mt-1 text-sm leading-6 text-zera-muted">{selectedOption.helper}</p>
-      </div>
-    </div>
-  );
-}
-
-function ModuleToggleCard({ module, onToggle, saving }) {
-  return (
-    <article className={`rounded-md border p-4 ${module.active ? "border-zera-green bg-zera-mint/60" : "border-zera-line bg-[#f7faf8]"}`}>
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="font-bold">{module.name || module.key}</p>
-          <p className="mt-1 text-sm text-zera-muted">{getModuleDescription(module.key)}</p>
-        </div>
-        <button
-          type="button"
-          className={`relative h-8 w-14 shrink-0 rounded-full transition ${
-            module.active ? "bg-zera-green" : "bg-zera-line"
-          } disabled:cursor-not-allowed disabled:opacity-70`}
-          onClick={() => onToggle(!module.active)}
-          disabled={saving}
-          aria-label={`${module.active ? "Disable" : "Enable"} ${module.name || module.key}`}
-        >
-          <span
-            className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition ${
-              module.active ? "left-7" : "left-1"
-            }`}
-          />
-        </button>
-      </div>
-      <div className="mt-4 flex items-center justify-between gap-3">
-        <StatusPill label={saving ? "Saving" : module.active ? "Enabled" : "Disabled"} />
-        <span className="text-xs font-semibold text-zera-muted">{module.key}</span>
-      </div>
-    </article>
-  );
-}
-
-function SetupHealthRow({ detail, label, ready, value }) {
-  return (
-    <article className="rounded-md border border-zera-line bg-white p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div
-          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-md ${
-            ready ? "bg-zera-mint text-zera-green" : "bg-[#f7faf8] text-zera-muted"
-          }`}
-        >
-          <CheckCircle2 size={18} />
-        </div>
-        <span className="shrink-0 text-lg font-bold text-zera-ink">{value}</span>
-      </div>
-      <p className="mt-3 font-semibold">{label}</p>
-      <p className="mt-1 text-sm leading-5 text-zera-muted">{detail}</p>
-    </article>
-  );
-}
-
 function EmptyState({ text }) {
-  return <div className="rounded-md border border-dashed border-zera-line p-5 text-sm text-zera-muted">{text}</div>;
+  return <div className="rounded-md border border-dashed border-zera-line bg-[#f7faf8] p-5 text-sm text-zera-muted">{text}</div>;
 }
 
-function InfoPanel({ children, icon: Icon, subtitle, title }) {
-  return (
-    <article className="rounded-md border border-zera-line p-4">
-      <SectionTitle icon={Icon} title={title} subtitle={subtitle} compact />
-      <div className="mt-4">{children}</div>
-    </article>
-  );
-}
-
-function MetricCard({ icon: Icon, label, value }) {
-  return (
-    <article className="rounded-md border border-zera-line bg-[#f7faf8] p-3">
-      <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-md bg-white text-zera-green">
-        <Icon size={18} />
-      </div>
-      <p className="text-xs font-medium text-zera-muted">{label}</p>
-      <p className="mt-1 text-xl font-bold text-zera-ink">{value}</p>
-    </article>
-  );
-}
-
-function DetailMetric({ icon: Icon, label, value }) {
-  return (
-    <article className="rounded-md bg-[#f7faf8] p-4">
-      <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-md bg-white text-zera-green">
-        <Icon size={20} />
-      </div>
-      <p className="text-sm font-medium text-zera-muted">{label}</p>
-      <p className="mt-1 text-xl font-bold text-zera-ink">{value}</p>
-    </article>
-  );
-}
-
-function SectionTitle({ compact = false, icon: Icon, subtitle, title }) {
+function SectionTitle({ icon: Icon, subtitle, title }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <div className={`${compact ? "h-10 w-10" : "h-11 w-11"} flex items-center justify-center rounded-md bg-zera-mint text-zera-green`}>
-        <Icon size={compact ? 20 : 22} />
+      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+        <Icon size={19} />
       </div>
       <div className="min-w-0">
-        <h3 className={`${compact ? "text-base" : "text-lg"} font-bold`}>{title}</h3>
+        <h3 className="font-bold">{title}</h3>
         <p className="text-sm leading-5 text-zera-muted">{subtitle}</p>
       </div>
     </div>
   );
 }
 
-function StatusPill({ label }) {
-  return <span className="rounded-md bg-zera-mint px-3 py-2 text-xs font-semibold capitalize text-zera-green">{label}</span>;
+function StatusPill({ label, muted = false }) {
+  return (
+    <span className={`rounded-md px-2 py-1 text-xs font-semibold capitalize ${muted ? "bg-white text-zera-muted" : "bg-zera-mint text-zera-green"}`}>
+      {label}
+    </span>
+  );
 }
 
-function formatPOSMode(posMode = "RETAIL_CHECKOUT") {
-  return posMode === "TABLE_SERVICE" ? "Table-service POS" : "Retail checkout POS";
+function formatPOSMode(posMode = "RETAIL_CHECKOUT", businessType = "") {
+  const type = businessType.toLowerCase();
+
+  if (posMode === "TABLE_SERVICE") {
+    return "Table-service POS";
+  }
+
+  if (type.includes("pharmacy")) {
+    return "Pharmacy checkout POS";
+  }
+
+  if (type.includes("hotel")) {
+    return "Front desk service POS";
+  }
+
+  if (type.includes("supermarket")) {
+    return "Supermarket checkout POS";
+  }
+
+  if (type.includes("retail")) {
+    return "Retail shop checkout POS";
+  }
+
+  return "Retail checkout POS";
 }
 
 function getBusinessSettingsForm(business) {
@@ -1354,36 +1230,17 @@ function getBusinessSettingsForm(business) {
   };
 }
 
-function getPlatformSetupHealth(businesses) {
-  return businesses.reduce(
-    (health, business) => {
-      const hasOwner = business.memberships?.some((membership) => membership.role?.name === "Owner");
-      const hasActiveBranch = business.branches?.some((branch) => branch.status === "ACTIVE");
-      const hasPOS = business.modules?.some((module) => module.key === "POS" && module.active);
-
-      if (hasOwner) health.withOwner += 1;
-      if (hasActiveBranch) health.withActiveBranch += 1;
-      if (hasPOS) health.withPOS += 1;
-      if (hasOwner && hasActiveBranch && hasPOS) health.ready += 1;
-
-      return health;
-    },
-    {
-      withOwner: 0,
-      withActiveBranch: 0,
-      withPOS: 0,
-      ready: 0
-    }
-  );
+function getOwner(business) {
+  return business?.memberships?.find((membership) => membership.role?.name === "Owner") || null;
 }
 
 function getModuleDescription(key) {
   const descriptions = {
-    POS: "Sales, checkout, receipts, customers, and product selling flow.",
-    INVENTORY: "Stock control, purchasing, transfers, and warehouse readiness.",
-    FINANCE: "Cash, expenses, reports, and future accounting controls.",
-    OPERATIONS: "Daily operations for restaurants, hotels, warehouses, and service flows.",
-    REPORTS: "Business intelligence, summaries, exports, and management views."
+    POS: "Sales, open bills, receipts, and daily checkout.",
+    INVENTORY: "Products, stock, transfers, and warehouse control.",
+    FINANCE: "Cash, expenses, invoices, and financial reports.",
+    OPERATIONS: "Restaurant, hotel, pharmacy, or workflow operations.",
+    REPORTS: "Daily, weekly, monthly, and manager reporting."
   };
 
   return descriptions[key] || "Business capability controlled by System Admin.";

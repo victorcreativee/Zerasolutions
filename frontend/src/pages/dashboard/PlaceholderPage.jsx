@@ -5,21 +5,35 @@ export default function PlaceholderPage({ moduleKey, title }) {
   const { activeBranch, activeBusiness, activeRoleName } = useWorkspace();
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <section className="rounded-lg border border-zera-line bg-white p-6 shadow-soft">
-        <div className="flex h-12 w-12 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-          <LockKeyhole size={23} />
+    <div className="mx-auto max-w-[1500px] space-y-4">
+      <header className="flex flex-col gap-3 border-b border-zera-line pb-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Module foundation</p>
+          <h2 className="mt-1 text-2xl font-bold">{title}</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">
+            This module is enabled in navigation, but its deeper workflow will be built after the current foundations are stable.
+          </p>
         </div>
-        <h2 className="mt-5 text-2xl font-bold">{title}</h2>
-        <p className="mt-3 max-w-2xl leading-7 text-zera-muted">
-          This module is part of the Zera platform direction, but Phase 1 only prepares the secure navigation and activation structure.
-        </p>
-        <div className="mt-6 grid gap-3 sm:grid-cols-3">
+      </header>
+
+      <section className="rounded-md border border-zera-line bg-white p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+            <LockKeyhole size={20} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="font-bold">Prepared, not built yet</h3>
+            <p className="mt-1 text-sm leading-6 text-zera-muted">
+              Zera keeps unavailable workflows quiet so cashier, owner, and manager screens stay clear.
+            </p>
+          </div>
+          {moduleKey ? <span className="rounded-md bg-zera-mint px-2 py-1 text-xs font-bold text-zera-green">{moduleKey}</span> : null}
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <StatusItem label="Business" value={activeBusiness?.name || "Not assigned"} />
           <StatusItem label="Branch" value={activeBranch?.name || "Not selected"} />
           <StatusItem label="Access" value={activeRoleName || "Not set"} />
         </div>
-        {moduleKey ? <p className="mt-4 text-sm font-semibold text-zera-green">{moduleKey} access is enabled for this workspace.</p> : null}
       </section>
     </div>
   );

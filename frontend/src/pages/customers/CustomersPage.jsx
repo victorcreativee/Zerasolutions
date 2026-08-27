@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Mail, Pencil, Phone, Plus, Search, ToggleLeft, ToggleRight, UserRound, Users, X } from "lucide-react";
-import Button from "../../components/Button.jsx";
-import Input from "../../components/Input.jsx";
+import { Mail, Pencil, Phone, Plus, Search, ToggleLeft, ToggleRight, UserRound, X } from "lucide-react";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
 import { createCustomer, getCustomers, updateCustomer, updateCustomerStatus } from "../../services/customerService.js";
 
@@ -16,6 +14,7 @@ export default function CustomersPage() {
   const { activeBusiness, activeBusinessId, activeRoleName } = useWorkspace();
   const [customers, setCustomers] = useState([]);
   const [form, setForm] = useState(defaultForm);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingCustomerId, setEditingCustomerId] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ACTIVE");
@@ -31,6 +30,7 @@ export default function CustomersPage() {
     () => customers.find((customer) => customer.id === editingCustomerId) || null,
     [customers, editingCustomerId]
   );
+  const filterCount = [statusFilter !== "ACTIVE", Boolean(search)].filter(Boolean).length;
 
   useEffect(() => {
     if (!activeBusinessId) {
@@ -41,7 +41,7 @@ export default function CustomersPage() {
     loadCustomers();
   }, [activeBusinessId, statusFilter]);
 
-  async function loadCustomers(nextSearch = search) {
+  async function loadCustomers(nextSearch = search, nextStatusFilter = statusFilter) {
     if (!activeBusinessId) {
       return;
     }
@@ -51,7 +51,7 @@ export default function CustomersPage() {
       setError("");
       const params = {
         ...(nextSearch ? { q: nextSearch } : {}),
-        ...(statusFilter !== "ALL" ? { status: statusFilter } : {})
+        ...(nextStatusFilter !== "ALL" ? { status: nextStatusFilter } : {})
       };
       const data = await getCustomers(activeBusinessId, params);
       setCustomers(data);
@@ -74,15 +74,20 @@ export default function CustomersPage() {
     setSaving(true);
 
     try {
+      const payload = {
+        name: form.name.trim(),
+        phone: form.phone.trim(),
+        email: form.email.trim(),
+        notes: form.notes.trim()
+      };
       const customer = editingCustomerId
-        ? await updateCustomer(activeBusinessId, editingCustomerId, form)
-        : await createCustomer(activeBusinessId, form);
+        ? await updateCustomer(activeBusinessId, editingCustomerId, payload)
+        : await createCustomer(activeBusinessId, payload);
 
       setCustomers((current) =>
         editingCustomerId ? current.map((item) => (item.id === customer.id ? customer : item)) : [customer, ...current]
       );
-      setForm(defaultForm);
-      setEditingCustomerId("");
+      closeDrawer();
       setMessage(editingCustomerId ? "Customer updated." : "Customer created.");
     } catch (apiError) {
       setError(apiError.response?.data?.message || "Unable to save customer.");
@@ -117,7 +122,15 @@ export default function CustomersPage() {
     loadCustomers(search);
   }
 
-  function handleEdit(customer) {
+  function openCreateDrawer() {
+    setEditingCustomerId("");
+    setForm(defaultForm);
+    setDrawerOpen(true);
+    setMessage("");
+    setError("");
+  }
+
+  function openEditDrawer(customer) {
     setEditingCustomerId(customer.id);
     setForm({
       name: customer.name || "",
@@ -125,11 +138,13 @@ export default function CustomersPage() {
       email: customer.email || "",
       notes: customer.notes || ""
     });
+    setDrawerOpen(true);
     setMessage("");
     setError("");
   }
 
-  function cancelEdit() {
+  function closeDrawer() {
+    setDrawerOpen(false);
     setEditingCustomerId("");
     setForm(defaultForm);
   }
@@ -137,237 +152,338 @@ export default function CustomersPage() {
   function clearFilters() {
     setSearch("");
     setStatusFilter("ACTIVE");
+    loadCustomers("", "ACTIVE");
+  }
+
+  if (!activeBusiness) {
+    return (
+      <section className="rounded-md border border-zera-line bg-white p-5">
+        <h2 className="text-xl font-bold">Customers</h2>
+        <p className="mt-2 text-sm text-zera-muted">Select a business before managing customers.</p>
+      </section>
+    );
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
-      <section className="rounded-lg border border-zera-line bg-white p-6 shadow-soft">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-zera-green">Customer book</p>
-            <h2 className="mt-2 text-2xl font-bold sm:text-3xl">Customers</h2>
-            <p className="mt-3 max-w-2xl leading-7 text-zera-muted">
-              Keep walk-in sales fast, but save repeat customers when the business needs names, phone numbers, or receipt history.
-            </p>
-          </div>
-          <div className="flex min-h-14 min-w-14 items-center justify-center rounded-lg bg-zera-mint text-zera-green">
-            <Users size={30} />
-          </div>
+    <div className="mx-auto max-w-[1500px] space-y-4">
+      <header className="flex flex-col gap-3 border-b border-zera-line pb-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase text-zera-green">Customer directory</p>
+          <h2 className="mt-1 text-xl font-bold tracking-tight text-zera-ink">Customers</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">
+            Save repeat customers for phone lookup, account notes, and cleaner receipt history. Walk-in sales can still continue without a saved customer.
+          </p>
         </div>
+        <button
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-zera-green px-4 text-sm font-bold text-white shadow-xs hover:bg-zera-greenDark"
+          type="button"
+          onClick={openCreateDrawer}
+        >
+          <Plus size={17} />
+          New customer
+        </button>
+      </header>
+
+      {error ? <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+      {message ? <div className="rounded-md border border-zera-green/10 bg-zera-mintSoft px-4 py-3 text-sm font-semibold text-zera-green">{message}</div> : null}
+
+      <CustomerCounts activeCount={activeCustomers.length} inactiveCount={inactiveCustomers.length} loading={loading} totalCount={customers.length} />
+
+      <section className="rounded-md border border-zera-line bg-white">
+        <CustomerToolbar
+          filterCount={filterCount}
+          onClearFilters={clearFilters}
+          onSearchChange={setSearch}
+          onSearchSubmit={handleSearchSubmit}
+          onStatusChange={setStatusFilter}
+          search={search}
+          statusFilter={statusFilter}
+        />
+
+        <CustomerTable
+          canManageStatus={canManageStatus}
+          customers={customers}
+          loading={loading}
+          onEdit={openEditDrawer}
+          onStatusToggle={handleStatusToggle}
+          updatingCustomerId={updatingCustomerId}
+        />
       </section>
 
-      {!activeBusiness ? (
-        <section className="rounded-lg border border-zera-line bg-white p-6">
-          <h3 className="text-lg font-bold">No business selected</h3>
-          <p className="mt-2 text-sm leading-6 text-zera-muted">Select a business before managing customers.</p>
-        </section>
-      ) : (
-        <>
-          {error ? <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-          {message ? <div className="rounded-md bg-zera-mint px-4 py-3 text-sm font-semibold text-zera-green">{message}</div> : null}
+      {drawerOpen ? (
+        <CustomerDrawer
+          customer={selectedCustomer}
+          form={form}
+          isEditing={Boolean(editingCustomerId)}
+          onChange={setForm}
+          onClose={closeDrawer}
+          onSubmit={handleSubmit}
+          saving={saving}
+        />
+      ) : null}
+    </div>
+  );
+}
 
-          <section className="grid gap-4 md:grid-cols-3">
-            <Metric icon={Users} label="Customers" value={loading ? "..." : customers.length} />
-            <Metric icon={ToggleRight} label="Active" value={loading ? "..." : activeCustomers.length} />
-            <Metric icon={ToggleLeft} label="Inactive" value={loading ? "..." : inactiveCustomers.length} />
-          </section>
+function CustomerCounts({ activeCount, inactiveCount, loading, totalCount }) {
+  const items = [
+    { label: "Visible", value: totalCount },
+    { label: "Active", value: activeCount },
+    { label: "Inactive", value: inactiveCount }
+  ];
 
-          <section className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
-            <form className="rounded-lg border border-zera-line bg-white p-5" onSubmit={handleSubmit}>
-              <div className="mb-5 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-                    <Plus size={22} />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold">{editingCustomerId ? "Edit customer" : "Create customer"}</h3>
-                    <p className="text-sm text-zera-muted">Business: {activeBusiness.name}</p>
-                  </div>
-                </div>
-                {editingCustomerId ? (
-                  <button
-                    type="button"
-                    className="flex h-10 w-10 items-center justify-center rounded-md text-zera-muted hover:bg-[#f7faf8] hover:text-zera-ink"
-                    onClick={cancelEdit}
-                    aria-label="Cancel edit"
-                  >
-                    <X size={18} />
-                  </button>
-                ) : null}
-              </div>
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {items.map((item) => (
+        <div className="inline-flex min-h-9 items-center gap-2 rounded-md border border-zera-line bg-white px-3 text-sm text-zera-muted shadow-xs" key={item.label}>
+          <span className="font-semibold">{item.label}</span>
+          <span className="font-bold text-zera-ink">{loading ? "..." : item.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 
-              <div className="space-y-4">
-                <Input
-                  label="Customer name"
-                  value={form.name}
-                  onChange={(event) => setForm({ ...form, name: event.target.value })}
-                  placeholder="e.g. Sarah Kato"
-                  required
-                />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Input
-                    label="Phone"
-                    value={form.phone}
-                    onChange={(event) => setForm({ ...form, phone: event.target.value })}
-                    placeholder="+256..."
-                  />
-                  <Input
-                    label="Email"
-                    type="email"
-                    value={form.email}
-                    onChange={(event) => setForm({ ...form, email: event.target.value })}
-                    placeholder="customer@example.com"
-                  />
-                </div>
-                <label className="block">
-                  <span className="mb-2 block text-sm font-medium text-zera-ink">Notes</span>
-                  <textarea
-                    className="min-h-28 w-full rounded-md border border-zera-line bg-white px-3 py-3 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
-                    value={form.notes}
-                    onChange={(event) => setForm({ ...form, notes: event.target.value })}
-                    placeholder="Preference, delivery note, account note..."
-                  />
-                </label>
-              </div>
+function CustomerToolbar({ filterCount, onClearFilters, onSearchChange, onSearchSubmit, onStatusChange, search, statusFilter }) {
+  return (
+    <div className="overflow-x-auto border-b border-zera-line bg-white px-3 py-2">
+      <div className="flex min-w-max flex-nowrap items-center gap-2">
+        <form
+          className="flex h-9 w-[320px] shrink-0 items-center gap-2 rounded-md border border-zera-line bg-white px-2.5 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10"
+          onSubmit={onSearchSubmit}
+        >
+          <Search size={16} className="shrink-0 text-zera-muted" />
+          <input
+            className="w-full border-0 bg-transparent text-sm outline-none"
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Search name, phone, or email"
+          />
+        </form>
 
-              <Button type="submit" className="mt-5 w-full" disabled={saving}>
-                {saving ? "Saving..." : editingCustomerId ? "Update customer" : "Create customer"}
-              </Button>
+        <SegmentedStatusFilter value={statusFilter} onChange={onStatusChange} />
 
-              {selectedCustomer ? (
-                <p className="mt-3 text-center text-xs text-zera-muted">
-                  Editing {selectedCustomer.name}. Use the close button to return to a blank form.
-                </p>
-              ) : null}
-            </form>
+        <button
+          className="h-9 w-[64px] shrink-0 rounded-md border border-zera-line bg-white px-2 text-sm font-bold text-zera-muted hover:bg-zera-mintSoft hover:text-zera-ink disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={!filterCount}
+          type="button"
+          onClick={onClearFilters}
+        >
+          Reset
+        </button>
+      </div>
+    </div>
+  );
+}
 
-            <section className="rounded-lg border border-zera-line bg-white p-5">
-              <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h3 className="text-lg font-bold">Customer directory</h3>
-                  <p className="mt-1 text-sm text-zera-muted">{loading ? "Loading..." : `${customers.length} customer${customers.length === 1 ? "" : "s"}`}</p>
-                </div>
-                <div className="flex gap-2">
-                  {["ACTIVE", "ALL", "INACTIVE"].map((status) => (
+function SegmentedStatusFilter({ onChange, value }) {
+  const items = [
+    { label: "Active", value: "ACTIVE" },
+    { label: "All", value: "ALL" },
+    { label: "Inactive", value: "INACTIVE" }
+  ];
+
+  return (
+    <div className="inline-flex h-9 shrink-0 overflow-hidden rounded-md border border-zera-line bg-zera-surface p-1">
+      {items.map((item) => (
+        <button
+          className={`h-7 min-w-[72px] rounded px-2 text-sm font-bold transition ${
+            value === item.value ? "bg-white text-zera-green shadow-xs" : "text-zera-muted hover:bg-white hover:text-zera-ink"
+          }`}
+          key={item.value}
+          type="button"
+          onClick={() => onChange(item.value)}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function CustomerTable({ canManageStatus, customers, loading, onEdit, onStatusToggle, updatingCustomerId }) {
+  if (!loading && customers.length === 0) {
+    return (
+      <div className="m-4 rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-6 text-sm text-zera-muted">
+        No customers found. Walk-in sales still work without saving a customer.
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <div className="max-h-[calc(100vh-286px)] min-w-[880px] overflow-y-auto">
+        <table className="w-full border-collapse text-left text-sm">
+          <thead className="sticky top-0 z-10 border-b border-zera-line bg-zera-mintSoft text-xs font-bold uppercase text-zera-muted">
+            <tr>
+              <th className="w-[28%] px-4 py-3">Customer</th>
+              <th className="w-[20%] px-4 py-3">Phone</th>
+              <th className="w-[24%] px-4 py-3">Email</th>
+              <th className="w-[16%] px-4 py-3">Status</th>
+              <th className="w-[12%] px-4 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zera-line">
+            {loading ? (
+              <tr>
+                <td className="px-4 py-8 text-sm text-zera-muted" colSpan={5}>
+                  Loading customers...
+                </td>
+              </tr>
+            ) : null}
+
+            {!loading && customers.map((customer) => (
+              <tr className="hover:bg-zera-mintSoft/70" key={customer.id}>
+                <td className="px-4 py-3">
+                  <p className="font-bold text-zera-ink">{customer.name}</p>
+                  <p className="mt-1 truncate text-xs text-zera-muted">{customer.notes || "No notes"}</p>
+                </td>
+                <td className="px-4 py-3 text-zera-muted">
+                  <ContactLine icon={Phone} value={customer.phone || "No phone"} />
+                </td>
+                <td className="px-4 py-3 text-zera-muted">
+                  <ContactLine icon={Mail} value={customer.email || "No email"} />
+                </td>
+                <td className="px-4 py-3">
+                  <StatusBadge status={customer.status} />
+                </td>
+                <td className="px-4 py-3">
+                  <div className="flex justify-end gap-2">
                     <button
-                      key={status}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zera-line bg-white text-zera-ink hover:bg-zera-mintSoft"
                       type="button"
-                      className={`min-h-10 rounded-md border px-3 text-sm font-semibold ${
-                        statusFilter === status ? "border-zera-green bg-zera-mint text-zera-green" : "border-zera-line text-zera-muted hover:bg-[#f7faf8]"
-                      }`}
-                      onClick={() => setStatusFilter(status)}
+                      onClick={() => onEdit(customer)}
+                      aria-label={`Edit ${customer.name}`}
                     >
-                      {formatStatus(status)}
+                      <Pencil size={14} />
                     </button>
-                  ))}
+                    {canManageStatus ? (
+                      <button
+                        className="inline-flex h-9 items-center rounded-md border border-zera-line bg-white px-3 text-xs font-bold text-zera-ink hover:bg-zera-mintSoft disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={updatingCustomerId === customer.id}
+                        type="button"
+                        onClick={() => onStatusToggle(customer)}
+                      >
+                        {customer.status === "ACTIVE" ? <ToggleLeft size={15} /> : <ToggleRight size={15} />}
+                        <span className="ml-1">{customer.status === "ACTIVE" ? "Pause" : "Activate"}</span>
+                      </button>
+                    ) : null}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function CustomerDrawer({ customer, form, isEditing, onChange, onClose, onSubmit, saving }) {
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/25">
+      <button className="hidden flex-1 cursor-default lg:block" type="button" aria-label="Close customer form" onClick={onClose} />
+      <aside className="flex h-full w-full max-w-lg flex-col border-l border-zera-line bg-white shadow-panel">
+        <div className="flex items-start justify-between gap-3 border-b border-zera-line bg-zera-mintSoft/40 px-5 py-4">
+          <div>
+            <p className="text-xs font-bold uppercase text-zera-green">Customer record</p>
+            <h3 className="mt-1 text-xl font-bold">{isEditing ? "Edit customer" : "New customer"}</h3>
+            <p className="mt-1 text-sm text-zera-muted">{customer ? `Editing ${customer.name}` : "Save details only when they help the business serve the customer better."}</p>
+          </div>
+          <button className="flex h-9 w-9 items-center justify-center rounded-md text-zera-muted hover:bg-zera-surface" type="button" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <form className="min-h-0 flex-1 overflow-y-auto px-5 py-4" onSubmit={onSubmit}>
+          <div className="space-y-4">
+            <section className="rounded-md border border-zera-line p-4">
+              <SectionLabel title="Customer details" helper="Save only the information staff need for lookup, deliveries, and account follow-up." />
+              <div className="mt-3 space-y-3">
+                <Field label="Customer name" required value={form.name} onChange={(value) => onChange({ ...form, name: value })} />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field label="Phone" placeholder="+256..." value={form.phone} onChange={(value) => onChange({ ...form, phone: value })} />
+                  <Field label="Email" placeholder="customer@example.com" type="email" value={form.email} onChange={(value) => onChange({ ...form, email: value })} />
                 </div>
-              </div>
-
-              <form className="mb-4 grid gap-3 md:grid-cols-[1fr_auto_auto]" onSubmit={handleSearchSubmit}>
-                <label className="flex min-h-12 items-center gap-3 rounded-md border border-zera-line bg-[#f7faf8] px-3">
-                  <Search size={18} className="text-zera-muted" />
-                  <input
-                    className="w-full border-0 bg-transparent text-sm outline-none"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder="Search name, phone, or email"
-                  />
-                </label>
-                <Button type="submit" variant="secondary">
-                  Search
-                </Button>
-                <Button type="button" variant="ghost" className="px-3" onClick={clearFilters}>
-                  Clear
-                </Button>
-              </form>
-
-              <div className="space-y-3">
-                {!loading && customers.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-zera-line bg-[#f7faf8] p-5 text-sm text-zera-muted">
-                    No customers found. Walk-in sales still work without saving a customer.
-                  </div>
-                ) : null}
-
-                {loading ? (
-                  <div className="rounded-md border border-dashed border-zera-line bg-[#f7faf8] p-5 text-sm text-zera-muted">
-                    Loading customers...
-                  </div>
-                ) : null}
-
-                {customers.map((customer) => (
-                  <article key={customer.id} className="rounded-md border border-zera-line bg-[#f7faf8] p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <h4 className="font-bold">{customer.name}</h4>
-                        <div className="mt-2 space-y-1 text-sm text-zera-muted">
-                          <ContactLine icon={Phone} value={customer.phone || "No phone"} />
-                          <ContactLine icon={Mail} value={customer.email || "No email"} />
-                        </div>
-                        {customer.notes ? <p className="mt-3 text-sm leading-6 text-zera-muted">{customer.notes}</p> : null}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <StatusBadge status={customer.status} />
-                        <button
-                          type="button"
-                          className="flex min-h-9 items-center gap-2 rounded-md border border-zera-line bg-white px-3 text-sm font-semibold text-zera-ink hover:bg-zera-mint"
-                          onClick={() => handleEdit(customer)}
-                        >
-                          <Pencil size={15} />
-                          Edit
-                        </button>
-                        {canManageStatus ? (
-                          <button
-                            type="button"
-                            className="flex min-h-9 items-center gap-2 rounded-md border border-zera-line bg-white px-3 text-sm font-semibold text-zera-ink hover:bg-zera-mint disabled:cursor-not-allowed disabled:opacity-60"
-                            disabled={updatingCustomerId === customer.id}
-                            onClick={() => handleStatusToggle(customer)}
-                          >
-                            {customer.status === "ACTIVE" ? <ToggleLeft size={16} /> : <ToggleRight size={16} />}
-                            {customer.status === "ACTIVE" ? "Deactivate" : "Activate"}
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </article>
-                ))}
               </div>
             </section>
-          </section>
-        </>
-      )}
+
+            <section className="rounded-md border border-zera-line p-4">
+              <SectionLabel title="Internal notes" helper="Useful preferences, delivery instructions, or account context for the team." />
+              <label className="mt-3 block">
+                <span className="sr-only">Notes</span>
+                <textarea
+                  className="min-h-28 w-full rounded-md border border-zera-line bg-white px-3 py-3 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                  value={form.notes}
+                  onChange={(event) => onChange({ ...form, notes: event.target.value })}
+                  placeholder="Preference, delivery note, account note..."
+                />
+              </label>
+            </section>
+
+            <section className="rounded-md border border-zera-line bg-zera-mintSoft p-4">
+              <p className="text-xs font-bold uppercase text-zera-green">Customer preview</p>
+              <div className="mt-3 rounded-md bg-white p-3 shadow-xs">
+                <p className="truncate font-bold text-zera-ink">{form.name || "Customer name"}</p>
+                <p className="mt-1 truncate text-xs text-zera-muted">{form.phone || "No phone"} · {form.email || "No email"}</p>
+              </div>
+            </section>
+          </div>
+
+          <div className="sticky bottom-0 mt-6 flex flex-col-reverse gap-2 border-t border-zera-line bg-white py-4 sm:flex-row sm:justify-end">
+            <button className="inline-flex min-h-10 items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-bold text-zera-ink hover:bg-zera-surface" type="button" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-zera-green px-4 text-sm font-bold text-white shadow-xs hover:bg-zera-greenDark disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={saving}
+              type="submit"
+            >
+              <UserRound size={16} />
+              {saving ? "Saving..." : isEditing ? "Save changes" : "Create customer"}
+            </button>
+          </div>
+        </form>
+      </aside>
     </div>
   );
 }
 
 function ContactLine({ icon: Icon, value }) {
   return (
-    <p className="flex items-center gap-2">
-      <Icon size={15} />
-      <span>{value}</span>
+    <p className="flex min-w-0 items-center gap-2">
+      <Icon className="shrink-0" size={15} />
+      <span className="truncate">{value}</span>
     </p>
   );
 }
 
-function Metric({ icon: Icon, label, value }) {
+function SectionLabel({ helper, title }) {
   return (
-    <article className="rounded-lg border border-zera-line bg-white p-5">
-      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-        <Icon size={22} />
-      </div>
-      <p className="text-sm font-medium text-zera-muted">{label}</p>
-      <p className="mt-2 text-3xl font-bold text-zera-ink">{value}</p>
-    </article>
+    <div>
+      <h4 className="text-sm font-bold text-zera-ink">{title}</h4>
+      <p className="mt-1 text-xs leading-5 text-zera-muted">{helper}</p>
+    </div>
+  );
+}
+
+function Field({ label, onChange, ...props }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-semibold text-zera-ink">{label}</span>
+      <input
+        className="min-h-10 w-full rounded-md border border-zera-line bg-white px-3 text-sm text-zera-ink outline-none transition placeholder:text-zera-muted/60 focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+        onChange={(event) => onChange(event.target.value)}
+        {...props}
+      />
+    </label>
   );
 }
 
 function StatusBadge({ status }) {
   return (
-    <span className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${status === "ACTIVE" ? "bg-zera-mint text-zera-green" : "bg-zera-line text-zera-muted"}`}>
+    <span className={`inline-flex rounded-md px-2 py-1 text-xs font-bold ${status === "ACTIVE" ? "bg-zera-mintSoft text-zera-green" : "bg-zera-line text-zera-muted"}`}>
       {status === "ACTIVE" ? "Active" : "Inactive"}
     </span>
   );
-}
-
-function formatStatus(status) {
-  return status.toLowerCase().replace("_", " ");
 }

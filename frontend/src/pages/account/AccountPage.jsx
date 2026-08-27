@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { KeyRound, ShieldCheck, UserRound } from "lucide-react";
+import { KeyRound, UserRound } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import Input from "../../components/Input.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
@@ -45,30 +45,25 @@ export default function AccountPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <section className="rounded-lg border border-zera-line bg-white p-6 shadow-soft">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-zera-green">Account</p>
-            <h2 className="mt-2 text-2xl font-bold sm:text-3xl">Your login and security</h2>
-            <p className="mt-3 max-w-2xl leading-7 text-zera-muted">
-              Keep your account secure after receiving a temporary password from Zera or your business owner.
-            </p>
-          </div>
-          <div className="flex min-h-14 min-w-14 items-center justify-center rounded-lg bg-zera-mint text-zera-green">
-            <ShieldCheck size={30} />
-          </div>
+    <div className="mx-auto max-w-[1500px] space-y-4">
+      <header className="flex flex-col gap-3 border-b border-zera-line pb-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Account</p>
+          <h2 className="mt-1 text-2xl font-bold">Login and security</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">
+            Keep your account secure after receiving a temporary password from Zera or your business owner.
+          </p>
         </div>
-      </section>
+      </header>
 
-      <section className="grid gap-6 lg:grid-cols-[0.8fr_1.2fr]">
-        <article className="rounded-lg border border-zera-line bg-white p-5">
-          <div className="mb-5 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+      <section className="grid gap-4 lg:grid-cols-[380px_minmax(0,1fr)]">
+        <article className="rounded-md border border-zera-line bg-white p-4">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zera-mint text-zera-green">
               <UserRound size={22} />
             </div>
             <div>
-              <h3 className="text-lg font-bold">Profile</h3>
+              <h3 className="font-bold">Profile</h3>
               <p className="text-sm text-zera-muted">Signed-in account</p>
             </div>
           </div>
@@ -85,13 +80,13 @@ export default function AccountPage() {
           </div>
         </article>
 
-        <form className="rounded-lg border border-zera-line bg-white p-5" onSubmit={handleSubmit}>
-          <div className="mb-5 flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+        <form className="rounded-md border border-zera-line bg-white p-4" onSubmit={handleSubmit}>
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zera-mint text-zera-green">
               <KeyRound size={22} />
             </div>
             <div>
-              <h3 className="text-lg font-bold">Change password</h3>
+              <h3 className="font-bold">Change password</h3>
               <p className="text-sm text-zera-muted">Use a private password only you know.</p>
             </div>
           </div>
@@ -123,7 +118,7 @@ export default function AccountPage() {
               onChange={(event) => setForm({ ...form, confirmPassword: event.target.value })}
               required
             />
-            <Button className="w-full" disabled={saving}>
+            <Button className="h-10 w-full" disabled={saving}>
               {saving ? "Updating..." : "Update password"}
             </Button>
           </div>

@@ -31,6 +31,15 @@ export function getDefaultRolesForBusiness(type = "", posMode = "RETAIL_CHECKOUT
     return roles;
   }
 
+  if (normalizedType.includes("electronic")) {
+    roles.push(
+      { name: "Cashier", description: "Run device and accessory checkout and receive payments." },
+      { name: "Store Keeper", description: "Receive stock, monitor device quantities, and keep product records clean." },
+      { name: "Technician", description: "Support repair and device-service workflows when the service module is enabled." }
+    );
+    return roles;
+  }
+
   if (normalizedType.includes("supermarket")) {
     roles.push(
       { name: "Cashier", description: "Run fast checkout and receive payments." },
@@ -70,6 +79,10 @@ export function getDefaultStaffRoleName(business = {}) {
 
   if (normalizedType.includes("retail")) {
     return "Store Keeper";
+  }
+
+  if (normalizedType.includes("electronic")) {
+    return "Cashier";
   }
 
   if (normalizedType.includes("hotel")) {

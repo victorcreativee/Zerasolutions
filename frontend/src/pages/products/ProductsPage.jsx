@@ -1,24 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  AlertTriangle,
   Barcode,
-  Boxes,
   CheckCircle2,
   CircleDollarSign,
-  Filter,
   Package,
   Pencil,
   Plus,
   Search,
-  Sparkles,
   Tag,
-  ToggleLeft,
-  ToggleRight,
   Wrench,
   X
 } from "lucide-react";
-import Button from "../../components/Button.jsx";
-import Input from "../../components/Input.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
 import { createProduct, getProducts, updateProduct, updateProductStatus } from "../../services/productService.js";
 
@@ -33,74 +25,43 @@ const defaultForm = {
 };
 
 const productTypes = [
-  {
-    key: "PHYSICAL",
-    label: "Physical",
-    helper: "Stock item",
-    icon: Package
-  },
-  {
-    key: "SERVICE",
-    label: "Service",
-    helper: "No stock",
-    icon: Wrench
-  },
-  {
-    key: "FEE",
-    label: "Fee / Charge",
-    helper: "Delivery, service charge",
-    icon: CircleDollarSign
-  }
+  { key: "PHYSICAL", label: "Physical", helper: "Moves stock", icon: Package },
+  { key: "SERVICE", label: "Service", helper: "No stock count", icon: Wrench },
+  { key: "FEE", label: "Fee / Charge", helper: "Delivery or service charge", icon: CircleDollarSign }
 ];
 
 export default function ProductsPage() {
   const { activeBusiness, activeBusinessId } = useWorkspace();
   const [products, setProducts] = useState([]);
   const [form, setForm] = useState(defaultForm);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState("");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [visibleCount, setVisibleCount] = useState(80);
+  const [visibleCount, setVisibleCount] = useState(100);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [updatingProductId, setUpdatingProductId] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+
   const activeProducts = products.filter((product) => product.status === "ACTIVE");
   const inactiveProducts = products.filter((product) => product.status === "INACTIVE");
   const physicalProducts = products.filter((product) => product.type === "PHYSICAL");
   const serviceProducts = products.filter((product) => product.type === "SERVICE");
   const feeProducts = products.filter((product) => product.type === "FEE");
-  const missingCategories = products.filter((product) => !product.category);
   const physicalWithoutCode = physicalProducts.filter((product) => !product.sku && !product.barcode);
-  const catalogGuide = getCatalogGuide(activeBusiness);
-  const starterProducts = getStarterProducts(activeBusiness);
-  const readinessItems = [
-    {
-      label: "Active catalog",
-      value: activeProducts.length ? `${activeProducts.length} active item${activeProducts.length === 1 ? "" : "s"}` : "No active products yet",
-      ready: activeProducts.length > 0
-    },
-    {
-      label: "Categories",
-      value: missingCategories.length ? `${missingCategories.length} item${missingCategories.length === 1 ? "" : "s"} without category` : "Products are grouped",
-      ready: products.length > 0 && missingCategories.length === 0
-    },
-    {
-      label: "Product codes",
-      value: physicalWithoutCode.length ? `${physicalWithoutCode.length} physical item${physicalWithoutCode.length === 1 ? "" : "s"} without SKU/barcode` : "Physical items have codes",
-      ready: physicalProducts.length === 0 || physicalWithoutCode.length === 0
-    }
-  ];
+  const visibleProducts = products.slice(0, visibleCount);
+  const hiddenProductCount = Math.max(products.length - visibleProducts.length, 0);
+  const isEditing = Boolean(editingProductId);
+  const guide = getCatalogGuide(activeBusiness);
   const productCategories = useMemo(() => {
     const categories = products.map((product) => product.category).filter(Boolean);
     return [...new Set(categories)].sort((first, second) => first.localeCompare(second));
   }, [products]);
   const filterCount = [typeFilter !== "ALL", statusFilter !== "ALL", Boolean(categoryFilter), Boolean(search)].filter(Boolean).length;
-  const visibleProducts = products.slice(0, visibleCount);
-  const hiddenProductCount = Math.max(products.length - visibleProducts.length, 0);
 
   useEffect(() => {
     if (!activeBusinessId) {
@@ -112,10 +73,10 @@ export default function ProductsPage() {
   }, [activeBusinessId, categoryFilter, statusFilter, typeFilter]);
 
   useEffect(() => {
-    setVisibleCount(80);
-  }, [activeBusinessId, categoryFilter, products.length, search, statusFilter, typeFilter]);
+    setVisibleCount(100);
+  }, [activeBusinessId, categoryFilter, search, statusFilter, typeFilter]);
 
-  async function loadProducts(nextSearch = search) {
+  async function loadProducts(nextSearch = search, overrides = {}) {
     if (!activeBusinessId) {
       return;
     }
@@ -123,11 +84,14 @@ export default function ProductsPage() {
     try {
       setLoading(true);
       setError("");
+      const nextTypeFilter = overrides.typeFilter ?? typeFilter;
+      const nextStatusFilter = overrides.statusFilter ?? statusFilter;
+      const nextCategoryFilter = overrides.categoryFilter ?? categoryFilter;
       const params = {
         ...(nextSearch ? { q: nextSearch } : {}),
-        ...(typeFilter !== "ALL" ? { type: typeFilter } : {}),
-        ...(statusFilter !== "ALL" ? { status: statusFilter } : {}),
-        ...(categoryFilter ? { category: categoryFilter } : {})
+        ...(nextTypeFilter !== "ALL" ? { type: nextTypeFilter } : {}),
+        ...(nextStatusFilter !== "ALL" ? { status: nextStatusFilter } : {}),
+        ...(nextCategoryFilter ? { category: nextCategoryFilter } : {})
       };
       const data = await getProducts(activeBusinessId, params);
       setProducts(data);
@@ -150,17 +114,23 @@ export default function ProductsPage() {
     setSaving(true);
 
     try {
+      const payload = {
+        ...form,
+        sku: form.sku.trim(),
+        barcode: form.barcode.trim(),
+        category: form.category.trim(),
+        unit: form.unit.trim()
+      };
       const product = editingProductId
-        ? await updateProduct(activeBusinessId, editingProductId, form)
-        : await createProduct(activeBusinessId, form);
+        ? await updateProduct(activeBusinessId, editingProductId, payload)
+        : await createProduct(activeBusinessId, payload);
       setProducts((current) =>
         editingProductId ? current.map((item) => (item.id === product.id ? product : item)) : [product, ...current]
       );
-      setForm(defaultForm);
-      setEditingProductId("");
+      closeDrawer();
       setMessage(editingProductId ? "Product updated." : "Product created.");
     } catch (apiError) {
-      setError(apiError.response?.data?.message || "Unable to create product.");
+      setError(apiError.response?.data?.message || "Unable to save product.");
     } finally {
       setSaving(false);
     }
@@ -192,7 +162,15 @@ export default function ProductsPage() {
     loadProducts(search);
   }
 
-  function handleEdit(product) {
+  function openCreateDrawer() {
+    setEditingProductId("");
+    setForm(defaultForm);
+    setDrawerOpen(true);
+    setMessage("");
+    setError("");
+  }
+
+  function openEditDrawer(product) {
     setEditingProductId(product.id);
     setForm({
       name: product.name,
@@ -203,11 +181,13 @@ export default function ProductsPage() {
       unit: product.unit || "",
       price: product.price
     });
+    setDrawerOpen(true);
     setMessage("");
     setError("");
   }
 
-  function cancelEdit() {
+  function closeDrawer() {
+    setDrawerOpen(false);
     setEditingProductId("");
     setForm(defaultForm);
   }
@@ -217,396 +197,551 @@ export default function ProductsPage() {
     setTypeFilter("ALL");
     setStatusFilter("ALL");
     setCategoryFilter("");
+    loadProducts("", { typeFilter: "ALL", statusFilter: "ALL", categoryFilter: "" });
   }
 
-  function useStarterProduct(product) {
-    setEditingProductId("");
-    setForm({
-      ...defaultForm,
-      ...product
-    });
-    setMessage("");
-    setError("");
+  if (!activeBusiness) {
+    return (
+      <section className="rounded-md border border-zera-line bg-white p-5">
+        <h2 className="text-xl font-bold">Products</h2>
+        <p className="mt-2 text-sm text-zera-muted">Select a business before managing products.</p>
+      </section>
+    );
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5">
-      <section className="rounded-lg border border-zera-line bg-white p-6 shadow-soft">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-zera-green">POS catalog</p>
-            <h2 className="mt-2 text-2xl font-bold sm:text-3xl">{catalogGuide.title}</h2>
-            <p className="mt-3 max-w-2xl leading-7 text-zera-muted">
-              {catalogGuide.description}
-            </p>
-          </div>
-          <div className="flex min-h-14 min-w-14 items-center justify-center rounded-lg bg-zera-mint text-zera-green">
-            <Boxes size={30} />
-          </div>
+    <div className="mx-auto max-w-[1500px] space-y-4">
+      <header className="flex flex-col gap-3 border-b border-zera-line pb-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase text-zera-green">{guide.eyebrow}</p>
+          <h2 className="mt-1 text-xl font-bold tracking-tight text-zera-ink">Products</h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">{guide.description}</p>
         </div>
+        <button
+          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-zera-green px-4 text-sm font-bold text-white shadow-xs hover:bg-zera-greenDark"
+          type="button"
+          onClick={openCreateDrawer}
+        >
+          <Plus size={17} />
+          New product
+        </button>
+      </header>
+
+      {error ? <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+      {message ? <div className="rounded-md border border-zera-green/10 bg-zera-mintSoft px-4 py-3 text-sm font-semibold text-zera-green">{message}</div> : null}
+
+      <CatalogCounts
+        activeCount={activeProducts.length}
+        feeCount={feeProducts.length}
+        inactiveCount={inactiveProducts.length}
+        loading={loading}
+        missingCodeCount={physicalWithoutCode.length}
+        physicalCount={physicalProducts.length}
+        serviceCount={serviceProducts.length}
+        totalCount={products.length}
+      />
+
+      <section className="rounded-md border border-zera-line bg-white">
+        <CatalogToolbar
+          categories={productCategories}
+          categoryFilter={categoryFilter}
+          filterCount={filterCount}
+          onCategoryChange={setCategoryFilter}
+          onClearFilters={clearFilters}
+          onSearchChange={setSearch}
+          onSearchSubmit={handleSearchSubmit}
+          onStatusChange={setStatusFilter}
+          onTypeChange={setTypeFilter}
+          search={search}
+          statusFilter={statusFilter}
+          typeFilter={typeFilter}
+        />
+
+        <ProductTable
+          business={activeBusiness}
+          hiddenCount={hiddenProductCount}
+          loading={loading}
+          onEdit={openEditDrawer}
+          onLoadMore={() => setVisibleCount((current) => current + 100)}
+          onStatusToggle={handleStatusToggle}
+          products={visibleProducts}
+          totalCount={products.length}
+          updatingProductId={updatingProductId}
+        />
       </section>
 
-      {!activeBusiness ? (
-        <section className="rounded-lg border border-zera-line bg-white p-6">
-          <h3 className="text-lg font-bold">No business selected</h3>
-          <p className="mt-2 text-sm leading-6 text-zera-muted">Select a business before creating products.</p>
-        </section>
-      ) : (
-        <>
-          {error ? <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-          {message ? <div className="rounded-md bg-zera-mint px-4 py-3 text-sm font-semibold text-zera-green">{message}</div> : null}
-
-          <section className="grid gap-4 md:grid-cols-4">
-            <Metric icon={Boxes} label="Products" value={loading ? "..." : products.length} />
-            <Metric icon={ToggleRight} label="Active" value={loading ? "..." : activeProducts.length} />
-            <Metric icon={Package} label="Physical" value={loading ? "..." : physicalProducts.length} />
-            <Metric icon={Wrench} label="Services / Fees" value={loading ? "..." : serviceProducts.length + feeProducts.length} />
-          </section>
-
-          <section className="grid gap-4 lg:grid-cols-[1fr_1fr]">
-            <article className="rounded-lg border border-zera-line bg-white p-5">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-                  <CheckCircle2 size={22} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold">Catalog readiness</h3>
-                  <p className="text-sm text-zera-muted">{catalogGuide.readiness}</p>
-                </div>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-3">
-                {readinessItems.map((item) => (
-                  <div className="rounded-md border border-zera-line bg-[#f7faf8] p-3" key={item.label}>
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <p className="text-sm font-bold">{item.label}</p>
-                      {item.ready ? <CheckCircle2 className="text-zera-green" size={17} /> : <AlertTriangle className="text-amber-600" size={17} />}
-                    </div>
-                    <p className="text-xs leading-5 text-zera-muted">{item.value}</p>
-                  </div>
-                ))}
-              </div>
-            </article>
-
-            <article className="rounded-lg border border-zera-line bg-white p-5">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-                  <Sparkles size={22} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold">Starter items</h3>
-                  <p className="text-sm text-zera-muted">Tap one to prepare the form, then adjust and save.</p>
-                </div>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {starterProducts.map((product) => (
-                  <button
-                    className="rounded-md border border-zera-line bg-[#f7faf8] px-3 py-3 text-left transition hover:border-zera-green hover:bg-zera-mint"
-                    key={`${product.name}-${product.type}`}
-                    type="button"
-                    onClick={() => useStarterProduct(product)}
-                  >
-                    <span className="block text-sm font-bold">{product.name}</span>
-                    <span className="mt-1 block text-xs text-zera-muted">
-                      {formatProductType(product.type)} · {product.category || "No category"} · {formatMoney(product.price || 0, activeBusiness.currency)}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </article>
-          </section>
-
-          <section className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
-            <form className="rounded-lg border border-zera-line bg-white p-5" onSubmit={handleSubmit}>
-              <div className="mb-5 flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-                  <Plus size={22} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold">{editingProductId ? "Edit product" : "Create product"}</h3>
-                  <p className="text-sm text-zera-muted">Business: {activeBusiness.name}</p>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <ProductTypePicker value={form.type} onChange={(type) => setForm({ ...form, type })} />
-                <Input label="Product name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Input label="SKU" placeholder="Optional product code" value={form.sku} onChange={(event) => setForm({ ...form, sku: event.target.value })} />
-                  <Input label="Barcode" placeholder="Scan or type barcode" value={form.barcode} onChange={(event) => setForm({ ...form, barcode: event.target.value })} />
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Input
-                    label="Category"
-                    placeholder={form.type === "PHYSICAL" ? "Drinks, food, grocery" : form.type === "SERVICE" ? "Repair, consultation" : "Delivery, service charge"}
-                    value={form.category}
-                    onChange={(event) => setForm({ ...form, category: event.target.value })}
-                  />
-                  <Input
-                    label="Unit"
-                    placeholder={form.type === "PHYSICAL" ? "bottle, kg, pack" : "service"}
-                    value={form.unit}
-                    onChange={(event) => setForm({ ...form, unit: event.target.value })}
-                  />
-                </div>
-                <Input
-                  label="Price"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={form.price}
-                  onChange={(event) => setForm({ ...form, price: event.target.value })}
-                  required
-                />
-                <Button className="w-full gap-2" disabled={saving}>
-                  <Plus size={17} />
-                  {saving ? "Saving..." : editingProductId ? "Save product" : "Create product"}
-                </Button>
-                {editingProductId ? (
-                  <Button type="button" variant="ghost" className="w-full gap-2" onClick={cancelEdit}>
-                    <X size={17} />
-                    Cancel edit
-                  </Button>
-                ) : null}
-              </div>
-            </form>
-
-            <section className="rounded-lg border border-zera-line bg-white p-5">
-              <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h3 className="text-lg font-bold">Product list</h3>
-                  <p className="mt-1 text-sm text-zera-muted">{loading ? "Loading..." : `${products.length} product${products.length === 1 ? "" : "s"}`}</p>
-                </div>
-                <form className="flex min-h-11 items-center gap-2 rounded-md border border-zera-line bg-white px-3 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10" onSubmit={handleSearchSubmit}>
-                  <Search size={18} className="text-zera-muted" />
-                  <input
-                    className="w-full border-0 bg-transparent text-sm outline-none"
-                    placeholder="Search product, category, SKU"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                  />
-                </form>
-              </div>
-
-              <div className="mb-5 rounded-md border border-zera-line bg-[#f7faf8] p-3">
-                <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex items-center gap-2 text-sm font-bold">
-                    <Filter size={17} className="text-zera-green" />
-                    Catalog filters
-                  </div>
-                  {filterCount ? (
-                    <button type="button" className="text-sm font-semibold text-zera-green" onClick={clearFilters}>
-                      Clear filters
-                    </button>
-                  ) : null}
-                </div>
-
-                <div className="grid gap-2 sm:grid-cols-4">
-                  {[
-                    ["ALL", "All types"],
-                    ["PHYSICAL", "Physical"],
-                    ["SERVICE", "Services"],
-                    ["FEE", "Fees"]
-                  ].map(([type, label]) => (
-                    <button
-                      key={type}
-                      type="button"
-                      className={`min-h-10 rounded-md border px-3 text-sm font-semibold transition ${
-                        typeFilter === type ? "border-zera-green bg-zera-green text-white" : "border-zera-line bg-white text-zera-ink hover:bg-zera-mint"
-                      }`}
-                      onClick={() => {
-                        setTypeFilter(type);
-                        setCategoryFilter("");
-                      }}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                  {[
-                    ["ALL", "All status"],
-                    ["ACTIVE", "Active"],
-                    ["INACTIVE", "Inactive"]
-                  ].map(([status, label]) => (
-                    <button
-                      key={status}
-                      type="button"
-                      className={`min-h-10 rounded-md border px-3 text-sm font-semibold transition ${
-                        statusFilter === status ? "border-zera-green bg-zera-mint text-zera-green" : "border-zera-line bg-white text-zera-ink hover:bg-zera-mint"
-                      }`}
-                      onClick={() => setStatusFilter(status)}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                {productCategories.length ? (
-                  <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
-                    <button
-                      type="button"
-                      className={`min-h-9 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
-                        categoryFilter === "" ? "border-zera-green bg-zera-mint text-zera-green" : "border-zera-line bg-white text-zera-ink hover:bg-zera-mint"
-                      }`}
-                      onClick={() => setCategoryFilter("")}
-                    >
-                      All categories
-                    </button>
-                    {productCategories.map((category) => (
-                      <button
-                        key={category}
-                        type="button"
-                        className={`min-h-9 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
-                          categoryFilter === category ? "border-zera-green bg-zera-mint text-zera-green" : "border-zera-line bg-white text-zera-ink hover:bg-zera-mint"
-                        }`}
-                        onClick={() => setCategoryFilter(category)}
-                      >
-                        {category}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
-
-              <ProductTable
-                business={activeBusiness}
-                hiddenCount={hiddenProductCount}
-                loading={loading}
-                onEdit={handleEdit}
-                onLoadMore={() => setVisibleCount((current) => current + 80)}
-                onStatusToggle={handleStatusToggle}
-                products={visibleProducts}
-                totalCount={products.length}
-                updatingProductId={updatingProductId}
-              />
-            </section>
-          </section>
-        </>
-      )}
+      {drawerOpen ? (
+        <ProductDrawer
+          business={activeBusiness}
+          form={form}
+          isEditing={isEditing}
+          onChange={setForm}
+          onClose={closeDrawer}
+          onSubmit={handleSubmit}
+          saving={saving}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function CatalogCounts({ activeCount, feeCount, inactiveCount, loading, missingCodeCount, physicalCount, serviceCount, totalCount }) {
+  const items = [
+    { label: "Total", value: totalCount },
+    { label: "Active", value: activeCount },
+    { label: "Physical", value: physicalCount },
+    { label: "Services / fees", value: serviceCount + feeCount },
+    { label: "Paused", value: inactiveCount },
+    { label: "Need codes", value: missingCodeCount, attention: missingCodeCount > 0 }
+  ];
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {items.map((item) => (
+        <div
+          className={`inline-flex min-h-9 items-center gap-2 rounded-md border px-3 text-sm shadow-xs ${
+            item.attention ? "border-amber-200 bg-amber-50 text-amber-800" : "border-zera-line bg-white text-zera-muted"
+          }`}
+          key={item.label}
+        >
+          <span className="font-semibold">{item.label}</span>
+          <span className="font-bold text-zera-ink">{loading ? "..." : item.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CatalogToolbar({
+  categories,
+  categoryFilter,
+  filterCount,
+  onCategoryChange,
+  onClearFilters,
+  onSearchChange,
+  onSearchSubmit,
+  onStatusChange,
+  onTypeChange,
+  search,
+  statusFilter,
+  typeFilter
+}) {
+  return (
+    <div className="overflow-x-auto border-b border-zera-line bg-white px-3 py-2">
+      <div className="flex min-w-max flex-nowrap items-center gap-2">
+        <form
+          className="flex h-9 w-[320px] shrink-0 items-center gap-2 rounded-md border border-zera-line bg-white px-2.5 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10"
+          onSubmit={onSearchSubmit}
+        >
+          <Search size={16} className="shrink-0 text-zera-muted" />
+          <input
+            className="w-full border-0 bg-transparent text-sm outline-none"
+            placeholder="Search product, category, SKU, or barcode"
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+          />
+        </form>
+
+        <SegmentedTypeFilter value={typeFilter} onChange={onTypeChange} />
+
+        <SelectControl label="Status" value={statusFilter} onChange={onStatusChange} widthClass="w-[112px]">
+          <option value="ALL">All status</option>
+          <option value="ACTIVE">Active</option>
+          <option value="INACTIVE">Paused</option>
+        </SelectControl>
+
+        <SelectControl label="Category" value={categoryFilter} onChange={onCategoryChange} widthClass="w-[150px]">
+          <option value="">All categories</option>
+          {categories.map((category) => (
+            <option key={category} value={category}>
+              {category}
+            </option>
+          ))}
+        </SelectControl>
+
+        <button
+          className="h-9 w-[64px] shrink-0 rounded-md border border-zera-line bg-white px-2 text-sm font-bold text-zera-muted hover:bg-zera-mintSoft hover:text-zera-ink disabled:cursor-not-allowed disabled:opacity-40"
+          disabled={!filterCount}
+          type="button"
+          onClick={onClearFilters}
+        >
+          Reset
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SegmentedTypeFilter({ onChange, value }) {
+  const items = [
+    { label: "All", value: "ALL" },
+    { label: "Physical", value: "PHYSICAL" },
+    { label: "Service", value: "SERVICE" },
+    { label: "Fee", value: "FEE" }
+  ];
+
+  return (
+    <div className="inline-flex h-9 shrink-0 overflow-hidden rounded-md border border-zera-line bg-zera-surface p-1">
+      {items.map((item) => (
+        <button
+          className={`h-7 min-w-[72px] rounded px-2 text-sm font-bold transition ${
+            value === item.value ? "bg-white text-zera-green shadow-xs" : "text-zera-muted hover:bg-white hover:text-zera-ink"
+          }`}
+          key={item.value}
+          type="button"
+          onClick={() => onChange(item.value)}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SelectControl({ children, label, onChange, value, widthClass = "w-40" }) {
+  return (
+    <label className={`block shrink-0 ${widthClass}`}>
+      <span className="sr-only">{label}</span>
+      <select
+        className="h-9 w-full rounded-md border border-zera-line bg-white px-2.5 text-sm font-semibold text-zera-ink outline-none focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {children}
+      </select>
+    </label>
   );
 }
 
 function ProductTable({ business, hiddenCount, loading, onEdit, onLoadMore, onStatusToggle, products, totalCount, updatingProductId }) {
   if (!loading && totalCount === 0) {
     return (
-      <div className="rounded-md border border-dashed border-zera-line p-5 text-sm text-zera-muted">
-        No products found. Create the first product for this business.
+      <div className="m-4 rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-6 text-sm text-zera-muted">
+        No products match this view. Create a product or clear filters.
       </div>
     );
   }
 
   return (
-    <div className="rounded-md border border-zera-line bg-white">
-      <div className="flex flex-col gap-2 border-b border-zera-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-bold">Catalog table</p>
-          <p className="mt-1 text-xs text-zera-muted">
-            Showing {loading ? "..." : products.length} of {loading ? "..." : totalCount} products
-          </p>
-        </div>
-        <p className="text-xs text-zera-muted">Use search and filters before scrolling large catalogs.</p>
-      </div>
-
+    <>
       <div className="overflow-x-auto">
-        <div className="max-h-[560px] min-w-[920px] overflow-y-auto">
+        <div className="max-h-[calc(100vh-292px)] min-w-[980px] overflow-y-auto">
           <table className="w-full border-collapse text-left text-sm">
-            <thead className="sticky top-0 z-10 border-b border-zera-line bg-[#f7faf8] text-xs font-bold uppercase text-zera-muted">
+            <thead className="sticky top-0 z-10 border-b border-zera-line bg-zera-mintSoft text-xs font-bold uppercase text-zera-muted">
               <tr>
-                <th className="w-[30%] px-4 py-3">Product</th>
-                <th className="w-[14%] px-4 py-3">Type</th>
-                <th className="w-[16%] px-4 py-3">Category</th>
-                <th className="w-[16%] px-4 py-3">Code</th>
-                <th className="w-[12%] px-4 py-3 text-right">Price</th>
-                <th className="w-[12%] px-4 py-3 text-right">Actions</th>
+                <th className="w-[30%] px-3 py-2.5">Product</th>
+                <th className="w-[12%] px-3 py-2.5">Type</th>
+                <th className="w-[14%] px-3 py-2.5">Category</th>
+                <th className="w-[17%] px-3 py-2.5">Code</th>
+                <th className="w-[13%] px-3 py-2.5 text-right">Price</th>
+                <th className="w-[7%] px-3 py-2.5">Status</th>
+                <th className="w-[7%] px-3 py-2.5 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zera-line">
-              {products.map((product) => (
-                <tr className="hover:bg-[#f7faf8]" key={product.id}>
-                  <td className="px-4 py-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate font-bold text-zera-ink">{product.name}</p>
-                        <StatusBadge status={product.status} />
-                      </div>
-                      <p className="mt-1 truncate text-xs text-zera-muted">{product.unit || "No unit"}</p>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    <ProductTypeBadge type={product.type} />
-                  </td>
-                  <td className="px-4 py-3">
-                    <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-[#f7faf8] px-2 py-1 text-xs font-semibold text-zera-muted">
-                      <Tag size={13} />
-                      <span className="truncate">{product.category || "No category"}</span>
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`inline-flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${
-                        product.sku || product.barcode ? "bg-[#f7faf8] text-zera-muted" : "bg-amber-50 text-amber-700"
-                      }`}
-                    >
-                      <Barcode size={13} />
-                      <span className="truncate">{product.sku || product.barcode || "Needs code"}</span>
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right font-bold">
-                    {formatMoney(product.price, business.currency)}
-                    {product.unit ? <span className="block text-xs font-semibold text-zera-muted">per {product.unit}</span> : null}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-2">
-                      <button
-                        className="inline-flex h-9 items-center gap-1 rounded-md border border-zera-line bg-white px-3 text-xs font-bold text-zera-ink hover:bg-zera-mint"
-                        type="button"
-                        onClick={() => onEdit(product)}
-                      >
-                        <Pencil size={14} />
-                        Edit
-                      </button>
-                      <button
-                        className={`inline-flex h-9 items-center rounded-md border px-3 text-xs font-bold ${
-                          product.status === "ACTIVE"
-                            ? "border-zera-line bg-white text-zera-ink hover:bg-red-50 hover:text-red-700"
-                            : "border-zera-green bg-zera-green text-white hover:bg-green-700"
-                        }`}
-                        disabled={updatingProductId === product.id}
-                        type="button"
-                        onClick={() => onStatusToggle(product)}
-                      >
-                        {product.status === "ACTIVE" ? "Pause" : "Activate"}
-                      </button>
-                    </div>
+              {loading ? (
+                <tr>
+                  <td className="px-4 py-8 text-sm text-zera-muted" colSpan={7}>
+                    Loading products...
                   </td>
                 </tr>
+              ) : null}
+
+              {!loading && products.map((product) => (
+                <ProductRow
+                  business={business}
+                  key={product.id}
+                  onEdit={onEdit}
+                  onStatusToggle={onStatusToggle}
+                  product={product}
+                  updating={updatingProductId === product.id}
+                />
               ))}
             </tbody>
           </table>
         </div>
       </div>
 
-      {hiddenCount > 0 ? (
-        <div className="flex flex-col gap-3 border-t border-zera-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-zera-muted">{hiddenCount} more products match this view.</p>
+      <div className="flex flex-col gap-2 border-t border-zera-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-zera-muted">
+          Showing {loading ? "..." : products.length} of {loading ? "..." : totalCount} products
+        </p>
+        {hiddenCount > 0 ? (
           <button
-            className="inline-flex min-h-10 items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-bold text-zera-ink hover:bg-zera-mint"
+            className="inline-flex min-h-10 items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-bold text-zera-ink hover:bg-zera-mintSoft"
             type="button"
             onClick={onLoadMore}
           >
-            Load more products
+            Load {Math.min(hiddenCount, 100)} more
+          </button>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+function ProductRow({ business, onEdit, onStatusToggle, product, updating }) {
+  return (
+    <tr className="hover:bg-zera-mintSoft/70">
+      <td className="px-4 py-3">
+        <div className="min-w-0">
+          <p className="truncate font-bold text-zera-ink">{product.name}</p>
+          <p className="mt-1 truncate text-xs text-zera-muted">{product.unit ? `Unit: ${product.unit}` : "No unit set"}</p>
+        </div>
+      </td>
+      <td className="px-4 py-3">
+        <ProductTypeBadge type={product.type} />
+      </td>
+      <td className="px-4 py-3">
+        <span className="inline-flex max-w-full items-center gap-1 rounded-md bg-zera-mintSoft px-2 py-1 text-xs font-semibold text-zera-muted">
+          <Tag size={13} />
+          <span className="truncate">{product.category || "No category"}</span>
+        </span>
+      </td>
+      <td className="px-4 py-3">
+        <span
+          className={`inline-flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${
+            product.sku || product.barcode ? "bg-zera-mintSoft text-zera-muted" : "bg-amber-50 text-amber-700"
+          }`}
+        >
+          <Barcode size={13} />
+          <span className="truncate">{product.sku || product.barcode || "Needs code"}</span>
+        </span>
+      </td>
+      <td className="whitespace-nowrap px-3 py-3 text-right font-bold">
+        {formatMoney(product.price, business.currency)}
+        {product.unit ? <span className="block text-xs font-semibold text-zera-muted">per {product.unit}</span> : null}
+      </td>
+      <td className="px-4 py-3">
+        <StatusBadge status={product.status} />
+      </td>
+      <td className="px-4 py-3">
+        <div className="flex justify-end gap-2">
+          <button
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zera-line bg-white text-zera-ink hover:bg-zera-mintSoft"
+            type="button"
+            onClick={() => onEdit(product)}
+            aria-label={`Edit ${product.name}`}
+          >
+            <Pencil size={14} />
+          </button>
+          <button
+            className={`inline-flex h-9 items-center rounded-md border px-3 text-xs font-bold ${
+              product.status === "ACTIVE"
+                ? "border-zera-line bg-white text-zera-ink hover:bg-red-50 hover:text-red-700"
+                : "border-zera-green bg-zera-green text-white hover:bg-zera-greenDark"
+            }`}
+            disabled={updating}
+            type="button"
+            onClick={() => onStatusToggle(product)}
+          >
+            {product.status === "ACTIVE" ? "Pause" : "Activate"}
           </button>
         </div>
-      ) : null}
+      </td>
+    </tr>
+  );
+}
+
+function ProductDrawer({ business, form, isEditing, onChange, onClose, onSubmit, saving }) {
+  const selectedType = productTypes.find((type) => type.key === form.type) || productTypes[0];
+  const hints = getProductFormHints(business, form.type);
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/25">
+      <button className="hidden flex-1 cursor-default lg:block" type="button" aria-label="Close product form" onClick={onClose} />
+      <aside className="flex h-full w-full max-w-2xl flex-col border-l border-zera-line bg-white shadow-panel">
+        <div className="flex items-start justify-between gap-3 border-b border-zera-line bg-zera-mintSoft/40 px-5 py-4">
+          <div>
+            <p className="text-xs font-bold uppercase text-zera-green">{business.name}</p>
+            <h3 className="mt-1 text-xl font-bold">{isEditing ? "Edit product" : "New product"}</h3>
+            <p className="mt-1 text-sm text-zera-muted">Keep the record clear enough for checkout, stock, and receipts.</p>
+          </div>
+          <button className="flex h-9 w-9 items-center justify-center rounded-md text-zera-muted hover:bg-zera-surface" type="button" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <form className="min-h-0 flex-1 overflow-y-auto px-5 py-4" onSubmit={onSubmit}>
+          <div className="space-y-4">
+            <section className="rounded-md border border-zera-line bg-zera-mintSoft p-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h4 className="text-sm font-bold">Product type</h4>
+                <span className="rounded-md bg-white px-2 py-1 text-xs font-bold text-zera-muted">{selectedType.helper}</span>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                {productTypes.map((type) => {
+                  const Icon = type.icon;
+                  const selected = form.type === type.key;
+
+                  return (
+                    <button
+	                    className={`flex min-h-14 items-center gap-3 rounded-md border px-3 py-2 text-left shadow-xs ${
+	                        selected ? "border-zera-green bg-white text-zera-green ring-2 ring-zera-green/10" : "border-zera-line bg-white text-zera-ink hover:bg-zera-surface"
+                      }`}
+                      key={type.key}
+                      type="button"
+                      onClick={() => onChange({ ...form, type: type.key })}
+                    >
+                      <Icon className="shrink-0" size={18} />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-bold">{type.label}</span>
+                        <span className={`block truncate text-xs ${selected ? "text-zera-green" : "text-zera-muted"}`}>{type.helper}</span>
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="rounded-md border border-zera-line p-4">
+              <SectionLabel title="Product details" helper="Use names and categories staff can recognize quickly at checkout." />
+              <div className="mt-3 space-y-3">
+              <Field label="Product name" required value={form.name} onChange={(value) => onChange({ ...form, name: value })} />
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field
+                  label="Category"
+                  placeholder={hints.category}
+                  value={form.category}
+                  onChange={(value) => onChange({ ...form, category: value })}
+                />
+                <Field
+                  label="Unit"
+                  placeholder={hints.unit}
+                  value={form.unit}
+                  onChange={(value) => onChange({ ...form, unit: value })}
+                />
+              </div>
+              </div>
+            </section>
+
+            <section className="rounded-md border border-zera-line p-4">
+              <SectionLabel title="Selling and codes" helper={form.type === "PHYSICAL" ? "Codes help scanning and inventory accuracy." : "Codes are optional for non-stock items."} />
+              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                <Field label="Price" min="0" required step="0.01" type="number" value={form.price} onChange={(value) => onChange({ ...form, price: value })} />
+                <Field label="SKU" placeholder={hints.sku} value={form.sku} onChange={(value) => onChange({ ...form, sku: value })} />
+                <Field label="Barcode" placeholder={hints.barcode} value={form.barcode} onChange={(value) => onChange({ ...form, barcode: value })} />
+              </div>
+            </section>
+
+            <section className="rounded-md border border-zera-line bg-zera-mintSoft p-4">
+              <p className="text-xs font-bold uppercase text-zera-green">Checkout preview</p>
+              <div className="mt-3 flex items-center justify-between gap-3 rounded-md bg-white p-3">
+                <div className="min-w-0">
+                  <p className="truncate font-bold">{form.name || "Product name"}</p>
+                  <p className="mt-1 truncate text-xs text-zera-muted">
+                    {selectedType.label} · {form.category || "No category"}
+                  </p>
+                </div>
+                <p className="shrink-0 text-sm font-bold">{formatMoney(form.price || 0, business.currency)}</p>
+              </div>
+            </section>
+          </div>
+
+          <div className="sticky bottom-0 mt-6 flex flex-col-reverse gap-2 border-t border-zera-line bg-white py-4 sm:flex-row sm:justify-end">
+            <button
+              className="inline-flex min-h-10 items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-bold text-zera-ink hover:bg-zera-surface"
+              type="button"
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+            <button
+              className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-zera-green px-4 text-sm font-bold text-white shadow-xs hover:bg-zera-greenDark disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={saving}
+              type="submit"
+            >
+              <CheckCircle2 size={16} />
+              {saving ? "Saving..." : isEditing ? "Save changes" : "Create product"}
+            </button>
+          </div>
+        </form>
+      </aside>
     </div>
+  );
+}
+
+function getProductFormHints(business, productType) {
+  const businessType = (business?.type || "").toLowerCase();
+
+  if (businessType.includes("electronic")) {
+    if (productType === "SERVICE") {
+      return {
+        category: "Repairs, setup, diagnostics",
+        unit: "service",
+        sku: "Optional service code",
+        barcode: "Optional"
+      };
+    }
+
+    if (productType === "FEE") {
+      return {
+        category: "Delivery, warranty, service charge",
+        unit: "charge",
+        sku: "Optional charge code",
+        barcode: "Optional"
+      };
+    }
+
+    return {
+      category: "Phones, accessories, parts",
+      unit: "piece, unit, pair",
+      sku: "e.g. CHG-IP20W",
+      barcode: "Scan box barcode"
+    };
+  }
+
+  if (productType === "SERVICE") {
+    return {
+      category: "Consultation, repair, service",
+      unit: "service",
+      sku: "Optional service code",
+      barcode: "Optional"
+    };
+  }
+
+  if (productType === "FEE") {
+    return {
+      category: "Delivery, service charge",
+      unit: "charge",
+      sku: "Optional charge code",
+      barcode: "Optional"
+    };
+  }
+
+  return {
+    category: "Drinks, grocery, accessories",
+    unit: "bottle, kg, pack",
+    sku: "Optional product code",
+    barcode: "Scan or type barcode"
+  };
+}
+
+function SectionLabel({ helper, title }) {
+  return (
+    <div>
+      <h4 className="text-sm font-bold">{title}</h4>
+      <p className="mt-1 text-xs leading-5 text-zera-muted">{helper}</p>
+    </div>
+  );
+}
+
+function Field({ label, onChange, ...props }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-semibold text-zera-ink">{label}</span>
+      <input
+        className="min-h-10 w-full rounded-md border border-zera-line bg-white px-3 text-sm text-zera-ink outline-none transition placeholder:text-zera-muted/60 focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+        onChange={(event) => onChange(event.target.value)}
+        {...props}
+      />
+    </label>
   );
 }
 
 function StatusBadge({ status }) {
   return (
-    <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-bold ${status === "ACTIVE" ? "bg-zera-mint text-zera-green" : "bg-red-50 text-red-700"}`}>
+    <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-bold ${status === "ACTIVE" ? "bg-zera-mintSoft text-zera-green" : "bg-red-50 text-red-700"}`}>
       {status === "ACTIVE" ? "Active" : "Paused"}
     </span>
   );
@@ -615,62 +750,12 @@ function StatusBadge({ status }) {
 function ProductTypeBadge({ type }) {
   const className =
     type === "PHYSICAL"
-      ? "bg-zera-mint text-zera-green"
+      ? "bg-zera-mintSoft text-zera-green"
       : type === "SERVICE"
         ? "bg-blue-50 text-blue-700"
         : "bg-amber-50 text-amber-700";
 
   return <span className={`rounded-md px-2 py-1 text-xs font-bold ${className}`}>{formatProductType(type)}</span>;
-}
-
-function ProductTypePicker({ onChange, value }) {
-  return (
-    <div>
-      <span className="mb-2 block text-sm font-medium text-zera-ink">Product type</span>
-      <div className="grid overflow-hidden rounded-md border border-zera-line sm:grid-cols-3">
-        {productTypes.map((type) => {
-          const Icon = type.icon;
-          const selected = value === type.key;
-
-          return (
-            <button
-              key={type.key}
-              type="button"
-              className={`min-h-20 border-b border-zera-line px-3 text-left transition last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0 ${
-                selected ? "bg-zera-green text-white" : "bg-white text-zera-ink hover:bg-zera-mint"
-              }`}
-              onClick={() => onChange(type.key)}
-            >
-              <span className="flex items-center gap-2 text-sm font-bold">
-                <Icon size={18} />
-                {type.label}
-              </span>
-              <span className={`mt-1 block text-xs ${selected ? "text-white/80" : "text-zera-muted"}`}>{type.helper}</span>
-            </button>
-          );
-        })}
-      </div>
-      <p className="mt-2 text-sm text-zera-muted">
-        {value === "PHYSICAL"
-          ? "Physical products can later connect to inventory tracking."
-          : value === "SERVICE"
-            ? "Services can be sold without stock movement."
-            : "Fees and charges keep delivery or service costs separate from normal products."}
-      </p>
-    </div>
-  );
-}
-
-function Metric({ icon: Icon, label, value }) {
-  return (
-    <article className="rounded-lg border border-zera-line bg-white p-5">
-      <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-        <Icon size={22} />
-      </div>
-      <p className="text-sm font-medium text-zera-muted">{label}</p>
-      <p className="mt-2 text-3xl font-bold text-zera-ink">{value}</p>
-    </article>
-  );
 }
 
 function formatProductType(type = "PHYSICAL") {
@@ -686,121 +771,42 @@ function getCatalogGuide(business) {
 
   if (type.includes("bar") || type.includes("restaurant")) {
     return {
-      title: "Menu and service items",
-      description:
-        "Create drinks, meals, services, and charges that waiters or cashiers can add to table bills. Keep names short and categories clear.",
-      readiness: "A good restaurant catalog is easy to scan during busy service."
+      eyebrow: "Menu catalog",
+      description: "Meals, drinks, service charges, and menu items used by waiters and cashiers."
     };
   }
 
   if (type.includes("pharmacy")) {
     return {
-      title: "Pharmacy products and services",
-      description:
-        "Create medicines, consultation services, and charges that pharmacists can find quickly at the counter.",
-      readiness: "A pharmacy catalog should make items easy to search by name, category, SKU, or barcode."
+      eyebrow: "Pharmacy catalog",
+      description: "Medicines, consultations, and counter charges prepared for fast search and checkout."
     };
   }
 
   if (type.includes("hotel")) {
     return {
-      title: "Guest services and charges",
-      description:
-        "Create service items, room-related charges, and front desk products that can be billed while the hotel module grows.",
-      readiness: "A front desk catalog should separate services, fees, and physical items clearly."
+      eyebrow: "Guest billing catalog",
+      description: "Guest services, minibar items, fees, and front desk charges."
     };
   }
 
   if (type.includes("supermarket")) {
     return {
-      title: "Supermarket checkout catalog",
-      description:
-        "Create fast-moving products with clear categories, units, prices, and codes so checkout remains quick.",
-      readiness: "A supermarket catalog works best when physical products have categories and codes."
+      eyebrow: "Supermarket catalog",
+      description: "High-volume checkout items with clear categories, prices, and barcode-friendly records."
     };
   }
 
-  if (type.includes("retail")) {
+  if (type.includes("electronic")) {
     return {
-      title: "Retail shop products",
-      description:
-        "Create the products and service charges your shop sells today. Keep the catalog simple, searchable, and ready for checkout.",
-      readiness: "A retail catalog should be clear enough for any cashier to search quickly."
+      eyebrow: "Electronics catalog",
+      description: "Devices, accessories, repair services, and charges prepared for fast search, stock tracking, and clean receipts."
     };
   }
 
   return {
-    title: "Products and services",
-    description: "Create the simple items POS can sell today. Inventory counts and purchasing will come later.",
-    readiness: "A clean catalog makes POS faster and easier for every team member."
-  };
-}
-
-function getStarterProducts(business) {
-  const type = (business?.type || "").toLowerCase();
-
-  if (type.includes("bar") || type.includes("restaurant")) {
-    return [
-      createStarterProduct("Nile beer", "PHYSICAL", "Drinks", "bottle", "5000", "DRK001"),
-      createStarterProduct("Grilled chicken", "PHYSICAL", "Food", "plate", "25000", "FOD001"),
-      createStarterProduct("Table service charge", "FEE", "Charges", "bill", "0", "FEE001"),
-      createStarterProduct("Takeaway pack", "FEE", "Charges", "pack", "1000", "FEE002")
-    ];
-  }
-
-  if (type.includes("pharmacy")) {
-    return [
-      createStarterProduct("Paracetamol 500mg", "PHYSICAL", "Medicine", "tablet", "500", "MED001"),
-      createStarterProduct("Cough syrup", "PHYSICAL", "Medicine", "bottle", "8500", "MED002"),
-      createStarterProduct("Consultation", "SERVICE", "Services", "visit", "10000", "SRV001"),
-      createStarterProduct("Delivery fee", "FEE", "Charges", "order", "3000", "FEE001")
-    ];
-  }
-
-  if (type.includes("hotel")) {
-    return [
-      createStarterProduct("Laundry service", "SERVICE", "Guest services", "service", "15000", "SRV001"),
-      createStarterProduct("Room service charge", "FEE", "Charges", "bill", "5000", "FEE001"),
-      createStarterProduct("Bottled water", "PHYSICAL", "Mini bar", "bottle", "3000", "MIN001"),
-      createStarterProduct("Airport pickup", "SERVICE", "Transport", "trip", "60000", "SRV002")
-    ];
-  }
-
-  if (type.includes("supermarket")) {
-    return [
-      createStarterProduct("Mineral water 500ml", "PHYSICAL", "Drinks", "bottle", "1000", "GRC001"),
-      createStarterProduct("Sugar 1kg", "PHYSICAL", "Groceries", "pack", "4500", "GRC002"),
-      createStarterProduct("Bread", "PHYSICAL", "Bakery", "loaf", "5000", "BAK001"),
-      createStarterProduct("Delivery fee", "FEE", "Charges", "order", "3000", "FEE001")
-    ];
-  }
-
-  if (type.includes("retail")) {
-    return [
-      createStarterProduct("Mineral water", "PHYSICAL", "Drinks", "bottle", "1000", "PRD001"),
-      createStarterProduct("Soap", "PHYSICAL", "Household", "piece", "2500", "PRD002"),
-      createStarterProduct("Delivery fee", "FEE", "Charges", "order", "3000", "FEE001"),
-      createStarterProduct("Repair service", "SERVICE", "Services", "service", "10000", "SRV001")
-    ];
-  }
-
-  return [
-    createStarterProduct("Sample product", "PHYSICAL", "General", "item", "1000", "PRD001"),
-    createStarterProduct("Service charge", "FEE", "Charges", "bill", "0", "FEE001"),
-    createStarterProduct("Consultation", "SERVICE", "Services", "visit", "10000", "SRV001"),
-    createStarterProduct("Delivery fee", "FEE", "Charges", "order", "3000", "FEE002")
-  ];
-}
-
-function createStarterProduct(name, type, category, unit, price, sku) {
-  return {
-    name,
-    type,
-    category,
-    unit,
-    price,
-    sku,
-    barcode: ""
+    eyebrow: "Sales catalog",
+    description: "Products, services, and charges that appear in POS, inventory, receipts, and reports."
   };
 }
 

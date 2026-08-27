@@ -70,24 +70,24 @@ export default function DashboardLayout() {
     return () => document.removeEventListener("mousedown", closeUserMenu);
   }, []);
 
-  const desktopSidebarWidth = sidebarCollapsed ? "lg:w-[76px]" : "lg:w-60";
-  const desktopContentOffset = sidebarCollapsed ? "lg:pl-[76px]" : "lg:pl-60";
+  const desktopSidebarWidth = sidebarCollapsed ? "lg:w-[78px]" : "lg:w-64";
+  const desktopContentOffset = sidebarCollapsed ? "lg:pl-[78px]" : "lg:pl-64";
 
   return (
     <div className="min-h-screen bg-zera-canvas text-zera-ink">
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-zera-line bg-white transition-all duration-200 lg:translate-x-0 ${desktopSidebarWidth} ${
+        className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-zera-line bg-[#fbfdfc] shadow-[6px_0_24px_rgba(23,33,29,0.03)] transition-all duration-200 lg:translate-x-0 ${desktopSidebarWidth} ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="flex h-16 shrink-0 items-center justify-between border-b border-zera-line px-4">
+        <div className="flex h-[68px] shrink-0 items-center justify-between border-b border-zera-line px-4">
           <Link className="flex min-w-0 items-center gap-3" to={isSystemAdmin ? "/system-admin" : "/dashboard"}>
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-zera-green text-white">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-green text-white shadow-xs">
               <Building2 size={19} />
             </div>
             <div className={`min-w-0 ${sidebarCollapsed ? "lg:hidden" : ""}`}>
-              <div className="truncate text-base font-bold">Zera</div>
-              <div className="truncate text-[11px] font-medium text-zera-muted">Solutions</div>
+              <div className="truncate text-lg font-bold leading-5 tracking-tight">Zera</div>
+              <div className="truncate text-xs font-medium text-zera-muted">Solutions</div>
             </div>
           </Link>
           <button
@@ -102,7 +102,7 @@ export default function DashboardLayout() {
         <nav className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
           {navigation.map((group) => (
             <div className="mb-5 last:mb-0" key={group.label}>
-              <p className={`mb-2 px-2 text-[11px] font-bold uppercase text-zera-muted/80 ${sidebarCollapsed ? "lg:sr-only" : ""}`}>
+              <p className={`mb-2 px-2 text-[10px] font-bold uppercase tracking-[0.14em] text-zera-muted/75 ${sidebarCollapsed ? "lg:sr-only" : ""}`}>
                 {group.label}
               </p>
               <div className="space-y-1">
@@ -115,12 +115,14 @@ export default function DashboardLayout() {
                       to={item.path}
                       title={sidebarCollapsed ? item.label : undefined}
                       className={({ isActive }) =>
-                        `flex h-10 items-center gap-3 rounded-md px-3 text-sm font-semibold transition ${
-                          isActive ? "bg-zera-mint text-zera-green" : "text-zera-muted hover:bg-zera-surface hover:text-zera-ink"
+                        `group flex h-10 items-center gap-3 rounded-md border px-3 text-sm font-semibold transition ${
+                          isActive
+                            ? "border-zera-line bg-white text-zera-green shadow-xs"
+                            : "border-transparent text-zera-muted hover:border-zera-line hover:bg-white hover:text-zera-ink"
                         } ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`
                       }
                     >
-                      <Icon className="shrink-0" size={18} />
+                      <Icon className="shrink-0" size={17} />
                       <span className={`truncate ${sidebarCollapsed ? "lg:hidden" : ""}`}>{item.label}</span>
                     </NavLink>
                   );
@@ -131,8 +133,8 @@ export default function DashboardLayout() {
         </nav>
 
         <div className="shrink-0 border-t border-zera-line p-3">
-          <div className={`flex items-center gap-3 rounded-md bg-zera-surface p-2 ${sidebarCollapsed ? "lg:justify-center" : ""}`}>
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-white text-zera-green">
+          <div className={`flex items-center gap-3 rounded-md border border-zera-line bg-white p-2 shadow-xs ${sidebarCollapsed ? "lg:justify-center" : ""}`}>
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
               <UserRound size={18} />
             </div>
             <div className={`min-w-0 ${sidebarCollapsed ? "lg:hidden" : ""}`}>
@@ -156,10 +158,10 @@ export default function DashboardLayout() {
       ) : null}
 
       <div className={`min-w-0 transition-[padding] duration-200 ${desktopContentOffset}`}>
-        <header className="sticky top-0 z-20 border-b border-zera-line bg-white/95 backdrop-blur">
-          <div className="flex min-h-16 items-center gap-3 px-4 sm:px-6">
+        <header className="sticky top-0 z-20 border-b border-zera-line bg-white/95 shadow-[0_1px_0_rgba(23,33,29,0.02)] backdrop-blur">
+          <div className="flex min-h-[68px] items-center gap-3 px-4 sm:px-5 lg:px-6">
             <button
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-zera-line bg-white text-zera-ink lg:hidden"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-zera-line bg-white text-zera-ink shadow-xs lg:hidden"
               onClick={() => setSidebarOpen(true)}
               aria-label="Open sidebar"
             >
@@ -168,7 +170,7 @@ export default function DashboardLayout() {
 
             <div className="min-w-0 flex-1">
               <p className="truncate text-xs font-semibold text-zera-muted">{route.section}</p>
-              <h1 className="truncate text-lg font-bold text-zera-ink">{route.title}</h1>
+              <h1 className="truncate text-xl font-bold tracking-tight text-zera-ink">{route.title}</h1>
             </div>
 
             {!isSystemAdmin ? (
@@ -188,7 +190,7 @@ export default function DashboardLayout() {
 
             <div className="relative" ref={userMenuRef}>
               <button
-                className="flex h-10 items-center gap-2 rounded-md border border-zera-line bg-white px-2 text-left hover:bg-zera-surface"
+                className="flex h-10 items-center gap-2 rounded-md border border-zera-line bg-white px-2 text-left shadow-xs hover:bg-zera-surface"
                 onClick={() => setUserMenuOpen((current) => !current)}
                 aria-expanded={userMenuOpen}
                 aria-label="Open account menu"
@@ -238,7 +240,7 @@ export default function DashboardLayout() {
           ) : null}
         </header>
 
-        <main className="px-4 py-5 sm:px-6 lg:px-7">
+        <main className="px-4 py-4 sm:px-5 lg:px-6">
           <Outlet />
         </main>
       </div>
@@ -285,6 +287,10 @@ function getPOSNavigationLabel(business) {
 
   if (type.includes("supermarket")) {
     return "Supermarket POS";
+  }
+
+  if (type.includes("electronic")) {
+    return "Electronics POS";
   }
 
   if (type.includes("retail")) {

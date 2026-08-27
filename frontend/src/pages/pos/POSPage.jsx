@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Hotel, Minus, Pill, Plus, Printer, ReceiptText, Search, ShoppingBasket, ShoppingCart, Store, Table2, Trash2, UserRound, X } from "lucide-react";
+import { Hotel, Minus, Pill, Plus, Printer, ReceiptText, Search, ShoppingBasket, ShoppingCart, Smartphone, Store, Table2, Trash2, UserRound, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import Button from "../../components/Button.jsx";
 import PrintableBill from "../../components/PrintableBill.jsx";
@@ -428,60 +428,61 @@ export default function POSPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5">
-      <section className="rounded-lg border border-zera-line bg-white p-5 shadow-soft">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-zera-green">Zera POS</p>
-            <h2 className="mt-2 text-2xl font-bold sm:text-3xl">
+    <div className="mx-auto max-w-[1500px] space-y-4">
+      <header className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
+        <div className="flex flex-col gap-4 border-b border-zera-line px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Zera POS</p>
+            <h2 className="mt-1 text-xl font-bold text-zera-ink sm:text-2xl">
               {activeBranch ? `${activeBranch.name} ${modeInfo.shortTitle}` : modeInfo.title}
             </h2>
-            <p className="mt-3 max-w-3xl leading-7 text-zera-muted">
-              {modeInfo.description}
-            </p>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">{modeInfo.description}</p>
           </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:min-w-[28rem]">
-            <StatusPill label={activeBusiness?.name || "No business"} helper="Business" ready={Boolean(activeBusiness)} />
-            <StatusPill label={activeBranch?.name || "No branch"} helper="Branch" ready={branchReady} />
-            <StatusPill label={modeInfo.title} helper="Sales mode" ready={Boolean(activeBusiness)} />
-            <StatusPill label={activeRoleName || "No role"} helper="Access" ready={roleReady} />
-          </div>
+          <span className={`inline-flex min-h-9 shrink-0 items-center justify-center rounded-md px-3 text-sm font-bold ${workspaceReady ? "bg-zera-mintSoft text-zera-green" : "bg-red-50 text-red-700"}`}>
+            {workspaceReady ? "Ready to sell" : "Setup needed"}
+          </span>
         </div>
-      </section>
+        <div className="grid divide-y divide-zera-line sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
+          <POSContextCell helper="Business" label={activeBusiness?.name || "No business"} ready={Boolean(activeBusiness)} />
+          <POSContextCell helper="Branch" label={activeBranch?.name || "No branch"} ready={branchReady} />
+          <POSContextCell helper="Selling mode" label={modeInfo.title} ready={Boolean(activeBusiness)} />
+          <POSContextCell helper="Access" label={activeRoleName || "No role"} ready={roleReady} />
+        </div>
+      </header>
 
-      <section className="grid gap-5 xl:grid-cols-[1.3fr_0.7fr]">
-        <div className="space-y-5">
-          <section className="grid gap-3 rounded-lg border border-zera-line bg-white p-4 md:grid-cols-[auto_1fr] md:items-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+      <section className="grid gap-4 xl:grid-cols-[1.32fr_0.68fr]">
+        <div className="space-y-4">
+          <section className="grid gap-3 overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs md:grid-cols-[auto_1fr] md:items-center">
+            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
               <ModeIcon size={24} />
             </div>
             <div className="min-w-0">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <p className="text-xs font-bold uppercase text-zera-muted">{modeInfo.kicker}</p>
-                  <h3 className="mt-1 text-lg font-bold">{modeInfo.title}</h3>
+                  <h3 className="mt-1 text-lg font-bold">Current workflow</h3>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {workflowSteps.map((step, index) => (
-                    <span key={step} className="rounded-md bg-[#f7faf8] px-3 py-2 text-xs font-bold text-zera-muted">
+                    <span key={step} className="rounded-md border border-zera-line bg-white px-3 py-2 text-xs font-bold text-zera-muted">
                       {index + 1}. {step}
                     </span>
                   ))}
                 </div>
               </div>
               <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                <StatusPill label={modeInfo.workflow} helper="Workflow" ready />
-                <StatusPill label={modeInfo.requirement} helper="Rule" ready />
-                <StatusPill label={modeInfo.nextFoundation} helper="Next foundation" ready />
+                <StatusPill label={modeInfo.workflow} helper="Flow" ready />
+                <StatusPill label={modeInfo.requirement} helper="Checkout rule" ready />
+                <StatusPill label={modeInfo.nextFoundation} helper="Coming later" ready />
               </div>
             </div>
           </section>
 
           {isTableService ? (
-            <section className="rounded-lg border border-zera-line bg-white p-5">
+            <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
               <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
                     <Table2 size={22} />
                   </div>
                   <div>
@@ -519,20 +520,20 @@ export default function POSPage() {
                     type="button"
                     className={`min-h-10 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
                       tableFilter === filter.value
-                        ? "border-zera-green bg-zera-green text-white"
-                        : "border-zera-line bg-white text-zera-ink hover:border-zera-green hover:bg-zera-mint hover:text-zera-green"
+                        ? "border-zera-green bg-zera-mintSoft text-zera-green"
+                        : "border-zera-line bg-white text-zera-ink hover:border-zera-green hover:bg-zera-mintSoft hover:text-zera-green"
                     }`}
                     onClick={() => setTableFilter(filter.value)}
                   >
                     {filter.label}
-                    <span className={`ml-2 rounded-md px-2 py-0.5 text-xs ${tableFilter === filter.value ? "bg-white/20 text-white" : "bg-[#f7faf8] text-zera-muted"}`}>
+                    <span className={`ml-2 rounded-md px-2 py-0.5 text-xs ${tableFilter === filter.value ? "bg-white text-zera-green" : "bg-zera-mintSoft text-zera-muted"}`}>
                       {filter.count}
                     </span>
                   </button>
                 ))}
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-4">
+              <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
                 {visibleTables.map((table) => {
                   const tableState = getTableServiceState(table);
 
@@ -540,8 +541,8 @@ export default function POSPage() {
                     <button
                       key={table.id}
                       type="button"
-                      className={`min-h-24 rounded-md border px-3 py-3 text-left transition ${
-                        selectedTableId === table.id ? "border-zera-green bg-zera-mint text-zera-ink" : "border-zera-line bg-[#f7faf8] hover:border-zera-green"
+                      className={`min-h-[72px] rounded-md border px-3 py-2.5 text-left transition ${
+                        selectedTableId === table.id ? "border-zera-green bg-zera-mintSoft text-zera-ink" : "border-zera-line bg-white hover:border-zera-green hover:bg-zera-mintSoft"
                       }`}
                       onClick={() => setSelectedTableId(table.id)}
                     >
@@ -574,13 +575,13 @@ export default function POSPage() {
               </div>
 
               {!loadingTables && !tables.length ? (
-                <div className="rounded-md border border-dashed border-zera-line bg-[#f7faf8] p-5 text-sm text-zera-muted">
+                <div className="rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-5 text-sm text-zera-muted">
                   No tables exist for this branch yet. Owners and managers can add the first table below.
                 </div>
               ) : null}
 
               {!loadingTables && tables.length > 0 && visibleTables.length === 0 ? (
-                <div className="rounded-md border border-dashed border-zera-line bg-[#f7faf8] p-5 text-sm text-zera-muted">
+                <div className="rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-5 text-sm text-zera-muted">
                   No tables match this filter.
                 </div>
               ) : null}
@@ -590,7 +591,7 @@ export default function POSPage() {
                   <label className="block">
                     <span className="sr-only">New table name</span>
                     <input
-                      className="min-h-11 w-full rounded-md border border-zera-line bg-white px-3 text-sm outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                      className="min-h-10 w-full rounded-md border border-zera-line bg-white px-3 text-sm outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
                       value={newTableName}
                       onChange={(event) => setNewTableName(event.target.value)}
                       placeholder="Add table, e.g. Patio 4"
@@ -604,10 +605,10 @@ export default function POSPage() {
               ) : null}
             </section>
           ) : (
-            <section className="rounded-lg border border-zera-line bg-white p-5">
+            <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
                     <ModeIcon size={22} />
                   </div>
                   <div>
@@ -615,27 +616,32 @@ export default function POSPage() {
                     <p className="text-sm text-zera-muted">{modeInfo.counterHint}</p>
                   </div>
                 </div>
-                <div className="rounded-md bg-zera-mint px-3 py-2 text-sm font-semibold text-zera-green">{modeInfo.requirement}</div>
+                <div className="rounded-md bg-zera-mintSoft px-3 py-2 text-sm font-semibold text-zera-green">{modeInfo.requirement}</div>
               </div>
             </section>
           )}
 
-          <section className="rounded-lg border border-zera-line bg-white p-5">
+          <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <h3 className="text-lg font-bold">{modeInfo.productSectionTitle}</h3>
                 <p className="mt-1 text-sm text-zera-muted">{modeInfo.productEntryHint}</p>
               </div>
-              <div className={`rounded-md px-3 py-2 text-sm font-semibold ${workspaceReady ? "bg-zera-mint text-zera-green" : "bg-red-50 text-red-700"}`}>
-                {workspaceReady ? "Register ready" : "Setup needed"}
+              <div className="flex flex-wrap gap-2">
+                <span className="rounded-md bg-zera-mintSoft px-3 py-2 text-sm font-semibold text-zera-muted">
+                  {products.length} active item{products.length === 1 ? "" : "s"}
+                </span>
+                <span className={`rounded-md px-3 py-2 text-sm font-semibold ${workspaceReady ? "bg-zera-mintSoft text-zera-green" : "bg-red-50 text-red-700"}`}>
+                  {workspaceReady ? "Ready" : "Setup needed"}
+                </span>
               </div>
             </div>
 
-            <div className="mt-5">
-              <label className="flex min-h-14 items-center gap-3 rounded-md border border-zera-line bg-[#f7faf8] px-4">
-                <Search size={20} className="text-zera-muted" />
+            <div className="mt-4">
+              <label className="flex min-h-10 items-center gap-2 rounded-md border border-zera-line bg-white px-3 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
+                <Search size={18} className="text-zera-muted" />
                 <input
-                  className="w-full border-0 bg-transparent text-base outline-none"
+                  className="w-full border-0 bg-transparent text-sm outline-none"
                   value={productSearch}
                   onChange={(event) => setProductSearch(event.target.value)}
                   placeholder="Search product, category, SKU, or barcode"
@@ -648,7 +654,7 @@ export default function POSPage() {
                 <button
                   type="button"
                   className={`min-h-9 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
-                    productCategoryFilter === "" ? "border-zera-green bg-zera-mint text-zera-green" : "border-zera-line bg-white text-zera-ink hover:bg-zera-mint"
+                    productCategoryFilter === "" ? "border-zera-green bg-zera-mintSoft text-zera-green" : "border-zera-line bg-white text-zera-ink hover:bg-zera-mintSoft"
                   }`}
                   onClick={() => setProductCategoryFilter("")}
                 >
@@ -659,7 +665,7 @@ export default function POSPage() {
                     key={category}
                     type="button"
                     className={`min-h-9 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
-                      productCategoryFilter === category ? "border-zera-green bg-zera-mint text-zera-green" : "border-zera-line bg-white text-zera-ink hover:bg-zera-mint"
+                      productCategoryFilter === category ? "border-zera-green bg-zera-mintSoft text-zera-green" : "border-zera-line bg-white text-zera-ink hover:bg-zera-mintSoft"
                     }`}
                     onClick={() => setProductCategoryFilter(category)}
                   >
@@ -670,18 +676,18 @@ export default function POSPage() {
             ) : null}
 
             {productError ? <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{productError}</p> : null}
-            {saleMessage ? <p className="mt-4 rounded-md bg-zera-mint px-3 py-2 text-sm font-semibold text-zera-green">{saleMessage}</p> : null}
+            {saleMessage ? <p className="mt-4 rounded-md bg-zera-mintSoft px-3 py-2 text-sm font-semibold text-zera-green">{saleMessage}</p> : null}
             {readinessError ? <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{readinessError}</p> : null}
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="mt-4 grid max-h-[460px] gap-2 overflow-y-auto pr-1 md:grid-cols-2 2xl:grid-cols-3">
               {!loadingProducts && products.length === 0 ? (
-                <div className="rounded-md border border-dashed border-zera-line bg-[#f7faf8] p-5 text-sm text-zera-muted sm:col-span-2 lg:col-span-3">
+                <div className="rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-5 text-sm text-zera-muted md:col-span-2 2xl:col-span-3">
                   No active products found. Owners and managers can add products from the Products page.
                 </div>
               ) : null}
 
               {loadingProducts ? (
-                <div className="rounded-md border border-dashed border-zera-line bg-[#f7faf8] p-5 text-sm text-zera-muted sm:col-span-2 lg:col-span-3">
+                <div className="rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-5 text-sm text-zera-muted md:col-span-2 2xl:col-span-3">
                   Loading products...
                 </div>
               ) : null}
@@ -691,16 +697,19 @@ export default function POSPage() {
                   key={product.id}
                   type="button"
                   disabled={!workspaceReady}
-                  className="min-h-24 rounded-md border border-zera-line bg-[#f7faf8] px-4 text-left transition hover:border-zera-green hover:bg-zera-mint disabled:cursor-not-allowed disabled:hover:border-zera-line disabled:hover:bg-[#f7faf8]"
+                  className="flex min-h-16 items-center justify-between gap-3 rounded-md border border-zera-line bg-white px-3 py-2.5 text-left transition hover:border-zera-green hover:bg-zera-mintSoft disabled:cursor-not-allowed disabled:hover:border-zera-line disabled:hover:bg-white"
                   onClick={() => addToCart(product)}
                 >
-                  <span className="block font-bold text-zera-ink">{product.name}</span>
-                  <span className="mt-2 block text-sm font-semibold text-zera-green">
-                    {formatMoney(product.price, activeBusiness?.currency)}
-                    {product.unit ? <span className="text-zera-muted"> / {product.unit}</span> : null}
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-bold text-zera-ink">{product.name}</span>
+                    <span className="mt-1 block truncate text-xs text-zera-muted">
+                      {product.category || formatProductType(product.type)} · {product.sku || product.barcode || "No code"}
+                    </span>
                   </span>
-                  <span className="mt-1 block text-xs text-zera-muted">{product.category || formatProductType(product.type)}</span>
-                  <span className="mt-1 block text-xs text-zera-muted">{product.sku || product.barcode || "No code"}</span>
+                  <span className="shrink-0 text-right">
+                    <span className="block text-sm font-bold text-zera-green">{formatMoney(product.price, activeBusiness?.currency)}</span>
+                    {product.unit ? <span className="mt-1 block text-xs text-zera-muted">/{product.unit}</span> : null}
+                  </span>
                 </button>
               ))}
             </div>
@@ -708,9 +717,9 @@ export default function POSPage() {
 
         </div>
 
-        <aside className="space-y-5">
+        <aside className="space-y-4">
           {isTableService && activeTableOrder ? (
-            <section className="rounded-lg border border-zera-line bg-white p-5">
+            <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-zera-green">Open table bill</p>
@@ -726,7 +735,7 @@ export default function POSPage() {
 
               <div className="space-y-2">
                 {activeTableOrder.items?.map((item) => (
-                  <div key={item.id} className="flex items-start justify-between gap-3 rounded-md bg-[#f7faf8] px-3 py-2">
+                  <div key={item.id} className="flex items-start justify-between gap-3 rounded-md bg-zera-mintSoft px-3 py-2">
                     <div>
                       <p className="text-sm font-bold">{item.product?.name || "Product"}</p>
                       <p className="mt-1 text-xs text-zera-muted">
@@ -750,7 +759,7 @@ export default function POSPage() {
                     Receive payment
                   </Button>
                 ) : (
-                  <p className="rounded-md bg-[#f7faf8] px-3 py-2 text-sm text-zera-muted">
+                  <p className="rounded-md bg-zera-mintSoft px-3 py-2 text-sm text-zera-muted">
                     Add new items from the cart, then print the customer bill from the review modal when the guest asks to pay.
                   </p>
                 )}
@@ -759,7 +768,7 @@ export default function POSPage() {
           ) : null}
 
           {lastSale ? (
-            <section className="rounded-lg border border-zera-line bg-white p-5">
+            <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-zera-green">Sale complete</p>
@@ -768,12 +777,12 @@ export default function POSPage() {
                     {formatMoney(lastSale.total, activeBusiness?.currency)} · {formatPayment(lastSale.paymentMethod)}
                   </p>
                 </div>
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
                   <ReceiptText size={22} />
                 </div>
               </div>
 
-              <div className="max-h-80 overflow-y-auto rounded-md border border-zera-line bg-[#f7faf8] p-3">
+              <div className="max-h-80 overflow-y-auto rounded-md border border-zera-line bg-zera-mintSoft p-3">
                 <PrintableReceipt business={activeBusiness} sale={lastSale} />
               </div>
 
@@ -783,7 +792,7 @@ export default function POSPage() {
                   Print receipt
                 </Button>
                 <Link
-                  className="no-print inline-flex min-h-11 items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-semibold text-zera-green transition hover:bg-zera-mint"
+                  className="no-print inline-flex min-h-10 items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-semibold text-zera-green transition hover:bg-zera-mintSoft"
                   to="/sales"
                 >
                   View sales
@@ -792,9 +801,9 @@ export default function POSPage() {
             </section>
           ) : null}
 
-          <section className="rounded-lg border border-zera-line bg-white p-5">
+          <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
             <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
                 <UserRound size={22} />
               </div>
               <div>
@@ -803,7 +812,7 @@ export default function POSPage() {
               </div>
             </div>
 
-            <label className="flex min-h-11 items-center gap-3 rounded-md border border-zera-line bg-[#f7faf8] px-3">
+            <label className="flex min-h-10 items-center gap-3 rounded-md border border-zera-line bg-zera-mintSoft px-3">
               <Search size={17} className="text-zera-muted" />
               <input
                 className="w-full border-0 bg-transparent text-sm outline-none"
@@ -816,7 +825,7 @@ export default function POSPage() {
             <label className="mt-3 block">
               <span className="mb-2 block text-sm font-medium text-zera-ink">{modeInfo.customerSelectLabel}</span>
               <select
-                className="min-h-11 w-full rounded-md border border-zera-line bg-white px-3 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                className="min-h-10 w-full rounded-md border border-zera-line bg-white px-3 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
                 value={selectedCustomerId}
                 onChange={(event) => setSelectedCustomerId(event.target.value)}
               >
@@ -834,17 +843,17 @@ export default function POSPage() {
             {customerError ? <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{customerError}</p> : null}
 
             <Link
-              className="mt-4 inline-flex min-h-10 w-full items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-semibold text-zera-green transition hover:bg-zera-mint"
+              className="mt-4 inline-flex min-h-10 w-full items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-semibold text-zera-green transition hover:bg-zera-mintSoft"
               to="/customers"
             >
               Manage customers
             </Link>
           </section>
 
-          <section className="rounded-lg border border-zera-line bg-white p-5">
-            <div className="mb-5 flex items-center justify-between gap-3">
+          <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
+            <div className="mb-4 flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
-                <div className="flex h-11 w-11 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
                   <ShoppingCart size={22} />
                 </div>
                 <div>
@@ -905,14 +914,14 @@ export default function POSPage() {
                 ))}
               </div>
             ) : (
-              <div className="flex min-h-48 flex-col items-center justify-center rounded-md border border-dashed border-zera-line bg-[#f7faf8] px-4 text-center">
+              <div className="flex min-h-36 flex-col items-center justify-center rounded-md border border-dashed border-zera-line bg-zera-mintSoft px-4 text-center">
                 <ReceiptText size={30} className="text-zera-green" />
                 <h4 className="mt-3 font-bold">Cart is empty</h4>
                 <p className="mt-2 text-sm leading-6 text-zera-muted">{modeInfo.emptyCartText}</p>
               </div>
             )}
 
-            <div className="mt-5 space-y-3">
+            <div className="mt-4 space-y-2">
               {totals.map((item) => (
                 <div key={item.label} className="flex items-center justify-between text-sm">
                   <span className="text-zera-muted">{item.label}</span>
@@ -922,15 +931,15 @@ export default function POSPage() {
               <div className="border-t border-zera-line pt-4">
                 <div className="flex items-center justify-between">
                   <span className="text-base font-bold">Total</span>
-                  <span className="text-2xl font-bold">{formatMoney(subtotal, activeBusiness?.currency)}</span>
+                  <span className="text-xl font-bold">{formatMoney(subtotal, activeBusiness?.currency)}</span>
                 </div>
               </div>
             </div>
 
           </section>
 
-          <section className="rounded-lg border border-zera-line bg-white p-5">
-            <h3 className="text-lg font-bold">{modeInfo.reviewTitle}</h3>
+          <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
+            <h3 className="text-base font-bold">{isTableService ? "Next action" : modeInfo.reviewTitle}</h3>
             <p className="mt-1 text-sm text-zera-muted">{modeInfo.reviewDescription}</p>
             <div className="mt-4 grid gap-3">
               <Button
@@ -956,13 +965,13 @@ export default function POSPage() {
 
       {reviewOpen ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/30 px-4 py-6">
-          <section className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-zera-line bg-white p-5 shadow-soft">
+          <section className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-md border border-zera-line bg-white p-5 shadow-panel">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold text-zera-green">
                   {reviewMode === "PAY_ORDER" ? "Cashier payment" : orderSentInModal ? "Customer bill" : isTableOrderReview ? "Table order" : "Draft sale"}
                 </p>
-                <h3 className="mt-1 text-2xl font-bold">
+                <h3 className="mt-1 text-xl font-bold">
                   {reviewMode === "PAY_ORDER" ? "Receive payment" : orderSentInModal ? "Print customer bill" : isTableOrderReview ? "Send table order" : "Review cart"}
                 </h3>
                 <p className="mt-2 text-sm leading-6 text-zera-muted">
@@ -978,7 +987,7 @@ export default function POSPage() {
               {!orderSentInModal ? (
                 <button
                   type="button"
-                  className="flex h-10 w-10 items-center justify-center rounded-md text-zera-muted hover:bg-[#f7faf8] hover:text-zera-ink"
+                  className="flex h-10 w-10 items-center justify-center rounded-md text-zera-muted hover:bg-zera-mintSoft hover:text-zera-ink"
                   onClick={() => setReviewOpen(false)}
                   aria-label="Close review"
                 >
@@ -989,7 +998,7 @@ export default function POSPage() {
 
             <div className="mt-5 space-y-3">
               {reviewItems.map((item, index) => (
-                <div key={`${item.product.id}-${index}`} className="flex items-start justify-between gap-3 rounded-md bg-[#f7faf8] px-3 py-3">
+                <div key={`${item.product.id}-${index}`} className="flex items-start justify-between gap-3 rounded-md bg-zera-mintSoft px-3 py-3">
                   <div>
                     <p className="font-bold">{item.product.name}</p>
                     <p className="mt-1 text-sm text-zera-muted">
@@ -1005,11 +1014,11 @@ export default function POSPage() {
             <div className="mt-5 rounded-md border border-zera-line p-4">
               <div className="flex items-center justify-between">
                 <span className="font-bold">{reviewMode === "PAY_ORDER" ? "Amount due" : isTableOrderReview ? "Order total" : "Draft total"}</span>
-                <span className="text-2xl font-bold">{formatMoney(reviewSubtotal, activeBusiness?.currency)}</span>
+                <span className="text-xl font-bold">{formatMoney(reviewSubtotal, activeBusiness?.currency)}</span>
               </div>
             </div>
 
-            <div className="mt-4 rounded-md bg-[#f7faf8] px-3 py-3">
+            <div className="mt-4 rounded-md bg-zera-mintSoft px-3 py-3">
               <p className="text-xs font-semibold uppercase text-zera-muted">Customer</p>
               <p className="mt-1 font-bold">{selectedCustomer?.name || "Walk-in customer"}</p>
               {selectedCustomer?.phone || selectedCustomer?.email ? (
@@ -1018,7 +1027,7 @@ export default function POSPage() {
             </div>
 
             {isTableService ? (
-              <div className="mt-4 rounded-md bg-[#f7faf8] px-3 py-3">
+              <div className="mt-4 rounded-md bg-zera-mintSoft px-3 py-3">
                 <p className="text-xs font-semibold uppercase text-zera-muted">Table</p>
                 <p className="mt-1 font-bold">{selectedTable?.name || "No table selected"}</p>
                 {orderForReview?.orderNumber || activeTableOrder?.orderNumber ? (
@@ -1031,7 +1040,7 @@ export default function POSPage() {
               <label className="mt-5 block">
                 <span className="mb-2 block text-sm font-medium text-zera-ink">Payment method</span>
                 <select
-                  className="min-h-12 w-full rounded-md border border-zera-line bg-white px-4 text-base text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                  className="min-h-10 w-full rounded-md border border-zera-line bg-white px-3 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
                   value={paymentMethod}
                   onChange={(event) => setPaymentMethod(event.target.value)}
                 >
@@ -1044,7 +1053,7 @@ export default function POSPage() {
 
             {saleError ? <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{saleError}</p> : null}
             {orderSentInModal ? (
-              <p className="mt-4 rounded-md bg-zera-mint px-3 py-2 text-sm font-semibold text-zera-green">
+              <p className="mt-4 rounded-md bg-zera-mintSoft px-3 py-2 text-sm font-semibold text-zera-green">
                 Order sent. Print the customer bill when the guest asks to pay, then cashier will close the table.
               </p>
             ) : null}
@@ -1342,6 +1351,31 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
     };
   }
 
+  if (normalizedType.includes("electronic")) {
+    return {
+      icon: Smartphone,
+      kicker: "Electronics checkout",
+      title: "Electronics shop POS",
+      shortTitle: "electronics checkout",
+      description: "Sell phones, accessories, parts, and repair-service items with fast search, customer lookup, stock-friendly records, and clean receipts.",
+      productSectionTitle: "Device and accessory entry",
+      productEntryHint: "Search devices, accessories, SKU, barcode, or category before adding items to the cart.",
+      emptyCartText: "Tap active electronics items to prepare the customer sale.",
+      reviewTitle: "Electronics sale review",
+      reviewDescription: "Confirm devices, accessories, quantities, customer, and payment method before recording the sale.",
+      reviewButtonLabel: "Review electronics sale",
+      requirement: "No table required",
+      workflow: "Find item, confirm stock, record payment",
+      workflowSteps: ["Find device", "Check cart", "Record payment"],
+      nextFoundation: "Serial numbers and repairs later",
+      counterHint: "Electronics checkout prioritizes SKU/barcode search, stock visibility, and clean receipts.",
+      customerTitle: "Customer",
+      customerSearchPlaceholder: "Search customer or phone number",
+      customerSelectLabel: "Sale customer",
+      walkInLabel: "Walk-in customer"
+    };
+  }
+
   if (normalizedType.includes("retail")) {
     return {
       icon: Store,
@@ -1422,5 +1456,17 @@ function StatusPill({ helper, label, ready }) {
       <span className="block text-[0.65rem] font-bold uppercase tracking-wide opacity-80">{helper}</span>
       <span className="block truncate text-sm font-bold">{label}</span>
     </span>
+  );
+}
+
+function POSContextCell({ helper, label, ready }) {
+  return (
+    <div className="min-w-0 px-4 py-3">
+      <p className="text-[0.68rem] font-bold uppercase tracking-wide text-zera-muted">{helper}</p>
+      <div className="mt-1 flex min-w-0 items-center gap-2">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${ready ? "bg-zera-green" : "bg-red-500"}`} />
+        <p className="truncate text-sm font-bold text-zera-ink">{label}</p>
+      </div>
+    </div>
   );
 }

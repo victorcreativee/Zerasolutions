@@ -9,7 +9,6 @@ import {
   Package,
   Search,
   ShieldCheck,
-  Tag
 } from "lucide-react";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
 import { getInventoryStock, receiveInventoryStock, updateInventoryStock } from "../../services/inventoryService.js";
@@ -26,6 +25,7 @@ export default function InventoryPage() {
   const [movementFilter, setMovementFilter] = useState("ALL");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -139,8 +139,10 @@ export default function InventoryPage() {
   const physicalProducts = products.filter((product) => product.type === "PHYSICAL");
   const activePhysicalProducts = physicalProducts.filter((product) => product.status === "ACTIVE");
   const uncodedPhysicalProducts = physicalProducts.filter((product) => !product.sku && !product.barcode);
-  const uncategorizedPhysicalProducts = physicalProducts.filter((product) => !product.category);
   const lowStockItems = stockItems.filter((stock) => stock.reorderLevel > 0 && stock.quantity <= stock.reorderLevel);
+  const missingCodeStockItems = stockItems.filter((stock) => stock.product?.type === "PHYSICAL" && !stock.product?.sku && !stock.product?.barcode);
+  const totalUnits = stockItems.reduce((total, stock) => total + Number(stock.quantity || 0), 0);
+  const stockValue = stockItems.reduce((total, stock) => total + Number(stock.quantity || 0) * Number(stock.product?.price || 0), 0);
   const selectedStock = stockItems.find((stock) => stock.id === selectedStockId) || stockItems[0] || null;
   const categories = useMemo(
     () => [...new Set(physicalProducts.map((product) => product.category).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
@@ -167,6 +169,7 @@ export default function InventoryPage() {
       (typeFilter === "LOW" && stock.reorderLevel > 0 && stock.quantity <= stock.reorderLevel) ||
       (typeFilter === "NEEDS_CODE" && !product.sku && !product.barcode) ||
       (typeFilter === "PAUSED" && product.status === "INACTIVE");
+    const matchesCategory = !categoryFilter || product.category === categoryFilter;
     const normalizedSearch = search.trim().toLowerCase();
     const matchesSearch =
       !normalizedSearch ||
@@ -174,7 +177,7 @@ export default function InventoryPage() {
         .filter(Boolean)
         .some((value) => value.toLowerCase().includes(normalizedSearch));
 
-    return matchesType && matchesSearch;
+    return matchesType && matchesCategory && matchesSearch;
   });
 
   const readiness = [
@@ -185,16 +188,16 @@ export default function InventoryPage() {
       ready: activePhysicalProducts.length > 0
     },
     {
-      label: "Codes",
-      value: uncodedPhysicalProducts.length,
-      helper: uncodedPhysicalProducts.length ? "Need SKU or barcode" : "Physical items have identifiers",
-      ready: uncodedPhysicalProducts.length === 0 && physicalProducts.length > 0
+      label: "Stock value",
+      value: formatMoney(stockValue, activeBusiness?.currency),
+      helper: `${totalUnits} unit${totalUnits === 1 ? "" : "s"} currently on hand`,
+      ready: totalUnits > 0
     },
     {
-      label: "Categories",
-      value: categories.length,
-      helper: uncategorizedPhysicalProducts.length ? "Some products need grouping" : "Catalog is easy to scan",
-      ready: uncategorizedPhysicalProducts.length === 0 && physicalProducts.length > 0
+      label: "Missing codes",
+      value: uncodedPhysicalProducts.length,
+      helper: uncodedPhysicalProducts.length ? "Need SKU or barcode" : "Products are easy to scan",
+      ready: uncodedPhysicalProducts.length === 0 && physicalProducts.length > 0
     },
     {
       label: "Low stock",
@@ -207,8 +210,8 @@ export default function InventoryPage() {
   if (!activeBusiness) {
     return (
       <div className="mx-auto max-w-5xl">
-        <section className="rounded-lg border border-zera-line bg-white p-6">
-          <h2 className="text-2xl font-bold">Inventory</h2>
+        <section className="rounded-md border border-zera-line bg-white p-5 shadow-xs">
+          <h2 className="text-xl font-bold">Inventory</h2>
           <p className="mt-2 text-sm text-zera-muted">Select a business before managing inventory.</p>
         </section>
       </div>
@@ -216,17 +219,17 @@ export default function InventoryPage() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5">
-      <section className="rounded-lg border border-zera-line bg-white p-5 shadow-soft">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase text-zera-green">{guide.eyebrow}</p>
-            <h2 className="mt-2 text-2xl font-bold sm:text-3xl">{guide.title}</h2>
-            <p className="mt-2 max-w-3xl leading-7 text-zera-muted">{guide.description}</p>
+    <div className="mx-auto max-w-[1500px] space-y-4">
+      <section className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
+        <div className="grid gap-4 border-b border-zera-line px-4 py-4 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">{guide.eyebrow}</p>
+            <h2 className="mt-1 text-xl font-bold text-zera-ink">{guide.title}</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">{guide.description}</p>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex flex-wrap gap-2">
             <button
-              className="inline-flex min-h-11 items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-semibold text-zera-ink transition hover:bg-zera-mint disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex h-10 items-center justify-center rounded-md border border-zera-line bg-white px-3 text-sm font-semibold text-zera-ink shadow-xs transition hover:bg-zera-mintSoft disabled:cursor-not-allowed disabled:opacity-60"
               disabled={loading}
               type="button"
               onClick={loadStock}
@@ -235,152 +238,164 @@ export default function InventoryPage() {
             </button>
             <Link
               to="/products"
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-zera-green px-4 text-sm font-semibold text-white transition hover:bg-green-700"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-zera-green px-3 text-sm font-semibold text-white shadow-xs transition hover:bg-zera-greenDark"
             >
               <Package size={17} />
               Products
             </Link>
           </div>
         </div>
+
+        <InventoryCounts items={readiness} loading={loading} />
       </section>
 
       {error ? <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
-      {message ? <div className="rounded-md bg-zera-mint px-4 py-3 text-sm font-semibold text-zera-green">{message}</div> : null}
+      {message ? <div className="rounded-md bg-zera-mintSoft px-4 py-3 text-sm font-semibold text-zera-green">{message}</div> : null}
 
-      <section className="grid gap-3 md:grid-cols-4">
-        {readiness.map((item) => (
-          <InventoryMetric key={item.label} {...item} loading={loading} />
-        ))}
-      </section>
-
-      <section className="grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
-        <article className="rounded-lg border border-zera-line bg-white p-5">
-          <div className="mb-5 flex items-start justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <IconFrame icon={ShieldCheck} />
-              <div>
-                <h3 className="text-lg font-bold">Stock desk</h3>
-                <p className="text-sm text-zera-muted">Update the selected item for {activeBranch?.name || "this branch"}.</p>
-              </div>
-            </div>
-            <span className="rounded-md bg-[#f7faf8] px-3 py-2 text-xs font-bold uppercase text-zera-muted">
-              {activeRoleName || "Staff"}
-            </span>
-          </div>
-
-          <StockEditor
-            activeBranch={activeBranch}
-            action={stockAction}
-            currency={activeBusiness.currency}
-            onActionChange={setStockAction}
-            form={stockForm}
-            receiveForm={receiveForm}
-            onChange={setStockForm}
-            onReceiveChange={setReceiveForm}
-            onReceiveSubmit={handleReceiveSubmit}
-            onSubmit={handleStockSubmit}
-            saving={saving}
-            stock={selectedStock}
-          />
-
-          <AttentionList currency={activeBusiness.currency} items={lowStockItems} onSelect={selectLowStock} />
-
-          <div className="mt-5 rounded-lg border border-zera-line bg-[#f7faf8] p-4">
-            <div className="mb-3 flex items-center gap-3">
-              <IconFrame icon={ClipboardCheck} />
-              <div>
-                <h3 className="text-base font-bold">{guide.checklistTitle}</h3>
-                <p className="text-sm text-zera-muted">{guide.checklistHelper}</p>
-              </div>
-            </div>
-            <div className="space-y-2">
-              {guide.tasks.map((task) => (
-                <div key={task.title} className="flex gap-2 text-sm leading-6">
-                  <CheckCircle2 className="mt-1 shrink-0 text-zera-green" size={16} />
-                  <p>
-                    <span className="font-bold text-zera-ink">{task.title}: </span>
-                    <span className="text-zera-muted">{task.helper}</span>
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <MovementHistory adjustments={recentAdjustments} filter={movementFilter} onFilterChange={setMovementFilter} />
-        </article>
-
-        <article className="rounded-lg border border-zera-line bg-white p-5">
-          <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+      <section className="grid gap-4 xl:grid-cols-[1fr_420px]">
+        <article className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
+          <div className="flex flex-col gap-3 border-b border-zera-line px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex items-center gap-3">
               <IconFrame icon={Boxes} />
               <div>
-                <h3 className="text-lg font-bold">Stock list</h3>
+                <h3 className="text-base font-bold">Stock list</h3>
                 <p className="text-sm text-zera-muted">
-                  {loading ? "Loading..." : `${physicalProducts.length} physical item${physicalProducts.length === 1 ? "" : "s"} in this branch`}
+                  {loading ? "Loading..." : `${filteredStockItems.length} shown from ${physicalProducts.length} physical item${physicalProducts.length === 1 ? "" : "s"}`}
                 </p>
               </div>
             </div>
-            <label className="flex min-h-11 min-w-0 items-center gap-2 rounded-md border border-zera-line bg-white px-3 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10 xl:w-80">
-              <Search size={18} className="shrink-0 text-zera-muted" />
-              <input
-                className="w-full border-0 bg-transparent text-sm outline-none"
-                placeholder="Search item, SKU, barcode"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
+            <div className="overflow-x-auto">
+              <div className="flex min-w-max flex-nowrap items-center gap-2">
+                <label className="flex h-9 w-[300px] shrink-0 items-center gap-2 rounded-md border border-zera-line bg-white px-2.5 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
+                  <Search size={16} className="shrink-0 text-zera-muted" />
+                  <input
+                    className="w-full border-0 bg-transparent text-sm outline-none"
+                    placeholder="Search item, SKU, barcode"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                  />
+                </label>
+                <select
+                  className="h-9 w-[150px] shrink-0 rounded-md border border-zera-line bg-white px-2.5 text-sm font-semibold text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                  value={categoryFilter}
+                  onChange={(event) => setCategoryFilter(event.target.value)}
+                >
+                  <option value="">All categories</option>
+                  {categories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto border-b border-zera-line px-3 py-2">
+            <div className="flex min-w-max flex-nowrap items-center gap-2">
+              <InventoryFilterTabs
+                activeValue={typeFilter}
+                items={[
+                  ["ALL", "All stock"],
+                  ["LOW", "Low stock"],
+                  ["NEEDS_CODE", "Missing code"],
+                  ["PAUSED", "Paused"]
+                ]}
+                onChange={setTypeFilter}
               />
-            </label>
-          </div>
-
-          <div className="mb-5 flex gap-2 overflow-x-auto pb-1">
-            {[
-              ["ALL", "All stock"],
-              ["LOW", "Needs attention"],
-              ["NEEDS_CODE", "Missing code"],
-              ["PAUSED", "Paused"]
-            ].map(([value, label]) => (
               <button
-                key={value}
+                className="h-9 w-[64px] shrink-0 rounded-md border border-zera-line bg-white px-2 text-sm font-bold text-zera-muted transition hover:bg-zera-surface hover:text-zera-ink"
                 type="button"
-                className={`min-h-10 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
-                  typeFilter === value ? "border-zera-green bg-zera-green text-white" : "border-zera-line bg-white text-zera-ink hover:bg-zera-mint"
-                }`}
-                onClick={() => setTypeFilter(value)}
+                onClick={() => {
+                  setSearch("");
+                  setTypeFilter("ALL");
+                  setCategoryFilter("");
+                }}
               >
-                {label}
+                Reset
               </button>
-            ))}
-          </div>
-
-          <div className="overflow-hidden rounded-md border border-zera-line">
-            <div className="grid grid-cols-[1.25fr_0.7fr_0.6fr_0.65fr_0.55fr] gap-3 border-b border-zera-line bg-[#f7faf8] px-4 py-3 text-xs font-bold uppercase text-zera-muted">
-              <span>Item</span>
-              <span>Code</span>
-              <span>Current stock</span>
-              <span>Low stock alert</span>
-              <span>Status</span>
-            </div>
-            <div className="max-h-[430px] overflow-y-auto">
-              {!loading && filteredStockItems.length === 0 ? (
-                <div className="p-5 text-sm text-zera-muted">No stock items match this view.</div>
-              ) : null}
-              {filteredStockItems.map((stock) => (
-                <InventoryRow
-                  key={stock.id}
-                  active={stock.id === selectedStock?.id}
-                  currency={activeBusiness.currency}
-                  onSelect={() => selectStock(stock)}
-                  stock={stock}
-                />
-              ))}
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <SmallSummary icon={Package} label="Physical" value={physicalProducts.length} />
-            <SmallSummary icon={AlertTriangle} label="Low stock" value={lowStockItems.length} />
-            <SmallSummary icon={Tag} label="Categories" value={categories.length} />
+          <div className="overflow-x-auto">
+            <div className="max-h-[calc(100vh-330px)] min-w-[900px] overflow-y-auto">
+              <table className="w-full border-collapse text-left text-sm">
+                <thead className="sticky top-0 z-10 border-b border-zera-line bg-zera-mintSoft text-xs font-bold uppercase text-zera-muted">
+                  <tr>
+                    <th className="w-[36%] px-3 py-2.5">Item</th>
+                    <th className="w-[22%] px-3 py-2.5">Code</th>
+                    <th className="w-[14%] px-3 py-2.5 text-right">Current stock</th>
+                    <th className="w-[14%] px-3 py-2.5 text-right">Low stock alert</th>
+                    <th className="w-[14%] px-3 py-2.5">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zera-line">
+                  {!loading && filteredStockItems.length === 0 ? (
+                    <tr>
+                      <td className="px-4 py-10 text-center text-zera-muted" colSpan="5">
+                        No stock items match this view.
+                      </td>
+                    </tr>
+                  ) : null}
+                  {filteredStockItems.map((stock) => (
+                    <InventoryRow
+                      key={stock.id}
+                      active={stock.id === selectedStock?.id}
+                      currency={activeBusiness.currency}
+                      onSelect={() => selectStock(stock)}
+                      stock={stock}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </article>
+
+        <aside className="space-y-4">
+          <InventoryPriorityPanel
+            currency={activeBusiness.currency}
+            lowStockItems={lowStockItems}
+            missingCodeItems={missingCodeStockItems}
+            onSelectCode={(stock) => {
+              selectStock(stock);
+              setTypeFilter("NEEDS_CODE");
+            }}
+            onSelectLowStock={selectLowStock}
+          />
+
+          <article className="rounded-md border border-zera-line bg-white p-4 shadow-xs">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <IconFrame icon={ShieldCheck} />
+                <div>
+                  <h3 className="text-base font-bold">Stock action</h3>
+                  <p className="text-sm text-zera-muted">{selectedStock?.product?.name || "Select an item"}</p>
+                </div>
+              </div>
+              <span className="rounded-md bg-zera-mintSoft px-3 py-2 text-xs font-bold uppercase text-zera-muted">
+                {activeRoleName || "Staff"}
+              </span>
+            </div>
+
+            <StockEditor
+              activeBranch={activeBranch}
+              action={stockAction}
+              currency={activeBusiness.currency}
+              onActionChange={setStockAction}
+              form={stockForm}
+              receiveForm={receiveForm}
+              onChange={setStockForm}
+              onReceiveChange={setReceiveForm}
+              onReceiveSubmit={handleReceiveSubmit}
+              onSubmit={handleStockSubmit}
+              saving={saving}
+              stock={selectedStock}
+            />
+          </article>
+
+          <MovementHistory adjustments={recentAdjustments} filter={movementFilter} onFilterChange={setMovementFilter} />
+        </aside>
       </section>
     </div>
   );
@@ -388,21 +403,133 @@ export default function InventoryPage() {
 
 function IconFrame({ icon: Icon }) {
   return (
-    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
       <Icon size={22} />
     </div>
   );
 }
 
-function InventoryMetric({ helper, label, loading, ready, value }) {
+function InventoryCounts({ items, loading }) {
   return (
-    <article className="rounded-lg border border-zera-line bg-white p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <p className="text-sm font-bold uppercase text-zera-muted">{label}</p>
-        {ready ? <CheckCircle2 className="text-zera-green" size={19} /> : <AlertTriangle className="text-amber-600" size={19} />}
+    <section className="grid divide-y divide-zera-line md:grid-cols-4 md:divide-x md:divide-y-0">
+      {items.map((item) => (
+        <div
+          key={item.label}
+          className={`flex items-center gap-3 bg-white p-4 text-sm ${item.ready ? "text-zera-ink" : "text-amber-800"}`}
+        >
+          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md ${item.ready ? "bg-zera-mintSoft text-zera-green" : "bg-amber-50 text-amber-800"}`}>
+            {item.ready ? <CheckCircle2 size={18} /> : <AlertTriangle size={18} />}
+          </div>
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase text-zera-muted">{item.label}</p>
+            <p className="mt-1 truncate text-lg font-bold text-zera-ink">{loading ? "..." : item.value}</p>
+            <p className="mt-0.5 truncate text-xs text-zera-muted">{item.helper}</p>
+          </div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function InventoryFilterTabs({ activeValue, items, onChange }) {
+  return items.map(([value, label]) => (
+    <button
+      key={value}
+      type="button"
+      className={`h-9 min-w-[86px] shrink-0 whitespace-nowrap rounded-md border px-2 text-sm font-bold transition ${
+        activeValue === value ? "border-zera-green bg-zera-mintSoft text-zera-green shadow-xs" : "border-zera-line bg-white text-zera-muted hover:bg-zera-mintSoft hover:text-zera-ink"
+      }`}
+      onClick={() => onChange(value)}
+    >
+      {label}
+    </button>
+  ));
+}
+
+function InventoryPriorityPanel({ currency, lowStockItems, missingCodeItems, onSelectCode, onSelectLowStock }) {
+  const visibleLowStock = lowStockItems.slice(0, 4);
+  const visibleMissingCodes = missingCodeItems.slice(0, 4);
+  const hasAttention = lowStockItems.length > 0 || missingCodeItems.length > 0;
+
+  return (
+    <article className="rounded-md border border-zera-line bg-white p-4 shadow-xs">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <IconFrame icon={AlertTriangle} />
+          <div>
+            <h3 className="text-base font-bold">Inventory attention</h3>
+            <p className="text-sm text-zera-muted">
+              {hasAttention ? "Fix what can slow down selling." : "Stock setup is calm right now."}
+            </p>
+          </div>
+        </div>
+        <span className="rounded-md bg-zera-mintSoft px-2.5 py-1 text-xs font-bold text-zera-green">
+          {lowStockItems.length + missingCodeItems.length} item{lowStockItems.length + missingCodeItems.length === 1 ? "" : "s"}
+        </span>
       </div>
-      <p className="text-2xl font-bold">{loading ? "..." : value}</p>
-      <p className="mt-1 text-sm leading-6 text-zera-muted">{helper}</p>
+
+      {!hasAttention ? (
+        <div className="rounded-md border border-dashed border-zera-line bg-zera-surface px-3 py-4 text-sm text-zera-muted">
+          No low-stock or missing-code items need attention.
+        </div>
+      ) : null}
+
+      {visibleLowStock.length > 0 ? (
+        <div>
+          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-amber-700">Low stock</p>
+          <div className="divide-y divide-zera-line rounded-md border border-zera-line">
+            {visibleLowStock.map((stock) => (
+              <button
+                key={stock.id}
+                className="grid w-full grid-cols-[1fr_auto] items-center gap-3 px-3 py-2.5 text-left transition hover:bg-zera-mintSoft"
+                type="button"
+                onClick={() => onSelectLowStock(stock)}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-bold text-zera-ink">{stock.product?.name || "Product"}</span>
+                  <span className="mt-0.5 block truncate text-xs text-zera-muted">
+                    {stock.quantity} on hand, alert at {stock.reorderLevel}
+                  </span>
+                </span>
+                <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">Receive</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {visibleMissingCodes.length > 0 ? (
+        <div className={visibleLowStock.length > 0 ? "mt-4" : ""}>
+          <p className="mb-2 text-xs font-bold uppercase tracking-wide text-zera-muted">Missing SKU or barcode</p>
+          <div className="divide-y divide-zera-line rounded-md border border-zera-line">
+            {visibleMissingCodes.map((stock) => (
+              <button
+                key={stock.id}
+                className="grid w-full grid-cols-[1fr_auto] items-center gap-3 px-3 py-2.5 text-left transition hover:bg-zera-mintSoft"
+                type="button"
+                onClick={() => onSelectCode(stock)}
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-bold text-zera-ink">{stock.product?.name || "Product"}</span>
+                  <span className="mt-0.5 block truncate text-xs text-zera-muted">
+                    {stock.product?.category || "No category"} - {formatMoney(stock.product?.price || 0, currency)}
+                  </span>
+                </span>
+                <span className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">
+                  <Barcode size={13} />
+                  Code
+                </span>
+              </button>
+            ))}
+          </div>
+          <Link
+            className="mt-3 inline-flex min-h-9 w-full items-center justify-center rounded-md border border-zera-line bg-white px-3 text-sm font-bold text-zera-green transition hover:bg-zera-mintSoft"
+            to="/products"
+          >
+            Manage product codes
+          </Link>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -428,22 +555,14 @@ function StockEditor({
   const isReceiveMode = action === "RECEIVE";
 
   return (
-    <form className="rounded-lg border border-zera-line bg-white p-4" onSubmit={isReceiveMode ? onReceiveSubmit : onSubmit}>
-      <div className="mb-4 flex items-center gap-3">
-        <IconFrame icon={Package} />
-        <div>
-          <h3 className="text-lg font-bold">Update stock</h3>
-          <p className="text-sm text-zera-muted">{activeBranch?.name || "Selected branch"}</p>
-        </div>
-      </div>
-
+    <form onSubmit={isReceiveMode ? onReceiveSubmit : onSubmit}>
       {!stock ? (
         <div className="rounded-md border border-dashed border-zera-line p-4 text-sm text-zera-muted">
           Create physical products first, then stock counts can be managed here.
         </div>
       ) : (
         <>
-          <div className="mb-4 rounded-md bg-[#f7faf8] p-3">
+          <div className="mb-4 rounded-md bg-zera-mintSoft p-3">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p className="truncate font-bold">{product.name}</p>
@@ -457,16 +576,16 @@ function StockEditor({
             <div className="mt-3 grid grid-cols-2 gap-2">
               <div className="rounded-md bg-white p-3">
                 <p className="text-xs font-bold uppercase text-zera-muted">Current stock</p>
-                <p className="mt-1 text-2xl font-bold">{stock.quantity}</p>
+                <p className="mt-1 text-xl font-bold">{stock.quantity}</p>
               </div>
               <div className="rounded-md bg-white p-3">
                 <p className="text-xs font-bold uppercase text-zera-muted">Low stock alert</p>
-                <p className="mt-1 text-2xl font-bold">{stock.reorderLevel || "Off"}</p>
+                <p className="mt-1 text-xl font-bold">{stock.reorderLevel || "Off"}</p>
               </div>
             </div>
           </div>
 
-          <div className="mb-4 grid grid-cols-2 gap-2 rounded-md bg-[#f7faf8] p-1">
+          <div className="mb-4 grid grid-cols-2 gap-2 rounded-md bg-zera-mintSoft p-1">
             {[
               ["RECEIVE", "Receive stock"],
               ["SET", "Set count"]
@@ -489,7 +608,7 @@ function StockEditor({
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-zera-ink">Quantity received</span>
                 <input
-                  className="min-h-11 w-full rounded-md border border-zera-line px-3 text-base outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                  className="min-h-10 w-full rounded-md border border-zera-line px-3 text-sm outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
                   min="1"
                   placeholder="e.g. 12"
                   type="number"
@@ -498,7 +617,7 @@ function StockEditor({
                 />
               </label>
 
-              <div className="mt-3 rounded-md bg-zera-mint p-3 text-sm text-zera-green">
+              <div className="mt-3 rounded-md bg-zera-mintSoft p-3 text-sm text-zera-green">
                 Current stock {stock.quantity} + received {receivedQuantity || 0} ={" "}
                 <span className="font-bold">{projectedStock}</span>
               </div>
@@ -506,7 +625,7 @@ function StockEditor({
               <label className="mt-3 block">
                 <span className="mb-2 block text-sm font-medium text-zera-ink">Delivery note</span>
                 <input
-                  className="min-h-11 w-full rounded-md border border-zera-line px-3 text-base outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                  className="min-h-10 w-full rounded-md border border-zera-line px-3 text-sm outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
                   placeholder="e.g. Supplier delivery, purchase received"
                   value={receiveForm.note}
                   onChange={(event) => onReceiveChange({ ...receiveForm, note: event.target.value })}
@@ -519,7 +638,7 @@ function StockEditor({
                 <label className="block">
                   <span className="mb-2 block text-sm font-medium text-zera-ink">Actual counted stock</span>
                   <input
-                    className="min-h-11 w-full rounded-md border border-zera-line px-3 text-base outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                    className="min-h-10 w-full rounded-md border border-zera-line px-3 text-sm outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
                     min="0"
                     type="number"
                     value={form.quantity}
@@ -529,7 +648,7 @@ function StockEditor({
                 <label className="block">
                   <span className="mb-2 block text-sm font-medium text-zera-ink">Alert when stock reaches</span>
                   <input
-                    className="min-h-11 w-full rounded-md border border-zera-line px-3 text-base outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                    className="min-h-10 w-full rounded-md border border-zera-line px-3 text-sm outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
                     min="0"
                     type="number"
                     value={form.reorderLevel}
@@ -541,7 +660,7 @@ function StockEditor({
               <label className="mt-3 block">
                 <span className="mb-2 block text-sm font-medium text-zera-ink">Correction note</span>
                 <input
-                  className="min-h-11 w-full rounded-md border border-zera-line px-3 text-base outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                  className="min-h-10 w-full rounded-md border border-zera-line px-3 text-sm outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
                   placeholder="e.g. Stock count, breakage correction"
                   value={form.note}
                   onChange={(event) => onChange({ ...form, note: event.target.value })}
@@ -551,7 +670,7 @@ function StockEditor({
           )}
 
           <button
-            className="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-md bg-zera-green px-4 text-sm font-semibold text-white transition hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-4 inline-flex min-h-10 w-full items-center justify-center rounded-md bg-zera-green px-4 text-sm font-semibold text-white shadow-xs transition hover:bg-zera-greenDark disabled:cursor-not-allowed disabled:opacity-60"
             disabled={saving}
             type="submit"
           >
@@ -563,49 +682,6 @@ function StockEditor({
   );
 }
 
-function AttentionList({ currency, items, onSelect }) {
-  return (
-    <article className="mt-5 rounded-lg border border-zera-line bg-white p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-base font-bold">Needs attention</h3>
-          <p className="text-sm text-zera-muted">Select an item to receive new stock.</p>
-        </div>
-        <span className={`rounded-md px-3 py-1 text-sm font-bold ${items.length ? "bg-amber-50 text-amber-700" : "bg-zera-mint text-zera-green"}`}>
-          {items.length}
-        </span>
-      </div>
-
-      {items.length === 0 ? (
-        <div className="rounded-md border border-dashed border-zera-line p-4 text-sm text-zera-muted">No low-stock items in this branch.</div>
-      ) : (
-        <div className="space-y-2">
-          {items.slice(0, 4).map((stock) => (
-            <button
-              key={stock.id}
-              className="flex w-full items-center justify-between gap-3 rounded-md border border-zera-line bg-[#f7faf8] px-3 py-3 text-left transition hover:border-zera-green hover:bg-zera-mint"
-              type="button"
-              onClick={() => onSelect(stock)}
-            >
-              <div className="min-w-0">
-                <p className="truncate font-bold">{stock.product.name}</p>
-                <p className="mt-1 text-xs text-zera-muted">
-                  {formatMoney(stock.product.price, currency)}
-                  {stock.product.unit ? ` / ${stock.product.unit}` : ""}
-                </p>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className="font-bold text-amber-700">{stock.quantity}</p>
-                <p className="text-xs text-zera-muted">Receive</p>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-    </article>
-  );
-}
-
 function MovementHistory({ adjustments, filter, onFilterChange }) {
   const movements = adjustments.map((adjustment) => ({
     ...adjustment,
@@ -614,16 +690,16 @@ function MovementHistory({ adjustments, filter, onFilterChange }) {
   const filteredMovements = movements.filter((adjustment) => filter === "ALL" || adjustment.movement.key === filter);
 
   return (
-    <article className="mt-5 rounded-lg border border-zera-line bg-white p-4">
-      <div className="mb-4 flex flex-col gap-3">
-        <div className="flex items-center gap-3">
+    <article className="rounded-md border border-zera-line bg-white">
+      <div className="border-b border-zera-line p-4">
+        <div className="mb-3 flex items-center gap-3">
           <IconFrame icon={ClipboardCheck} />
           <div>
-            <h3 className="text-lg font-bold">Stock movements</h3>
-            <p className="text-sm text-zera-muted">Received stock, sales, voids, and count corrections.</p>
+            <h3 className="text-base font-bold">Stock movements</h3>
+            <p className="text-sm text-zera-muted">{filteredMovements.length} movement{filteredMovements.length === 1 ? "" : "s"} in this view</p>
           </div>
         </div>
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="flex flex-wrap gap-2">
           {[
             ["ALL", "All"],
             ["RECEIVED", "Received"],
@@ -634,7 +710,7 @@ function MovementHistory({ adjustments, filter, onFilterChange }) {
             <button
               key={value}
               className={`min-h-9 whitespace-nowrap rounded-md border px-3 text-xs font-bold transition ${
-                filter === value ? "border-zera-green bg-zera-green text-white" : "border-zera-line bg-white text-zera-muted hover:bg-zera-mint hover:text-zera-ink"
+                filter === value ? "border-zera-green bg-zera-mintSoft text-zera-green shadow-xs" : "border-zera-line bg-white text-zera-muted hover:bg-zera-mintSoft hover:text-zera-ink"
               }`}
               type="button"
               onClick={() => onFilterChange(value)}
@@ -645,33 +721,48 @@ function MovementHistory({ adjustments, filter, onFilterChange }) {
         </div>
       </div>
 
-      <div className="space-y-2">
-        {filteredMovements.length === 0 ? (
-          <div className="rounded-md border border-dashed border-zera-line p-4 text-sm text-zera-muted">No stock movements in this view.</div>
-        ) : null}
-        {filteredMovements.slice(0, 8).map((adjustment) => (
-          <div key={adjustment.id} className="rounded-md bg-[#f7faf8] p-3">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="truncate font-bold">{adjustment.product?.name || "Product"}</p>
+      <div className="max-h-[360px] overflow-auto">
+        <table className="w-full min-w-[520px] border-collapse text-left text-sm">
+          <thead className="sticky top-0 z-10 border-b border-zera-line bg-zera-mintSoft text-xs font-bold uppercase text-zera-muted">
+            <tr>
+              <th className="px-4 py-3">Item</th>
+              <th className="px-4 py-3">Movement</th>
+              <th className="px-4 py-3">Change</th>
+              <th className="px-4 py-3">By</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zera-line">
+            {filteredMovements.length === 0 ? (
+              <tr>
+                <td className="px-4 py-8 text-zera-muted" colSpan="4">
+                  No stock movements in this view.
+                </td>
+              </tr>
+            ) : null}
+            {filteredMovements.slice(0, 12).map((adjustment) => (
+              <tr key={adjustment.id} className="hover:bg-zera-mintSoft">
+                <td className="px-4 py-3">
+                  <p className="font-bold text-zera-ink">{adjustment.product?.name || "Product"}</p>
+                  <p className="mt-1 text-xs text-zera-muted">{formatMovementTime(adjustment.createdAt)}</p>
+                </td>
+                <td className="px-4 py-3">
                   <span className={`rounded-md px-2 py-1 text-xs font-bold ${adjustment.movement.className}`}>{adjustment.movement.label}</span>
-                </div>
-                <p className="mt-1 text-xs text-zera-muted">{formatMovementTime(adjustment.createdAt)} by {adjustment.user?.name || "User"}</p>
-              </div>
-              <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-bold ${adjustment.quantityChange < 0 ? "bg-red-50 text-red-700" : "bg-zera-mint text-zera-green"}`}>
-                {adjustment.quantityChange > 0 ? "+" : ""}
-                {adjustment.quantityChange}
-              </span>
-            </div>
-            <div className="mt-2 flex items-center gap-2 text-xs text-zera-muted">
-              <span>{adjustment.quantityBefore}</span>
-              <span>to</span>
-              <span className="font-bold text-zera-ink">{adjustment.quantityAfter}</span>
-            </div>
-            {adjustment.note ? <p className="mt-2 text-xs text-zera-muted">{adjustment.note}</p> : null}
-          </div>
-        ))}
+                  {adjustment.note ? <p className="mt-2 max-w-44 truncate text-xs text-zera-muted">{adjustment.note}</p> : null}
+                </td>
+                <td className="px-4 py-3">
+                  <span className={`rounded-md px-2 py-1 text-xs font-bold ${adjustment.quantityChange < 0 ? "bg-red-50 text-red-700" : "bg-zera-mint text-zera-green"}`}>
+                    {adjustment.quantityChange > 0 ? "+" : ""}
+                    {adjustment.quantityChange}
+                  </span>
+                  <p className="mt-2 text-xs text-zera-muted">
+                    {adjustment.quantityBefore} to <span className="font-bold text-zera-ink">{adjustment.quantityAfter}</span>
+                  </p>
+                </td>
+                <td className="px-4 py-3 text-zera-muted">{adjustment.user?.name || "User"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </article>
   );
@@ -683,21 +774,20 @@ function InventoryRow({ active, currency, onSelect, stock }) {
   const status = getStockStatus(stock);
 
   return (
-    <button
-      className={`grid w-full grid-cols-[1.25fr_0.7fr_0.6fr_0.65fr_0.55fr] gap-3 border-b border-zera-line px-4 py-3 text-left text-sm transition last:border-b-0 ${
-        active ? "bg-zera-mint" : "hover:bg-[#f7faf8]"
-      }`}
-      type="button"
+    <tr
+      className={`cursor-pointer transition ${active ? "bg-zera-mintSoft" : "hover:bg-zera-mintSoft"}`}
       onClick={onSelect}
     >
-      <div className="min-w-0">
-        <p className="truncate font-bold">{product.name}</p>
-        <p className="mt-1 text-xs text-zera-muted">
-          {formatMoney(product.price, currency)}
-          {product.unit ? ` / ${product.unit}` : ""}
-        </p>
-      </div>
-      <div className="min-w-0">
+      <td className="px-4 py-3">
+        <div className="min-w-0">
+          <p className="truncate font-bold">{product.name}</p>
+          <p className="mt-1 text-xs text-zera-muted">
+            {formatMoney(product.price, currency)}
+            {product.unit ? ` / ${product.unit}` : ""}
+          </p>
+        </div>
+      </td>
+      <td className="px-4 py-3">
         <span
           className={`inline-flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold ${
             missingCode ? "bg-amber-50 text-amber-700" : "bg-white text-zera-muted"
@@ -706,15 +796,15 @@ function InventoryRow({ active, currency, onSelect, stock }) {
           <Barcode size={13} />
           <span className="truncate">{product.sku || product.barcode || "Needs code"}</span>
         </span>
-      </div>
-      <div>
-        <span className={`text-lg font-bold ${status.tone === "warning" ? "text-amber-700" : "text-zera-ink"}`}>{stock.quantity}</span>
-      </div>
-      <div className="font-semibold text-zera-muted">{stock.reorderLevel}</div>
-      <div>
+      </td>
+      <td className="whitespace-nowrap px-3 py-3 text-right">
+        <span className={`text-base font-bold ${status.tone === "warning" ? "text-amber-700" : "text-zera-ink"}`}>{stock.quantity}</span>
+      </td>
+      <td className="whitespace-nowrap px-3 py-3 text-right font-semibold text-zera-muted">{stock.reorderLevel}</td>
+      <td className="px-4 py-3">
         <StockStatusBadge status={status} />
-      </div>
-    </button>
+      </td>
+    </tr>
   );
 }
 
@@ -772,18 +862,6 @@ function formatMovementTime(value) {
   }).format(new Date(value));
 }
 
-function SmallSummary({ icon: Icon, label, value }) {
-  return (
-    <div className="rounded-md bg-[#f7faf8] p-3">
-      <div className="flex items-center gap-2 text-sm font-bold text-zera-muted">
-        <Icon size={16} className="text-zera-green" />
-        {label}
-      </div>
-      <p className="mt-2 text-xl font-bold">{value}</p>
-    </div>
-  );
-}
-
 function getInventoryGuide(business, roleName) {
   const type = (business?.type || "").toLowerCase();
 
@@ -815,6 +893,22 @@ function getInventoryGuide(business, roleName) {
         { title: "Review product codes", helper: "Physical supermarket items should have SKU or barcode before stock tracking." },
         { title: "Group by aisle or category", helper: "Use categories such as Drinks, Bakery, Groceries, and Household." },
         { title: "Pause unavailable items", helper: "Inactive products stay out of daily selling flows." }
+      ]
+    };
+  }
+
+  if (type.includes("electronic")) {
+    return {
+      eyebrow: "Electronics inventory",
+      title: "Device and accessory stock",
+      description:
+        "Track phones, accessories, parts, and repair-service items with clear stock counts, low-stock alerts, and product codes before serial-number tracking is added.",
+      checklistTitle: "Electronics shop daily focus",
+      checklistHelper: "Keep stock and product records ready for sales.",
+      tasks: [
+        { title: "Code devices and accessories", helper: "Use SKU or barcode so phones, chargers, cables, and accessories are quick to find." },
+        { title: "Set low-stock alerts", helper: "Use alerts for fast-moving accessories and high-value devices that must not run out." },
+        { title: "Separate repair services", helper: "Use service items for screen replacement, diagnosis, or repair labor that does not move stock." }
       ]
     };
   }

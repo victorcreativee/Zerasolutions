@@ -14,6 +14,7 @@ import {
   Printer,
   ReceiptText,
   ShoppingBasket,
+  Smartphone,
   Settings,
   Store,
   Table2,
@@ -31,7 +32,7 @@ import { getCustomers } from "../../services/customerService.js";
 import { getInventoryStock } from "../../services/inventoryService.js";
 import { getProducts } from "../../services/productService.js";
 
-const operationalRoles = ["Waiter", "Store Keeper", "Pharmacist", "Front Desk"];
+const operationalRoles = ["Waiter", "Store Keeper", "Pharmacist", "Front Desk", "Technician"];
 
 export default function DashboardPage() {
   const { user } = useAuth();
@@ -256,55 +257,71 @@ export default function DashboardPage() {
     );
   }
 
+  const ownerMetrics = [
+    {
+      icon: MapPin,
+      label: "Working branch",
+      value: activeBranch?.name || "Not selected",
+      helper: `${activeBranches.length} active branch${activeBranches.length === 1 ? "" : "es"}`
+    },
+    {
+      icon: ReceiptText,
+      label: "Today sales",
+      value: loadingSales ? "Loading..." : formatMoney(salesTotal, activeBusiness.currency),
+      helper: `${dashboardSales.length} completed transaction${dashboardSales.length === 1 ? "" : "s"}`
+    },
+    {
+      icon: Users,
+      label: "Team",
+      value: loadingTeam ? "Loading..." : activeTeamUsers.length,
+      helper: `${teamUsers.length} account${teamUsers.length === 1 ? "" : "s"} in this workspace`
+    },
+    inventoryIsActive
+      ? {
+          icon: AlertTriangle,
+          label: "Stock alerts",
+          value: loadingStock ? "Loading..." : lowStockItems.length,
+          helper: lowStockItems.length ? "Items at reorder level" : "No urgent stock issue"
+        }
+      : {
+          icon: Boxes,
+          label: "Modules",
+          value: activeModules.length,
+          helper: activeModules.map((module) => module.key).join(", ") || "None enabled"
+        }
+  ];
+
   return (
-    <div className="mx-auto max-w-7xl space-y-5">
-      <PageHeader
-        eyebrow={`${activeRoleName || "Business"} workspace`}
-        title={`${activeBusiness.name} dashboard`}
-        description={dashboardDescription(activeRoleName, activeBranch?.name)}
-        action={
-          posIsActive ? (
+    <div className="mx-auto max-w-[1500px] space-y-4">
+      <section className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
+        <div className="grid gap-4 border-b border-zera-line px-4 py-4 lg:grid-cols-[1fr_auto] lg:items-center">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">{activeRoleName || "Business"} workspace</p>
+            <h2 className="mt-1 text-xl font-bold">{activeBusiness.name}</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">{dashboardDescription(activeRoleName, activeBranch?.name)}</p>
+          </div>
+          {posIsActive ? (
             <Link
-              className="inline-flex h-10 items-center gap-2 rounded-md bg-zera-green px-4 text-sm font-semibold text-white hover:bg-green-700"
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-zera-green px-4 text-sm font-semibold text-white shadow-xs hover:bg-zera-greenDark"
               to="/pos"
             >
               Open POS
               <ArrowRight size={16} />
             </Link>
-          ) : null
-        }
-      />
+          ) : null}
+        </div>
 
-      <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <StatCard icon={MapPin} label="Working branch" value={activeBranch?.name || "Not selected"} helper={`${activeBranches.length} active`} />
-        <StatCard
-          icon={ReceiptText}
-          label="Today's sales"
-          value={loadingSales ? "Loading..." : formatMoney(salesTotal, activeBusiness.currency)}
-          helper={`${dashboardSales.length} transaction${dashboardSales.length === 1 ? "" : "s"}`}
-        />
-        <StatCard
-          icon={Users}
-          label="Active team"
-          value={loadingTeam ? "Loading..." : activeTeamUsers.length}
-          helper={`${teamUsers.length} total account${teamUsers.length === 1 ? "" : "s"}`}
-        />
-        {inventoryIsActive ? (
-          <StatCard
-            icon={AlertTriangle}
-            label="Low stock"
-            value={loadingStock ? "Loading..." : lowStockItems.length}
-            helper={lowStockItems.length ? "Needs attention" : "Stock looks calm"}
-          />
-        ) : (
-          <StatCard icon={Boxes} label="Enabled modules" value={activeModules.length} helper={activeModules.map((module) => module.key).join(", ") || "None"} />
-        )}
+        <div className="grid divide-y divide-zera-line md:grid-cols-4 md:divide-x md:divide-y-0">
+          {ownerMetrics.map((metric) => (
+            <DashboardMetricCell key={metric.label} {...metric} />
+          ))}
+        </div>
       </section>
 
       {posIsActive ? (
         <section className="grid gap-3 rounded-md border border-zera-line bg-white p-4 md:grid-cols-[1fr_auto] md:items-center">
           <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
               <POSWorkflowIcon size={22} />
             </div>
             <div className="min-w-0">
@@ -314,8 +331,8 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2 md:justify-end">
-            <span className="rounded-md bg-zera-mint px-3 py-2 text-xs font-bold text-zera-green">{posWorkflow.primaryRule}</span>
-            <span className="rounded-md bg-[#f7faf8] px-3 py-2 text-xs font-bold text-zera-muted">{activeBusiness.type || "Business type not set"}</span>
+            <span className="rounded-md bg-zera-mintSoft px-3 py-2 text-xs font-bold text-zera-green">{posWorkflow.primaryRule}</span>
+            <span className="rounded-md bg-zera-mintSoft px-3 py-2 text-xs font-bold text-zera-muted">{activeBusiness.type || "Business type not set"}</span>
           </div>
         </section>
       ) : null}
@@ -332,16 +349,16 @@ export default function DashboardPage() {
         <InventoryAttentionPanel currency={activeBusiness.currency} loading={loadingStock} lowStockItems={lowStockItems} />
       ) : null}
 
-      <section className="grid gap-5 xl:grid-cols-[1.35fr_0.65fr]">
-        <article className="rounded-md border border-zera-line bg-white">
+      <section className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
+        <article className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
           <div className="flex items-center justify-between border-b border-zera-line px-4 py-3">
             <div>
-              <h3 className="font-bold">Today’s activity</h3>
-              <p className="mt-1 text-xs text-zera-muted">Latest completed sales for the selected business.</p>
+              <h3 className="font-bold">Today at a glance</h3>
+              <p className="mt-1 text-xs text-zera-muted">Recent completed receipts for this workspace.</p>
             </div>
             {posIsActive ? (
               <Link className="text-sm font-semibold text-zera-green hover:underline" to="/sales">
-                View sales
+                Sales list
               </Link>
             ) : null}
           </div>
@@ -349,19 +366,29 @@ export default function DashboardPage() {
           {loadingSales ? (
             <div className="p-5 text-sm text-zera-muted">Loading today’s activity...</div>
           ) : recentCompletedSales.length ? (
-            <div className="divide-y divide-zera-line">
-              {recentCompletedSales.map((sale) => (
-                <div className="grid gap-2 px-4 py-3 sm:grid-cols-[1fr_auto_auto] sm:items-center sm:gap-5" key={sale.id}>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-bold">{sale.receiptNumber}</p>
-                    <p className="mt-1 truncate text-xs text-zera-muted">
-                      {sale.customer?.name || "Walk-in customer"} · {sale.branch?.name || activeBranch?.name || "Branch"}
-                    </p>
-                  </div>
-                  <p className="text-xs font-semibold text-zera-muted">{formatTime(sale.createdAt)}</p>
-                  <p className="text-sm font-bold">{formatMoney(sale.total, activeBusiness.currency)}</p>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="min-w-[680px] w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-zera-line bg-zera-mintSoft text-xs uppercase text-zera-muted">
+                    <th className="px-4 py-3 font-bold">Receipt</th>
+                    <th className="px-4 py-3 font-bold">Customer</th>
+                    <th className="px-4 py-3 font-bold">Branch</th>
+                    <th className="px-4 py-3 font-bold">Time</th>
+                    <th className="px-4 py-3 text-right font-bold">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentCompletedSales.map((sale) => (
+                    <tr className="border-b border-zera-line last:border-0 hover:bg-zera-mintSoft/70" key={sale.id}>
+                      <td className="px-4 py-3 font-bold text-zera-ink">{sale.receiptNumber}</td>
+                      <td className="px-4 py-3 text-zera-muted">{sale.customer?.name || "Walk-in customer"}</td>
+                      <td className="px-4 py-3 text-zera-muted">{sale.branch?.name || activeBranch?.name || "Branch"}</td>
+                      <td className="px-4 py-3 text-zera-muted">{formatTime(sale.createdAt)}</td>
+                      <td className="px-4 py-3 text-right font-bold">{formatMoney(sale.total, activeBusiness.currency)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           ) : (
             <div className="flex min-h-44 flex-col items-center justify-center px-5 text-center">
@@ -372,19 +399,41 @@ export default function DashboardPage() {
           )}
         </article>
 
-        <article className="rounded-md border border-zera-line bg-white">
+        <article className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
           <div className="border-b border-zera-line px-4 py-3">
-            <h3 className="font-bold">Workspace readiness</h3>
-            <p className="mt-1 text-xs text-zera-muted">Only items that affect daily work.</p>
+            <h3 className="font-bold">Action queue</h3>
+            <p className="mt-1 text-xs text-zera-muted">Setup and operating checks that need attention.</p>
           </div>
           <div className="divide-y divide-zera-line">
+            {isTableService && cashierCanCloseBills ? (
+              <div className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">Open table bills</p>
+                  <p className="mt-1 truncate text-xs text-zera-muted">{loadingOpenBills ? "Checking..." : `${openBills.length} waiting for cashier`}</p>
+                </div>
+                <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-bold ${openBills.length ? "bg-amber-50 text-amber-800" : "bg-zera-mintSoft text-zera-green"}`}>
+                  {openBills.length ? "Settle" : "Clear"}
+                </span>
+              </div>
+            ) : null}
+            {inventoryIsActive ? (
+              <div className="flex items-center justify-between gap-3 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">Low stock</p>
+                  <p className="mt-1 truncate text-xs text-zera-muted">{loadingStock ? "Checking inventory..." : `${lowStockItems.length} item${lowStockItems.length === 1 ? "" : "s"} at reorder level`}</p>
+                </div>
+                <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-bold ${lowStockItems.length ? "bg-amber-50 text-amber-800" : "bg-zera-mintSoft text-zera-green"}`}>
+                  {lowStockItems.length ? "Review" : "Good"}
+                </span>
+              </div>
+            ) : null}
             {setupItems.map((item) => (
               <div className="flex items-center justify-between gap-3 px-4 py-3" key={item.label}>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold">{item.label}</p>
                   <p className="mt-1 truncate text-xs text-zera-muted">{item.value}</p>
                 </div>
-                <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-bold ${item.ready ? "bg-zera-mint text-zera-green" : "bg-amber-50 text-amber-800"}`}>
+                <span className={`shrink-0 rounded-md px-2 py-1 text-xs font-bold ${item.ready ? "bg-zera-mintSoft text-zera-green" : "bg-amber-50 text-amber-800"}`}>
                   {item.ready ? "Ready" : "Action"}
                 </span>
               </div>
@@ -398,16 +447,16 @@ export default function DashboardPage() {
           <h3 className="font-bold">Quick actions</h3>
           <p className="text-xs text-zera-muted">{activeRoleName} access</p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {quickActions.map((action) => {
             const Icon = action.icon;
             return (
               <Link
-                className="group flex min-h-20 items-center gap-3 rounded-md border border-zera-line bg-white p-4 hover:border-zera-green"
+                className="group flex min-h-16 items-center gap-3 rounded-md border border-zera-line bg-white p-3 shadow-xs transition hover:border-zera-green hover:bg-zera-mintSoft"
                 key={action.path}
                 to={action.path}
               >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-surface text-zera-green group-hover:bg-zera-mint">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
                   <Icon size={20} />
                 </div>
                 <div className="min-w-0">
@@ -420,6 +469,23 @@ export default function DashboardPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+function DashboardMetricCell({ helper, icon: Icon, label, value }) {
+  return (
+    <article className="bg-white p-4">
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
+          <Icon size={19} />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-bold uppercase text-zera-muted">{label}</p>
+          <p className="mt-1 truncate text-lg font-bold text-zera-ink">{value}</p>
+          <p className="mt-0.5 truncate text-xs text-zera-muted">{helper}</p>
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -440,7 +506,7 @@ function RoleDashboard({
   const PrimaryIcon = roleDashboard.icon;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5">
+    <div className="mx-auto max-w-[1500px] space-y-4">
       <PageHeader
         eyebrow={roleDashboard.eyebrow}
         title={roleDashboard.title}
@@ -448,7 +514,7 @@ function RoleDashboard({
         action={
           posIsActive ? (
             <Link
-              className="inline-flex h-10 items-center gap-2 rounded-md bg-zera-green px-4 text-sm font-semibold text-white hover:bg-green-700"
+              className="inline-flex h-10 items-center gap-2 rounded-md bg-zera-green px-4 text-sm font-semibold text-white shadow-xs hover:bg-zera-greenDark"
               to={roleDashboard.primaryPath}
             >
               {roleDashboard.primaryAction}
@@ -468,10 +534,10 @@ function RoleDashboard({
         <InventoryAttentionPanel currency={currency} loading={loadingStock} lowStockItems={lowStockItems} />
       ) : null}
 
-      <section className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
+      <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
         <article className="rounded-md border border-zera-line bg-white">
           <div className="flex items-center gap-3 border-b border-zera-line px-4 py-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
               <PrimaryIcon size={20} />
             </div>
             <div>
@@ -484,12 +550,12 @@ function RoleDashboard({
             {roleDashboard.steps.map((step, index) => {
               const StepIcon = step.icon;
               return (
-                <div className="rounded-md border border-zera-line bg-[#f7faf8] p-4" key={step.title}>
+                <div className="rounded-md border border-zera-line bg-zera-mintSoft p-3" key={step.title}>
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div className="flex h-9 w-9 items-center justify-center rounded-md bg-white text-zera-green">
                       <StepIcon size={18} />
                     </div>
-                    <span className="rounded-md bg-zera-mint px-2 py-1 text-xs font-bold text-zera-green">Step {index + 1}</span>
+                    <span className="rounded-md bg-white px-2 py-1 text-xs font-bold text-zera-green">Step {index + 1}</span>
                   </div>
                   <h4 className="text-sm font-bold">{step.title}</h4>
                   <p className="mt-2 text-sm leading-6 text-zera-muted">{step.description}</p>
@@ -512,7 +578,7 @@ function RoleDashboard({
           </div>
         </article>
 
-        <aside className="space-y-5">
+        <aside className="space-y-4">
           <article className="rounded-md border border-zera-line bg-white">
             <div className="border-b border-zera-line px-4 py-3">
               <h3 className="font-bold">{roleDashboard.todayTitle}</h3>
@@ -549,7 +615,7 @@ function RoleDashboard({
             <p className="mt-1 text-sm text-zera-muted">
               {completedSales.length} completed transaction{completedSales.length === 1 ? "" : "s"} today at {activeBranch?.name || "the selected branch"}.
             </p>
-            <div className="mt-4 rounded-md bg-[#f7faf8] px-3 py-3 text-sm text-zera-muted">
+            <div className="mt-4 rounded-md bg-zera-mintSoft px-3 py-3 text-sm text-zera-muted">
               {roleDashboard.guidance}
             </div>
           </article>
@@ -561,16 +627,16 @@ function RoleDashboard({
           <h3 className="font-bold">Quick actions</h3>
           <p className="text-xs text-zera-muted">{activeBusiness.type || "Business"} · {roleName}</p>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {quickActions.map((action) => {
             const Icon = action.icon;
             return (
               <Link
-                className="group flex min-h-20 items-center gap-3 rounded-md border border-zera-line bg-white p-4 hover:border-zera-green"
+                className="group flex min-h-16 items-center gap-3 rounded-md border border-zera-line bg-white p-3 shadow-xs transition hover:border-zera-green hover:bg-zera-mintSoft"
                 key={action.path}
                 to={action.path}
               >
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-surface text-zera-green group-hover:bg-zera-mint">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
                   <Icon size={20} />
                 </div>
                 <div className="min-w-0">
@@ -590,10 +656,10 @@ function CashierOpenBillsPanel({ currency, loading, openBills }) {
   const totalDue = openBills.reduce((total, order) => total + Number(order.total), 0);
 
   return (
-    <section className="rounded-md border border-zera-line bg-white p-4 shadow-soft">
+    <section className="rounded-md border border-zera-line bg-white p-4 shadow-xs">
       <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-center">
         <div className="flex items-start gap-3">
-          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
             <ReceiptText size={22} />
           </div>
           <div className="min-w-0">
@@ -605,15 +671,15 @@ function CashierOpenBillsPanel({ currency, loading, openBills }) {
           </div>
         </div>
         <div className="grid gap-2 sm:grid-cols-[auto_auto_auto] sm:items-center">
-          <div className="rounded-md bg-[#f7faf8] px-3 py-2">
+          <div className="rounded-md bg-zera-mintSoft px-3 py-2">
             <p className="text-[11px] font-bold uppercase text-zera-muted">Waiting</p>
             <p className="text-lg font-bold">{loading ? "..." : openBills.length}</p>
           </div>
-          <div className="rounded-md bg-[#f7faf8] px-3 py-2">
+          <div className="rounded-md bg-zera-mintSoft px-3 py-2">
             <p className="text-[11px] font-bold uppercase text-zera-muted">Amount due</p>
             <p className="text-lg font-bold">{loading ? "..." : formatMoney(totalDue, currency)}</p>
           </div>
-          <Link className="inline-flex min-h-11 items-center justify-center rounded-md bg-zera-green px-4 text-sm font-semibold text-white hover:bg-green-700" to="/open-bills">
+          <Link className="inline-flex min-h-10 items-center justify-center rounded-md bg-zera-green px-4 text-sm font-semibold text-white shadow-xs hover:bg-zera-greenDark" to="/open-bills">
             Settle bills
           </Link>
         </div>
@@ -622,7 +688,7 @@ function CashierOpenBillsPanel({ currency, loading, openBills }) {
       {openBills.length ? (
         <div className="mt-4 grid gap-2 md:grid-cols-3">
           {openBills.slice(0, 3).map((order) => (
-            <Link className="rounded-md border border-zera-line bg-[#f7faf8] px-3 py-3 hover:border-zera-green" key={order.id} to="/open-bills">
+            <Link className="rounded-md border border-zera-line bg-white px-3 py-3 shadow-xs transition hover:border-zera-green hover:bg-zera-mintSoft" key={order.id} to="/open-bills">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-bold">{order.table?.name || "Table bill"}</p>
@@ -632,7 +698,7 @@ function CashierOpenBillsPanel({ currency, loading, openBills }) {
               </div>
               <div className="mt-3 flex items-center justify-between gap-3">
                 <p className="text-sm font-bold">{formatMoney(order.total, currency)}</p>
-                <span className={`rounded-md px-2 py-1 text-xs font-bold ${order.status === "BILL_PRINTED" ? "bg-zera-mint text-zera-green" : "bg-amber-50 text-amber-700"}`}>
+                <span className={`rounded-md px-2 py-1 text-xs font-bold ${order.status === "BILL_PRINTED" ? "bg-zera-mintSoft text-zera-green" : "bg-amber-50 text-amber-700"}`}>
                   {order.status === "BILL_PRINTED" ? "Bill printed" : "Open order"}
                 </span>
               </div>
@@ -661,7 +727,7 @@ function InventoryAttentionPanel({ currency, loading, lowStockItems }) {
           </div>
         </div>
         <Link
-          className="inline-flex min-h-11 items-center justify-center rounded-md bg-zera-green px-4 text-sm font-semibold text-white hover:bg-green-700"
+          className="inline-flex min-h-10 items-center justify-center rounded-md bg-zera-green px-4 text-sm font-semibold text-white shadow-xs hover:bg-zera-greenDark"
           to="/inventory?view=low"
         >
           Open inventory
@@ -694,23 +760,23 @@ function InventoryAttentionPanel({ currency, loading, lowStockItems }) {
 
 function RoleFocusList({ roleDashboard }) {
   if (roleDashboard.loading) {
-    return <div className="rounded-md border border-dashed border-zera-line bg-[#f7faf8] p-5 text-sm text-zera-muted">Loading workspace items...</div>;
+    return <div className="rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-5 text-sm text-zera-muted">Loading workspace items...</div>;
   }
 
   if (!roleDashboard.focusItems.length) {
-    return <div className="rounded-md border border-dashed border-zera-line bg-[#f7faf8] p-5 text-sm text-zera-muted">{roleDashboard.emptyFocusText}</div>;
+    return <div className="rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-5 text-sm text-zera-muted">{roleDashboard.emptyFocusText}</div>;
   }
 
   return (
     <div className="grid gap-2 sm:grid-cols-2">
       {roleDashboard.focusItems.slice(0, 8).map((item) => (
-        <div className="rounded-md border border-zera-line bg-[#f7faf8] px-3 py-3" key={item.id || item.title}>
+        <div className="rounded-md border border-zera-line bg-zera-mintSoft px-3 py-3" key={item.id || item.title}>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="truncate text-sm font-bold">{item.title}</p>
               <p className="mt-1 truncate text-xs text-zera-muted">{item.subtitle}</p>
             </div>
-            {item.badge ? <span className="shrink-0 rounded-md bg-zera-mint px-2 py-1 text-xs font-bold text-zera-green">{item.badge}</span> : null}
+            {item.badge ? <span className="shrink-0 rounded-md bg-white px-2 py-1 text-xs font-bold text-zera-green">{item.badge}</span> : null}
           </div>
         </div>
       ))}
@@ -743,6 +809,14 @@ function buildRoleDashboard({
     subtitle: [product.category, product.unit, product.sku || product.barcode].filter(Boolean).join(" · ") || "Catalog item",
     badge: formatMoney(product.price, currency)
   }));
+  const serviceProductItems = activeProducts
+    .filter((product) => product.type !== "PHYSICAL")
+    .map((product) => ({
+      id: product.id,
+      title: product.name,
+      subtitle: product.category || "Service item",
+      badge: formatMoney(product.price, currency)
+    }));
   const customerItems = activeCustomers.map((customer) => ({
     id: customer.id,
     title: customer.name,
@@ -876,6 +950,40 @@ function buildRoleDashboard({
     };
   }
 
+  if (roleName === "Technician") {
+    return {
+      icon: Smartphone,
+      eyebrow: "Technician workspace",
+      title: `${activeBusiness?.name || "Electronics shop"} service desk`,
+      description: "Support device-service work with customer lookup, repair-service items, and clean handoff to cashier checkout.",
+      primaryAction: "Open POS",
+      primaryPath: "/pos",
+      loading: loadingWorkData,
+      stats: [
+        { icon: UserRound, label: "Customers", value: activeCustomers.length, helper: "Saved contacts" },
+        { icon: Package, label: "Service items", value: activeProducts.filter((product) => product.type !== "PHYSICAL").length, helper: "Repairs and charges" },
+        { icon: ReceiptText, label: "Today's sales", value: formatMoney(salesTotal, currency), helper: `${completedSales.length} transactions` },
+        { icon: MapPin, label: "Branch", value: branchName, helper: businessType }
+      ],
+      workTitle: "Service desk flow",
+      workSubtitle: "Keep repair and service charges easy to sell.",
+      steps: [
+        { icon: UserRound, title: "Find customer", description: "Use customer records for repeat device service or walk-in for quick work." },
+        { icon: Smartphone, title: "Select service", description: "Use service items such as diagnosis, screen replacement, or repair labor." },
+        { icon: ReceiptText, title: "Send to cashier", description: "Cashier records payment and prints the customer receipt." }
+      ],
+      focusTitle: "Service catalog",
+      focusSubtitle: "Services and charges available for electronics workflows.",
+      focusAction: "Manage products",
+      focusPath: "/products",
+      focusItems: serviceProductItems,
+      emptyFocusText: "No service items yet. Add repair services or charges in products.",
+      todayTitle: "Today’s service sales",
+      todaySubtitle: "Recent completed electronics transactions.",
+      guidance: "A full repair ticket workflow comes later; for now, use service items to sell diagnosis, repair labor, and charges."
+    };
+  }
+
   return {
     icon: Store,
     eyebrow: "Front desk workspace",
@@ -930,6 +1038,10 @@ function dashboardDescription(roleName, branchName) {
     return `Serve guest-facing workflows and record service sales at ${branchName || "the selected branch"}.`;
   }
 
+  if (roleName === "Technician") {
+    return `Support device-service work, customer lookup, and repair-service sales at ${branchName || "the selected branch"}.`;
+  }
+
   if (roleName === "Manager") {
     return `Monitor today’s branch activity, team access, and operational readiness at ${branchName || "the selected branch"}.`;
   }
@@ -946,7 +1058,7 @@ function getRoleScopedSales(sales, roleName, userId) {
     return sales.filter((sale) => sale.posOrder?.waiter?.id === userId);
   }
 
-  if (["Cashier", "Pharmacist", "Front Desk", "Store Keeper"].includes(roleName)) {
+  if (["Cashier", "Pharmacist", "Front Desk", "Store Keeper", "Technician"].includes(roleName)) {
     return sales.filter((sale) => sale.cashier?.id === userId);
   }
 
@@ -1014,6 +1126,15 @@ function getPOSWorkflowInfo(business) {
       title: "Supermarket checkout POS",
       description: "Built for basket checkout. Staff search or scan products, confirm quantities, and keep the payment flow fast for queue-heavy sales.",
       primaryRule: "Basket checkout"
+    };
+  }
+
+  if (type.includes("electronic")) {
+    return {
+      icon: Smartphone,
+      title: "Electronics shop POS",
+      description: "Built for device and accessory sales. Staff search products by name, SKU, or barcode, track stock, issue receipts, and prepare repair-service items as services.",
+      primaryRule: "Device checkout"
     };
   }
 

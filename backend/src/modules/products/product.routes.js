@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../../config/prisma.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { HttpError } from "../../utils/httpError.js";
+import { assertCanCreateProduct } from "../../utils/packageLimits.js";
 
 export const productRouter = Router();
 
@@ -101,6 +102,8 @@ productRouter.post("/business/:businessId", async (req, res, next) => {
     if (!canManageProducts) {
       throw new HttpError(403, "Only the business owner or manager can create products.");
     }
+
+    await assertCanCreateProduct(businessId);
 
     const product = await prisma.product.create({
       data: {

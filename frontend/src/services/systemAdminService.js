@@ -5,6 +5,11 @@ export async function getSystemBusinesses() {
   return response.data.businesses;
 }
 
+export async function getSystemSetupCatalog() {
+  const response = await api.get("/system-admin/setup-catalog");
+  return response.data;
+}
+
 export async function provisionBusiness(payload) {
   const response = await api.post("/system-admin/businesses", payload);
   return response.data.business;
@@ -13,4 +18,9 @@ export async function provisionBusiness(payload) {
 export async function updateSystemBusinessSettings(businessId, payload) {
   const response = await api.patch(`/system-admin/businesses/${businessId}/system-settings`, payload);
   return response.data.business;
+}
+
+export async function updatePlatformPackage(packageId, payload) {
+  const response = await api.patch(`/system-admin/packages/${packageId}`, payload);
+  return response.data;
 }

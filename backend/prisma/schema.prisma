@@ -115,10 +115,15 @@ model Business {
   country   String?
   currency  String         @default("UGX")
   status    BusinessStatus @default(ACTIVE)
+  platformBusinessTypeId String?
+  platformPackageId      String?
+  packageStatus          String         @default("ACTIVE")
   createdAt DateTime       @default(now())
   updatedAt DateTime       @updatedAt
   tables    POSTable[]
 
+  platformBusinessType PlatformBusinessType? @relation(fields: [platformBusinessTypeId], references: [id], onDelete: SetNull)
+  platformPackage      PlatformPackage?      @relation(fields: [platformPackageId], references: [id], onDelete: SetNull)
   branches    Branch[]
   customers   Customer[]
   memberships BusinessUser[]
@@ -129,6 +134,59 @@ model Business {
   posOrders   POSOrder[]
   inventoryStocks InventoryStock[]
   stockAdjustments StockAdjustment[]
+
+  @@index([platformBusinessTypeId])
+  @@index([platformPackageId])
+}
+
+model PlatformBusinessType {
+  id                String   @id @default(cuid())
+  key               String   @unique
+  value             String   @unique
+  label             String
+  posMode           POSMode  @default(RETAIL_CHECKOUT)
+  helper            String?
+  defaultTableCount Int?
+  defaultModuleKeys Json
+  roles             Json
+  active            Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  businesses Business[]
+}
+
+model PlatformPackage {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String?
+  price       Decimal? @db.Decimal(12, 2)
+  currency    String   @default("UGX")
+  billingCycle String  @default("MONTHLY")
+  maxBranches Int?
+  maxUsers    Int?
+  maxProducts Int?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  modules    PlatformPackageModule[]
+  businesses Business[]
+}
+
+model PlatformPackageModule {
+  id        String    @id @default(cuid())
+  packageId String
+  moduleKey ModuleKey
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  package PlatformPackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@unique([packageId, moduleKey])
+  @@index([packageId])
 }
 
 model Branch {

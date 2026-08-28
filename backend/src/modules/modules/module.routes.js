@@ -2,18 +2,11 @@ import { Router } from "express";
 import { prisma } from "../../config/prisma.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { HttpError } from "../../utils/httpError.js";
+import { moduleCatalog } from "../../config/platformCatalog.js";
 
 export const moduleRouter = Router();
 
 moduleRouter.use(requireAuth);
-
-const moduleCatalog = [
-  { key: "POS", name: "POS", activeByDefault: true },
-  { key: "INVENTORY", name: "Inventory", activeByDefault: false },
-  { key: "FINANCE", name: "Finance", activeByDefault: false },
-  { key: "OPERATIONS", name: "Operations", activeByDefault: false },
-  { key: "REPORTS", name: "Reports", activeByDefault: false }
-];
 
 moduleRouter.get("/", (_req, res) => {
   res.json({

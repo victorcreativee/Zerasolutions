@@ -4,6 +4,7 @@ import { prisma } from "../../config/prisma.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { HttpError } from "../../utils/httpError.js";
 import { getDefaultStaffRoleName, getMissingDefaultRoles } from "../../utils/businessRoles.js";
+import { assertCanCreateBusinessUser } from "../../utils/packageLimits.js";
 
 export const userRouter = Router();
 
@@ -81,6 +82,8 @@ userRouter.post("/business/:businessId", async (req, res, next) => {
     if (!canManageUsers) {
       throw new HttpError(403, "Only the business owner can create users for this business.");
     }
+
+    await assertCanCreateBusinessUser(businessId);
 
     const normalizedEmail = email.toLowerCase();
     const existingUser = await prisma.user.findUnique({

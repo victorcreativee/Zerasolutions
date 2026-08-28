@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../../config/prisma.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { HttpError } from "../../utils/httpError.js";
+import { assertCanCreateBranch } from "../../utils/packageLimits.js";
 
 export const branchRouter = Router();
 
@@ -30,6 +31,8 @@ branchRouter.post("/", async (req, res, next) => {
     if (!canManageBranches) {
       throw new HttpError(403, "Only the business owner can create branches for this business.");
     }
+
+    await assertCanCreateBranch(businessId);
 
     const branch = await prisma.branch.create({
       data: {

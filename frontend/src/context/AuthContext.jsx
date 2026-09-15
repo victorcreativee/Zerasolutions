@@ -7,7 +7,18 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem("zera_token"));
   const [user, setUser] = useState(() => {
     const storedUser = localStorage.getItem("zera_user");
-    return storedUser ? JSON.parse(storedUser) : null;
+
+    if (!storedUser) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(storedUser);
+    } catch {
+      localStorage.removeItem("zera_token");
+      localStorage.removeItem("zera_user");
+      return null;
+    }
   });
   const [loading, setLoading] = useState(Boolean(token));
 

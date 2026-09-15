@@ -39,6 +39,7 @@ export default function POSPage() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [reviewMode, setReviewMode] = useState("SALE");
   const [paymentMethod, setPaymentMethod] = useState("CASH");
+  const [discountAmount, setDiscountAmount] = useState("");
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [loadingCustomers, setLoadingCustomers] = useState(false);
   const [loadingTables, setLoadingTables] = useState(false);
@@ -63,8 +64,13 @@ export default function POSPage() {
   const canManageTables = ["Owner", "Manager"].includes(activeRoleName);
   const canPayTableBills = ["Owner", "Manager", "Cashier"].includes(activeRoleName);
   const subtotal = cartItems.reduce((total, item) => total + Number(item.product.price) * item.quantity, 0);
+  const normalizedDiscountAmount = getValidDiscountAmount(discountAmount, subtotal);
+  const cartTaxableSubtotal = roundMoney(Math.max(subtotal - normalizedDiscountAmount, 0));
+  const taxAmount = getBusinessTaxAmount(cartTaxableSubtotal, activeBusiness);
+  const cartTotal = roundMoney(cartTaxableSubtotal + taxAmount);
   const totalItems = cartItems.reduce((total, item) => total + item.quantity, 0);
-  const activeOrderSubtotal = activeTableOrder?.items?.reduce((total, item) => total + Number(item.lineTotal), 0) || Number(activeTableOrder?.total || 0);
+  const activeOrderSubtotal = activeTableOrder?.items?.reduce((total, item) => total + Number(item.lineTotal), 0) || Number(activeTableOrder?.subtotal || activeTableOrder?.total || 0);
+  const activeOrderTotal = Number(activeTableOrder?.total || activeOrderSubtotal);
   const canPaySelectedTableBill = isTableService && canPayTableBills && activeTableOrder && !cartItems.length;
   const canPrintSelectedTableBill = isTableService && !canPayTableBills && activeTableOrder && !cartItems.length;
   const reviewDisabledReason = getReviewDisabledReason({
@@ -106,10 +112,16 @@ export default function POSPage() {
           lineTotal: Number(item.product.price) * item.quantity
         }));
   const reviewSubtotal = orderForReview?.items?.reduce((total, item) => total + Number(item.lineTotal), 0) || (reviewMode === "PAY_ORDER" ? activeOrderSubtotal : subtotal);
+  const reviewDiscountAmount = reviewMode === "PAY_ORDER" || !isTableOrderReview ? getValidDiscountAmount(discountAmount, reviewSubtotal) : 0;
+  const reviewTaxableSubtotal = roundMoney(Math.max(reviewSubtotal - reviewDiscountAmount, 0));
+  const reviewTaxAmount = orderForReview
+    ? getBusinessTaxAmount(reviewTaxableSubtotal, activeBusiness)
+    : getBusinessTaxAmount(reviewTaxableSubtotal, activeBusiness);
+  const reviewTotal = roundMoney(reviewTaxableSubtotal + reviewTaxAmount);
   const totals = [
     { label: "Subtotal", value: formatMoney(subtotal, activeBusiness?.currency) },
-    { label: "Tax", value: formatMoney(0, activeBusiness?.currency) },
-    { label: "Discount", value: formatMoney(0, activeBusiness?.currency) }
+    ...(normalizedDiscountAmount > 0 ? [{ label: "Discount", value: `-${formatMoney(normalizedDiscountAmount, activeBusiness?.currency)}` }] : []),
+    ...(isBusinessTaxEnabled(activeBusiness) ? [{ label: getBusinessTaxLabel(activeBusiness), value: formatMoney(taxAmount, activeBusiness?.currency) }] : []),
   ];
 
   useEffect(() => {
@@ -300,6 +312,7 @@ export default function POSPage() {
         businessId: activeBusinessId,
         branchId: activeBranchId,
         customerId: selectedCustomerId || undefined,
+        discountAmount: normalizedDiscountAmount,
         tableId: isTableService ? selectedTableId : undefined,
         paymentMethod,
         items: cartItems.map((item) => ({
@@ -308,6 +321,7 @@ export default function POSPage() {
         }))
       });
       setCartItems([]);
+      setDiscountAmount("");
       setReviewOpen(false);
       setLastSale(sale);
       setSaleMessage(`Sale recorded: ${sale.receiptNumber}`);
@@ -339,6 +353,7 @@ export default function POSPage() {
         }))
       });
       setCartItems([]);
+      setDiscountAmount("");
       setActiveTableOrder(order);
       setSentOrderForBill(order);
       setSaleMessage(`Table bill updated: ${order.orderNumber}`);
@@ -361,10 +376,12 @@ export default function POSPage() {
 
     try {
       const sale = await payPOSOrder(activeTableOrder.id, {
+        discountAmount: getValidDiscountAmount(discountAmount, activeOrderSubtotal),
         paymentMethod,
         customerId: selectedCustomerId || activeTableOrder.customerId || undefined
       });
       setCartItems([]);
+      setDiscountAmount("");
       setReviewOpen(false);
       setActiveTableOrder(null);
       setLastSale(sale);
@@ -428,112 +445,89 @@ export default function POSPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1500px] space-y-4">
-      <header className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
-        <div className="flex flex-col gap-4 border-b border-zera-line px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
-          <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Zera POS</p>
-            <h2 className="mt-1 text-xl font-bold text-zera-ink sm:text-2xl">
+    <div className="mx-auto max-w-[1680px] space-y-3">
+      <header className="rounded-md border border-zera-line bg-white shadow-xs">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-3 py-2.5">
+          <div className="mr-auto min-w-[220px]">
+            <p className="text-[11px] font-bold uppercase tracking-wide text-zera-green">{modeInfo.kicker}</p>
+            <h2 className="mt-0.5 truncate text-lg font-bold text-zera-ink">
               {activeBranch ? `${activeBranch.name} ${modeInfo.shortTitle}` : modeInfo.title}
             </h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">{modeInfo.description}</p>
           </div>
-          <span className={`inline-flex min-h-9 shrink-0 items-center justify-center rounded-md px-3 text-sm font-bold ${workspaceReady ? "bg-zera-mintSoft text-zera-green" : "bg-red-50 text-red-700"}`}>
-            {workspaceReady ? "Ready to sell" : "Setup needed"}
+          <POSInlineContext label="Business" ready={Boolean(activeBusiness)} value={activeBusiness?.name || "No business"} />
+          <POSInlineContext label="Branch" ready={branchReady} value={activeBranch?.name || "No branch"} />
+          <POSInlineContext label="Mode" ready={Boolean(activeBusiness)} value={modeInfo.title} />
+          <POSInlineContext label="Access" ready={roleReady} value={activeRoleName || "No role"} />
+          <span className={`inline-flex min-h-8 shrink-0 items-center rounded-md px-2.5 text-xs font-bold ${workspaceReady ? "bg-zera-mintSoft text-zera-green" : "bg-red-50 text-red-700"}`}>
+            {workspaceReady ? "Ready" : "Setup needed"}
           </span>
         </div>
-        <div className="grid divide-y divide-zera-line sm:grid-cols-2 sm:divide-x sm:divide-y-0 lg:grid-cols-4">
-          <POSContextCell helper="Business" label={activeBusiness?.name || "No business"} ready={Boolean(activeBusiness)} />
-          <POSContextCell helper="Branch" label={activeBranch?.name || "No branch"} ready={branchReady} />
-          <POSContextCell helper="Selling mode" label={modeInfo.title} ready={Boolean(activeBusiness)} />
-          <POSContextCell helper="Access" label={activeRoleName || "No role"} ready={roleReady} />
-        </div>
+        {saleMessage || readinessError ? (
+          <div className="border-t border-zera-line px-3 py-2">
+            {saleMessage ? <p className="rounded-md bg-zera-mintSoft px-3 py-2 text-sm font-semibold text-zera-green">{saleMessage}</p> : null}
+            {readinessError ? <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{readinessError}</p> : null}
+          </div>
+        ) : null}
       </header>
 
-      <section className="grid gap-4 xl:grid-cols-[1.32fr_0.68fr]">
-        <div className="space-y-4">
-          <section className="grid gap-3 overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs md:grid-cols-[auto_1fr] md:items-center">
-            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
-              <ModeIcon size={24} />
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <p className="text-xs font-bold uppercase text-zera-muted">{modeInfo.kicker}</p>
-                  <h3 className="mt-1 text-lg font-bold">Current workflow</h3>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {workflowSteps.map((step, index) => (
-                    <span key={step} className="rounded-md border border-zera-line bg-white px-3 py-2 text-xs font-bold text-zera-muted">
-                      {index + 1}. {step}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                <StatusPill label={modeInfo.workflow} helper="Flow" ready />
-                <StatusPill label={modeInfo.requirement} helper="Checkout rule" ready />
-                <StatusPill label={modeInfo.nextFoundation} helper="Coming later" ready />
-              </div>
-            </div>
-          </section>
+      <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_390px]">
+        <main className="min-w-0 space-y-3">
 
           {isTableService ? (
-            <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
-              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <section className="flex min-h-[360px] flex-col overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="flex items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
                     <Table2 size={22} />
                   </div>
                   <div>
-                    <h3 className="text-lg font-bold">Tables</h3>
-                    <p className="text-sm text-zera-muted">
-                      {loadingTables ? "Loading tables..." : `${tables.length} table${tables.length === 1 ? "" : "s"} for this branch`}
-                    </p>
+                    <p className="text-xs font-bold uppercase text-zera-green">Table service</p>
+                    <h3 className="mt-1 text-xl font-bold">Tables</h3>
+                    <p className="mt-1 text-sm text-zera-muted">{loadingTables ? "Loading tables..." : `${tables.length} table${tables.length === 1 ? "" : "s"} in this branch`}</p>
                   </div>
                 </div>
                 {selectedTable ? (
-                  <div className="rounded-md bg-zera-mint px-3 py-2 text-sm font-semibold text-zera-green">
-                    Current: {selectedTable.name}
+                  <div className="rounded-md border border-zera-line bg-[#fbfdfb] px-3 py-2 text-sm font-semibold text-zera-green">
+                    Selected: {selectedTable.name}
                     {activeTableOrder ? (
                       <span className="ml-2 text-zera-ink">
-                        · {activeTableOrder.status === "BILL_PRINTED" ? "Bill printed" : "Open bill"} {formatMoney(activeOrderSubtotal, activeBusiness?.currency)}
+                        / {activeTableOrder.status === "BILL_PRINTED" ? "Bill printed" : "Open bill"} / {formatMoney(activeOrderTotal, activeBusiness?.currency)}
                       </span>
                     ) : selectedTable.serviceSummary?.todaySalesCount ? (
-                      <span className="ml-2 text-zera-ink">· Paid today</span>
+                      <span className="ml-2 text-zera-ink">/ Paid today</span>
                     ) : null}
                   </div>
                 ) : null}
               </div>
 
-              {tableError ? <p className="mb-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{tableError}</p> : null}
-
-              <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
-                {[
-                  { label: "All tables", value: "ALL", count: tableStats.all },
-                  { label: "Open orders", value: "OPEN", count: tableStats.open },
-                  { label: "Bill printed", value: "BILL_PRINTED", count: tableStats.billPrinted },
-                  { label: "Available", value: "AVAILABLE", count: tableStats.available }
-                ].map((filter) => (
-                  <button
-                    key={filter.value}
-                    type="button"
-                    className={`min-h-10 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
-                      tableFilter === filter.value
-                        ? "border-zera-green bg-zera-mintSoft text-zera-green"
-                        : "border-zera-line bg-white text-zera-ink hover:border-zera-green hover:bg-zera-mintSoft hover:text-zera-green"
-                    }`}
-                    onClick={() => setTableFilter(filter.value)}
-                  >
-                    {filter.label}
-                    <span className={`ml-2 rounded-md px-2 py-0.5 text-xs ${tableFilter === filter.value ? "bg-white text-zera-green" : "bg-zera-mintSoft text-zera-muted"}`}>
-                      {filter.count}
-                    </span>
-                  </button>
-                ))}
+              <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+                  {[
+                    { label: "All tables", value: "ALL", count: tableStats.all },
+                    { label: "Open orders", value: "OPEN", count: tableStats.open },
+                    { label: "Bill printed", value: "BILL_PRINTED", count: tableStats.billPrinted },
+                    { label: "Available", value: "AVAILABLE", count: tableStats.available }
+                  ].map((filter) => (
+                    <button
+                      key={filter.value}
+                      type="button"
+                      className={`min-h-9 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
+                        tableFilter === filter.value
+                          ? "border-zera-green bg-zera-mintSoft text-zera-green"
+                          : "border-zera-line bg-white text-zera-ink hover:border-zera-green hover:bg-zera-mintSoft hover:text-zera-green"
+                      }`}
+                      onClick={() => setTableFilter(filter.value)}
+                    >
+                      {filter.label}
+                      <span className={`ml-2 rounded-md px-2 py-0.5 text-xs ${tableFilter === filter.value ? "bg-white text-zera-green" : "bg-zera-mintSoft text-zera-muted"}`}>
+                        {filter.count}
+                      </span>
+                    </button>
+                  ))}
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
+              {tableError ? <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{tableError}</p> : null}
+
+              <div className="mt-3 grid flex-1 content-start gap-2 overflow-y-auto pr-1 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5">
                 {visibleTables.map((table) => {
                   const tableState = getTableServiceState(table);
 
@@ -541,104 +535,70 @@ export default function POSPage() {
                     <button
                       key={table.id}
                       type="button"
-                      className={`min-h-[72px] rounded-md border px-3 py-2.5 text-left transition ${
+                      className={`min-h-[84px] rounded-md border px-3 py-2.5 text-left transition ${
                         selectedTableId === table.id ? "border-zera-green bg-zera-mintSoft text-zera-ink" : "border-zera-line bg-white hover:border-zera-green hover:bg-zera-mintSoft"
                       }`}
                       onClick={() => setSelectedTableId(table.id)}
                     >
                       <span className="flex items-start justify-between gap-2">
-                        <span className="block font-bold">{table.name}</span>
-                        <span className={`rounded-md bg-white px-2 py-1 text-[11px] font-bold ${tableState.className}`}>
-                          {tableState.label}
-                        </span>
+                        <span className="block truncate font-bold">{table.name}</span>
+                        <span className={`rounded-md bg-white px-2 py-1 text-[11px] font-bold ${tableState.className}`}>{tableState.label}</span>
                       </span>
                       <span className="mt-2 block text-xs text-zera-muted">
-                        {table.seats} seats · {formatTableStatus(table.status)}
+                        {table.seats} seats / {formatTableStatus(table.status)}
                       </span>
-                      <span className="mt-2 block text-xs font-semibold text-zera-ink">
+                      <span className="mt-2 block truncate text-xs font-semibold text-zera-ink">
                         {table.serviceSummary?.activeOrder
                           ? formatMoney(table.serviceSummary.activeOrder.total, activeBusiness?.currency)
                           : table.serviceSummary?.todaySalesCount
-                          ? "Ready for next guest"
-                          : "Ready"}
+                            ? "Ready for next guest"
+                            : "Ready"}
                       </span>
-                      {table.serviceSummary?.activeOrder ? (
-                        <span className="mt-1 block truncate text-xs text-zera-muted">
-                          {table.serviceSummary.activeOrder.status === "BILL_PRINTED" ? "Waiting cashier" : table.serviceSummary.activeOrder.orderNumber}
-                        </span>
-                      ) : table.serviceSummary?.lastReceiptNumber ? (
-                        <span className="mt-1 block truncate text-xs text-zera-muted">Closed today</span>
-                      ) : null}
                     </button>
                   );
                 })}
+                {!loadingTables && visibleTables.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-5 text-sm text-zera-muted sm:col-span-3 lg:col-span-4 2xl:col-span-5">
+                    No tables match this filter.
+                  </div>
+                ) : null}
               </div>
 
-              {!loadingTables && !tables.length ? (
-                <div className="rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-5 text-sm text-zera-muted">
-                  No tables exist for this branch yet. Owners and managers can add the first table below.
-                </div>
-              ) : null}
-
-              {!loadingTables && tables.length > 0 && visibleTables.length === 0 ? (
-                <div className="rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-5 text-sm text-zera-muted">
-                  No tables match this filter.
-                </div>
-              ) : null}
-
               {canManageTables ? (
-                <form className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]" onSubmit={handleCreateTable}>
+                <form className="mt-2 grid gap-2 sm:grid-cols-[1fr_auto]" onSubmit={handleCreateTable}>
                   <label className="block">
                     <span className="sr-only">New table name</span>
                     <input
-                      className="min-h-10 w-full rounded-md border border-zera-line bg-white px-3 text-sm outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                      className="min-h-9 w-full rounded-md border border-zera-line bg-white px-3 text-sm outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
                       value={newTableName}
                       onChange={(event) => setNewTableName(event.target.value)}
-                      placeholder="Add table, e.g. Patio 4"
+                      placeholder="Table name"
                     />
                   </label>
-                  <Button type="submit" variant="secondary" className="gap-2" disabled={!newTableName.trim()}>
+                  <Button type="submit" variant="secondary" className="h-9 gap-2" disabled={!newTableName.trim()}>
                     <Plus size={17} />
                     Add table
                   </Button>
                 </form>
               ) : null}
             </section>
-          ) : (
-            <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
-                    <ModeIcon size={22} />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-bold">{modeInfo.title}</h3>
-                    <p className="text-sm text-zera-muted">{modeInfo.counterHint}</p>
-                  </div>
-                </div>
-                <div className="rounded-md bg-zera-mintSoft px-3 py-2 text-sm font-semibold text-zera-green">{modeInfo.requirement}</div>
-              </div>
-            </section>
-          )}
+          ) : null}
 
-          <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
-            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <section className={`flex flex-col overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs ${isTableService ? "min-h-[320px]" : "min-h-[calc(100vh-150px)]"}`}>
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
-                <h3 className="text-lg font-bold">{modeInfo.productSectionTitle}</h3>
-                <p className="mt-1 text-sm text-zera-muted">{modeInfo.productEntryHint}</p>
+                <p className="text-xs font-bold uppercase text-zera-green">{modeInfo.requirement}</p>
+                <h3 className="mt-1 text-xl font-bold">{modeInfo.productSectionTitle}</h3>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <span className="rounded-md bg-zera-mintSoft px-3 py-2 text-sm font-semibold text-zera-muted">
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <span className="rounded-md border border-zera-line bg-white px-3 py-2 text-sm font-semibold text-zera-muted">
                   {products.length} active item{products.length === 1 ? "" : "s"}
-                </span>
-                <span className={`rounded-md px-3 py-2 text-sm font-semibold ${workspaceReady ? "bg-zera-mintSoft text-zera-green" : "bg-red-50 text-red-700"}`}>
-                  {workspaceReady ? "Ready" : "Setup needed"}
                 </span>
               </div>
             </div>
 
-            <div className="mt-4">
-              <label className="flex min-h-10 items-center gap-2 rounded-md border border-zera-line bg-white px-3 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
+            <div className="mt-3">
+              <label className="flex min-h-11 items-center gap-2 rounded-md border border-zera-line bg-white px-3 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
                 <Search size={18} className="text-zera-muted" />
                 <input
                   className="w-full border-0 bg-transparent text-sm outline-none"
@@ -650,7 +610,7 @@ export default function POSPage() {
             </div>
 
             {productCategories.length ? (
-              <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
+              <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
                 <button
                   type="button"
                   className={`min-h-9 whitespace-nowrap rounded-md border px-3 text-sm font-semibold transition ${
@@ -676,10 +636,8 @@ export default function POSPage() {
             ) : null}
 
             {productError ? <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{productError}</p> : null}
-            {saleMessage ? <p className="mt-4 rounded-md bg-zera-mintSoft px-3 py-2 text-sm font-semibold text-zera-green">{saleMessage}</p> : null}
-            {readinessError ? <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{readinessError}</p> : null}
 
-            <div className="mt-4 grid max-h-[460px] gap-2 overflow-y-auto pr-1 md:grid-cols-2 2xl:grid-cols-3">
+            <div className="mt-4 grid flex-1 content-start gap-2 overflow-y-auto pr-1 md:grid-cols-2 2xl:grid-cols-3">
               {!loadingProducts && products.length === 0 ? (
                 <div className="rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-5 text-sm text-zera-muted md:col-span-2 2xl:col-span-3">
                   No active products found. Owners and managers can add products from the Products page.
@@ -715,25 +673,25 @@ export default function POSPage() {
             </div>
           </section>
 
-        </div>
+        </main>
 
-        <aside className="space-y-4">
+        <aside className="space-y-3 xl:sticky xl:top-3 xl:self-start">
           {isTableService && activeTableOrder ? (
-            <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
-              <div className="mb-4 flex items-start justify-between gap-3">
+            <section className="overflow-hidden rounded-md border border-zera-line bg-white p-3 shadow-xs">
+              <div className="mb-3 flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-zera-green">Open table bill</p>
-                  <h3 className="mt-1 text-lg font-bold">{activeTableOrder.table?.name || selectedTable?.name}</h3>
-                  <p className="mt-1 text-sm text-zera-muted">
+                  <p className="text-xs font-bold uppercase text-zera-green">Open table bill</p>
+                  <h3 className="mt-1 text-base font-bold">{activeTableOrder.table?.name || selectedTable?.name}</h3>
+                  <p className="mt-1 text-xs text-zera-muted">
                     {activeTableOrder.orderNumber} · {activeTableOrder.items?.length || 0} item{activeTableOrder.items?.length === 1 ? "" : "s"}
                   </p>
                 </div>
-                <span className="rounded-md bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
+                <span className="rounded-md bg-amber-50 px-2 py-1 text-xs font-bold text-amber-700">
                   Waiting payment
                 </span>
               </div>
 
-              <div className="space-y-2">
+              <div className="max-h-44 space-y-2 overflow-y-auto">
                 {activeTableOrder.items?.map((item) => (
                   <div key={item.id} className="flex items-start justify-between gap-3 rounded-md bg-zera-mintSoft px-3 py-2">
                     <div>
@@ -747,14 +705,14 @@ export default function POSPage() {
                 ))}
               </div>
 
-              <div className="mt-4 flex items-center justify-between border-t border-zera-line pt-4">
+              <div className="mt-3 flex items-center justify-between border-t border-zera-line pt-3">
                 <span className="font-bold">Bill total</span>
-                <span className="text-xl font-bold">{formatMoney(activeOrderSubtotal, activeBusiness?.currency)}</span>
+                <span className="text-lg font-bold">{formatMoney(activeOrderTotal, activeBusiness?.currency)}</span>
               </div>
 
-              <div className="mt-4 grid gap-2">
+              <div className="mt-3 grid gap-2">
                 {canPayTableBills ? (
-                  <Button type="button" className="gap-2" onClick={() => openReview("PAY_ORDER")}>
+                  <Button type="button" className="h-9 gap-2" onClick={() => openReview("PAY_ORDER")}>
                     <ReceiptText size={18} />
                     Receive payment
                   </Button>
@@ -767,65 +725,48 @@ export default function POSPage() {
             </section>
           ) : null}
 
-          {lastSale ? (
-            <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
-              <div className="mb-4 flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-zera-green">Sale complete</p>
-                  <h3 className="mt-1 text-lg font-bold">{lastSale.receiptNumber}</h3>
-                  <p className="mt-1 text-sm text-zera-muted">
-                    {formatMoney(lastSale.total, activeBusiness?.currency)} · {formatPayment(lastSale.paymentMethod)}
-                  </p>
-                </div>
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
-                  <ReceiptText size={22} />
-                </div>
-              </div>
-
-              <div className="max-h-80 overflow-y-auto rounded-md border border-zera-line bg-zera-mintSoft p-3">
-                <PrintableReceipt business={activeBusiness} sale={lastSale} />
-              </div>
-
-              <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                <Button type="button" className="no-print gap-2" onClick={() => window.print()}>
-                  <Printer size={18} />
-                  Print receipt
-                </Button>
-                <Link
-                  className="no-print inline-flex min-h-10 items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-semibold text-zera-green transition hover:bg-zera-mintSoft"
-                  to="/sales"
-                >
-                  View sales
-                </Link>
-              </div>
-            </section>
-          ) : null}
-
-          <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
-            <div className="mb-4 flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
-                <UserRound size={22} />
-              </div>
+          <section className="overflow-hidden rounded-md border border-zera-line bg-white p-3 shadow-xs">
+            <div className="flex items-center justify-between gap-3 border-b border-zera-line pb-3">
               <div>
-                <h3 className="text-lg font-bold">{modeInfo.customerTitle}</h3>
-                <p className="text-sm text-zera-muted">{selectedCustomer ? selectedCustomer.name : modeInfo.walkInLabel}</p>
+                <p className="text-xs font-bold uppercase text-zera-green">Checkout</p>
+                <h3 className="mt-1 text-lg font-bold">Cart</h3>
+                <p className="text-sm text-zera-muted">
+                  {totalItems} item{totalItems === 1 ? "" : "s"} / {selectedCustomer ? selectedCustomer.name : modeInfo.walkInLabel}
+                </p>
               </div>
+              <Button
+                type="button"
+                variant="ghost"
+                className="px-2"
+                disabled={!cartItems.length}
+                onClick={() => {
+                  setCartItems([]);
+                  setDiscountAmount("");
+                }}
+                aria-label="Clear cart"
+              >
+                <Trash2 size={18} />
+              </Button>
             </div>
 
-            <label className="flex min-h-10 items-center gap-3 rounded-md border border-zera-line bg-zera-mintSoft px-3">
-              <Search size={17} className="text-zera-muted" />
-              <input
-                className="w-full border-0 bg-transparent text-sm outline-none"
-                value={customerSearch}
-                onChange={(event) => setCustomerSearch(event.target.value)}
-                placeholder={modeInfo.customerSearchPlaceholder}
-              />
-            </label>
-
-            <label className="mt-3 block">
-              <span className="mb-2 block text-sm font-medium text-zera-ink">{modeInfo.customerSelectLabel}</span>
+            <div className="mt-3 rounded-md border border-zera-line bg-[#fbfdfb] p-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-bold text-zera-ink">{modeInfo.customerTitle}</p>
+                <Link className="text-xs font-bold text-zera-green hover:underline" to="/customers">
+                  Manage
+                </Link>
+              </div>
+              <label className="mt-2 flex min-h-9 items-center gap-2 rounded-md border border-zera-line bg-white px-3">
+                <Search size={16} className="text-zera-muted" />
+                <input
+                  className="w-full border-0 bg-transparent text-sm outline-none"
+                  value={customerSearch}
+                  onChange={(event) => setCustomerSearch(event.target.value)}
+                  placeholder={modeInfo.customerSearchPlaceholder}
+                />
+              </label>
               <select
-                className="min-h-10 w-full rounded-md border border-zera-line bg-white px-3 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                className="mt-2 min-h-9 w-full rounded-md border border-zera-line bg-white px-3 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
                 value={selectedCustomerId}
                 onChange={(event) => setSelectedCustomerId(event.target.value)}
               >
@@ -837,55 +778,28 @@ export default function POSPage() {
                   </option>
                 ))}
               </select>
-            </label>
-
-            {loadingCustomers ? <p className="mt-3 text-sm text-zera-muted">Loading customers...</p> : null}
-            {customerError ? <p className="mt-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{customerError}</p> : null}
-
-            <Link
-              className="mt-4 inline-flex min-h-10 w-full items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-semibold text-zera-green transition hover:bg-zera-mintSoft"
-              to="/customers"
-            >
-              Manage customers
-            </Link>
-          </section>
-
-          <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
-                  <ShoppingCart size={22} />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold">Cart</h3>
-                  <p className="text-sm text-zera-muted">
-                    {totalItems} item{totalItems === 1 ? "" : "s"}
-                  </p>
-                </div>
-              </div>
-              <Button type="button" variant="ghost" className="px-2" disabled={!cartItems.length} onClick={() => setCartItems([])} aria-label="Clear cart">
-                <Trash2 size={18} />
-              </Button>
+              {loadingCustomers ? <p className="mt-2 text-xs text-zera-muted">Loading customers...</p> : null}
+              {customerError ? <p className="mt-2 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{customerError}</p> : null}
             </div>
 
             {cartItems.length ? (
-              <div className="space-y-3">
+              <div className="mt-3 max-h-[34vh] space-y-2 overflow-y-auto pr-1">
                 {cartItems.map((item) => (
-                  <article key={item.product.id} className="rounded-md border border-zera-line p-3">
+                  <article key={item.product.id} className="rounded-md border border-zera-line p-2.5">
                     <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h4 className="font-bold">{item.product.name}</h4>
-                        <p className="mt-1 text-sm text-zera-muted">
+                      <div className="min-w-0">
+                        <h4 className="truncate text-sm font-bold">{item.product.name}</h4>
+                        <p className="mt-1 text-xs text-zera-muted">
                           {formatMoney(item.product.price, activeBusiness?.currency)} {item.product.unit ? `per ${item.product.unit}` : "each"}
                         </p>
                       </div>
-                      <p className="font-bold">{formatMoney(Number(item.product.price) * item.quantity, activeBusiness?.currency)}</p>
+                      <p className="shrink-0 text-sm font-bold">{formatMoney(Number(item.product.price) * item.quantity, activeBusiness?.currency)}</p>
                     </div>
-                    <div className="mt-3 flex items-center justify-between">
+                    <div className="mt-2 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          className="flex h-9 w-9 items-center justify-center rounded-md border border-zera-line bg-white text-zera-ink"
+                          className="flex h-8 w-8 items-center justify-center rounded-md border border-zera-line bg-white text-zera-ink"
                           onClick={() => updateCartQuantity(item.product.id, item.quantity - 1)}
                           aria-label={`Reduce ${item.product.name}`}
                         >
@@ -894,7 +808,7 @@ export default function POSPage() {
                         <span className="min-w-8 text-center font-bold">{item.quantity}</span>
                         <button
                           type="button"
-                          className="flex h-9 w-9 items-center justify-center rounded-md border border-zera-line bg-white text-zera-ink"
+                          className="flex h-8 w-8 items-center justify-center rounded-md border border-zera-line bg-white text-zera-ink"
                           onClick={() => updateCartQuantity(item.product.id, item.quantity + 1)}
                           aria-label={`Increase ${item.product.name}`}
                         >
@@ -903,7 +817,7 @@ export default function POSPage() {
                       </div>
                       <button
                         type="button"
-                        className="flex h-9 w-9 items-center justify-center rounded-md text-zera-muted hover:bg-red-50 hover:text-red-700"
+                        className="flex h-8 w-8 items-center justify-center rounded-md text-zera-muted hover:bg-red-50 hover:text-red-700"
                         onClick={() => removeFromCart(item.product.id)}
                         aria-label={`Remove ${item.product.name}`}
                       >
@@ -914,10 +828,9 @@ export default function POSPage() {
                 ))}
               </div>
             ) : (
-              <div className="flex min-h-36 flex-col items-center justify-center rounded-md border border-dashed border-zera-line bg-zera-mintSoft px-4 text-center">
+              <div className="mt-3 flex min-h-32 flex-col items-center justify-center rounded-md border border-dashed border-zera-line bg-zera-mintSoft px-4 text-center">
                 <ReceiptText size={30} className="text-zera-green" />
                 <h4 className="mt-3 font-bold">Cart is empty</h4>
-                <p className="mt-2 text-sm leading-6 text-zera-muted">{modeInfo.emptyCartText}</p>
               </div>
             )}
 
@@ -928,23 +841,47 @@ export default function POSPage() {
                   <span className="font-bold">{item.value}</span>
                 </div>
               ))}
-              <div className="border-t border-zera-line pt-4">
+              {cartItems.length && !isTableOrderReview ? (
+                <label className="grid grid-cols-[1fr_140px] items-center gap-3 text-sm">
+                  <span className="text-zera-muted">Discount</span>
+                  <input
+                    className="h-9 rounded-md border border-zera-line bg-white px-2.5 text-right text-sm font-bold text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                    min="0"
+                    max={subtotal}
+                    placeholder="0"
+                    type="number"
+                    value={discountAmount}
+                    onChange={(event) => setDiscountAmount(event.target.value)}
+                  />
+                </label>
+              ) : null}
+              <div className="border-t border-zera-line pt-3">
                 <div className="flex items-center justify-between">
                   <span className="text-base font-bold">Total</span>
-                  <span className="text-xl font-bold">{formatMoney(subtotal, activeBusiness?.currency)}</span>
+                  <span className="text-2xl font-bold text-zera-ink">{formatMoney(cartTotal, activeBusiness?.currency)}</span>
                 </div>
               </div>
             </div>
 
-          </section>
+            {!isTableOrderReview ? (
+              <label className="mt-4 block">
+                <span className="mb-1.5 block text-sm font-medium text-zera-ink">Payment method</span>
+                <select
+                  className="min-h-10 w-full rounded-md border border-zera-line bg-white px-3 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                  value={paymentMethod}
+                  onChange={(event) => setPaymentMethod(event.target.value)}
+                >
+                  <option value="CASH">Cash</option>
+                  <option value="MOBILE_MONEY">Mobile money</option>
+                  <option value="CARD">Card</option>
+                </select>
+              </label>
+            ) : null}
 
-          <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
-            <h3 className="text-base font-bold">{isTableService ? "Next action" : modeInfo.reviewTitle}</h3>
-            <p className="mt-1 text-sm text-zera-muted">{modeInfo.reviewDescription}</p>
-            <div className="mt-4 grid gap-3">
+            <div className="mt-4 grid gap-2">
               <Button
                 type="button"
-                className="gap-2"
+                className="min-h-11 gap-2"
                 disabled={Boolean(reviewDisabledReason)}
                 onClick={() => (isTableService ? openTableReview() : openReview("SALE"))}
               >
@@ -960,6 +897,38 @@ export default function POSPage() {
               {reviewDisabledReason ? <p className="text-sm text-zera-muted">{reviewDisabledReason}</p> : null}
             </div>
           </section>
+
+          {lastSale ? (
+            <section className="overflow-hidden rounded-md border border-zera-line bg-white p-3 shadow-xs">
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase text-zera-green">Receipt ready</p>
+                  <h3 className="mt-1 text-base font-bold">{lastSale.receiptNumber}</h3>
+                  <p className="mt-1 text-sm text-zera-muted">
+                    {formatMoney(lastSale.total, activeBusiness?.currency)} / {formatPayment(lastSale.paymentMethod)}
+                  </p>
+                </div>
+                <ReceiptText size={22} className="text-zera-green" />
+              </div>
+
+              <div className="max-h-72 overflow-y-auto rounded-md border border-zera-line bg-zera-mintSoft p-3">
+                <PrintableReceipt business={activeBusiness} sale={lastSale} />
+              </div>
+
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
+                <Button type="button" className="no-print h-9 gap-2" onClick={() => window.print()}>
+                  <Printer size={18} />
+                  Print
+                </Button>
+                <Link
+                  className="no-print inline-flex min-h-9 items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-semibold text-zera-green transition hover:bg-zera-mintSoft"
+                  to="/sales"
+                >
+                  Sales
+                </Link>
+              </div>
+            </section>
+          ) : null}
         </aside>
       </section>
 
@@ -974,15 +943,6 @@ export default function POSPage() {
                 <h3 className="mt-1 text-xl font-bold">
                   {reviewMode === "PAY_ORDER" ? "Receive payment" : orderSentInModal ? "Print customer bill" : isTableOrderReview ? "Send table order" : "Review cart"}
                 </h3>
-                <p className="mt-2 text-sm leading-6 text-zera-muted">
-                  {reviewMode === "PAY_ORDER"
-                    ? "Cashier confirms payment, closes the table bill, frees the table, and prints the final receipt."
-                    : orderSentInModal
-                      ? "The order has been added to the table bill. Print the customer bill when the guest asks to pay; payment and receipt remain with cashier."
-                      : isTableOrderReview
-                      ? "Waiter sends these items to the open table bill. Payment and receipt happen later at cashier."
-                      : "Confirm the cart and record a manual sale. Payment integrations and inventory deductions are not connected yet."}
-                </p>
               </div>
               {!orderSentInModal ? (
                 <button
@@ -1012,10 +972,36 @@ export default function POSPage() {
             </div>
 
             <div className="mt-5 rounded-md border border-zera-line p-4">
+              {reviewMode === "PAY_ORDER" || !isTableOrderReview ? (
+                <label className="mb-4 grid grid-cols-[1fr_160px] items-center gap-3 text-sm">
+                  <span className="text-zera-muted">Discount</span>
+                  <input
+                    className="h-10 rounded-md border border-zera-line bg-white px-3 text-right text-sm font-bold text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                    min="0"
+                    max={reviewSubtotal}
+                    placeholder="0"
+                    type="number"
+                    value={discountAmount}
+                    onChange={(event) => setDiscountAmount(event.target.value)}
+                  />
+                </label>
+              ) : null}
               <div className="flex items-center justify-between">
                 <span className="font-bold">{reviewMode === "PAY_ORDER" ? "Amount due" : isTableOrderReview ? "Order total" : "Draft total"}</span>
-                <span className="text-xl font-bold">{formatMoney(reviewSubtotal, activeBusiness?.currency)}</span>
+                <span className="text-xl font-bold">{formatMoney(reviewTotal, activeBusiness?.currency)}</span>
               </div>
+              {reviewTaxAmount > 0 ? (
+                <div className="mt-3 flex items-center justify-between border-t border-zera-line pt-3 text-sm">
+                  <span className="text-zera-muted">{getBusinessTaxLabel(activeBusiness)}</span>
+                  <span className="font-bold">{formatMoney(reviewTaxAmount, activeBusiness?.currency)}</span>
+                </div>
+              ) : null}
+              {reviewDiscountAmount > 0 ? (
+                <div className="mt-3 flex items-center justify-between border-t border-zera-line pt-3 text-sm">
+                  <span className="text-zera-muted">Discount</span>
+                  <span className="font-bold">-{formatMoney(reviewDiscountAmount, activeBusiness?.currency)}</span>
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-4 rounded-md bg-zera-mintSoft px-3 py-3">
@@ -1107,6 +1093,44 @@ function formatMoney(value, currency = "UGX") {
   return `${currency} ${Number(value).toLocaleString()}`;
 }
 
+function roundMoney(value) {
+  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
+function getValidDiscountAmount(value, subtotal) {
+  const parsed = Number(value || 0);
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 0;
+  }
+
+  return roundMoney(Math.min(parsed, Number(subtotal || 0)));
+}
+
+function isBusinessTaxEnabled(business) {
+  const taxRate = Number(business?.taxRate || 0);
+  return Boolean(business?.taxEnabled && Number.isFinite(taxRate) && taxRate > 0);
+}
+
+function getBusinessTaxAmount(subtotal, business) {
+  if (!isBusinessTaxEnabled(business)) {
+    return 0;
+  }
+
+  return roundMoney((Number(subtotal || 0) * Number(business.taxRate || 0)) / 100);
+}
+
+function getBusinessTaxLabel(business) {
+  const label = business?.taxName?.trim() || "Tax";
+  const rate = Number(business?.taxRate || 0);
+
+  if (!isBusinessTaxEnabled(business)) {
+    return label;
+  }
+
+  return `${label} ${rate}%`;
+}
+
 function formatPayment(method = "CASH") {
   return method.replace("_", " ").toLowerCase();
 }
@@ -1124,9 +1148,7 @@ function getEffectivePOSMode(business) {
     return "RETAIL_CHECKOUT";
   }
 
-  const type = (business.type || "").toLowerCase();
-
-  if (business.posMode === "TABLE_SERVICE" || type.includes("bar") || type.includes("restaurant")) {
+  if (business.posMode === "TABLE_SERVICE") {
     return "TABLE_SERVICE";
   }
 
@@ -1257,17 +1279,17 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       kicker: "Table service",
       title: "Table-service POS",
       shortTitle: "table service",
-      description: "Waiters open table bills and add orders. Cashiers receive payment, close the bill, free the table, and print the final receipt.",
+      description: "",
       productSectionTitle: "Menu entry",
       productEntryHint: "Tap menu items into the selected table bill.",
       emptyCartText: "Select a table, then tap active products to prepare the table bill.",
       reviewTitle: "Bill review",
-      reviewDescription: "Confirm the table order. Cashier payment happens after the guest is ready to pay.",
+      reviewDescription: "",
       reviewButtonLabel: "Send table order",
       requirement: "Table required before checkout",
       workflow: "Table first, order second, cashier payment last",
       workflowSteps: ["Choose table", "Add order", "Cashier closes bill"],
-      nextFoundation: "Kitchen tickets later",
+      nextFoundation: "",
       counterHint: "Staff select a table before adding items.",
       customerTitle: "Customer",
       customerSearchPlaceholder: "Search saved customers",
@@ -1282,7 +1304,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       kicker: "Pharmacy counter",
       title: "Pharmacy checkout POS",
       shortTitle: "pharmacy checkout",
-      description: "Search medicines or services, attach a customer when needed, and record a clear pharmacy counter sale.",
+      description: "",
       productSectionTitle: "Medicine and service entry",
       productEntryHint: "Search medicines, services, SKU, barcode, or category before adding to the cart.",
       emptyCartText: "Tap active pharmacy items to prepare the customer sale.",
@@ -1292,7 +1314,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       requirement: "No table required",
       workflow: "Customer optional, item check, payment last",
       workflowSteps: ["Find item", "Confirm quantity", "Record payment"],
-      nextFoundation: "Batch and expiry later",
+      nextFoundation: "",
       counterHint: "Pharmacy sales use customer lookup and quick product search.",
       customerTitle: "Patient / customer",
       customerSearchPlaceholder: "Search patient or customer",
@@ -1307,7 +1329,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       kicker: "Front desk",
       title: "Front desk service POS",
       shortTitle: "service checkout",
-      description: "Record guest-facing service charges with customer lookup and simple manual payment.",
+      description: "",
       productSectionTitle: "Guest service entry",
       productEntryHint: "Search services, charges, or products that should be billed at the front desk.",
       emptyCartText: "Tap active services or products to prepare the guest receipt.",
@@ -1317,7 +1339,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       requirement: "No table required",
       workflow: "Guest optional, service charge, payment last",
       workflowSteps: ["Choose guest", "Add service", "Record payment"],
-      nextFoundation: "Rooms and folios later",
+      nextFoundation: "",
       counterHint: "Front desk sales are built around guest services and charges.",
       customerTitle: "Guest / customer",
       customerSearchPlaceholder: "Search guest or customer",
@@ -1332,9 +1354,9 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       kicker: "Supermarket checkout",
       title: "Supermarket checkout POS",
       shortTitle: "supermarket checkout",
-      description: "Move fast through basket sales with barcode-ready search, clear quantities, and simple payment.",
-      productSectionTitle: "Basket entry",
-      productEntryHint: "Search product, category, SKU, or barcode before adding items to the basket.",
+      description: "",
+      productSectionTitle: "Scan or search items",
+      productEntryHint: "Use barcode, SKU, product name, or category for fast basket checkout.",
       emptyCartText: "Tap active supermarket items to prepare the customer basket.",
       reviewTitle: "Basket review",
       reviewDescription: "Confirm the basket and payment method before recording the supermarket sale.",
@@ -1342,7 +1364,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       requirement: "No table required",
       workflow: "Scan/search, basket, payment last",
       workflowSteps: ["Find item", "Build basket", "Record payment"],
-      nextFoundation: "Barcode stock sync later",
+      nextFoundation: "",
       counterHint: "Supermarket checkout prioritizes fast search, quantities, and barcode flow.",
       customerTitle: "Customer",
       customerSearchPlaceholder: "Search saved customers",
@@ -1357,9 +1379,9 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       kicker: "Electronics checkout",
       title: "Electronics shop POS",
       shortTitle: "electronics checkout",
-      description: "Sell phones, accessories, parts, and repair-service items with fast search, customer lookup, stock-friendly records, and clean receipts.",
+      description: "",
       productSectionTitle: "Device and accessory entry",
-      productEntryHint: "Search devices, accessories, SKU, barcode, or category before adding items to the cart.",
+      productEntryHint: "Find devices, accessories, repair-service items, SKU, or barcode before adding to cart.",
       emptyCartText: "Tap active electronics items to prepare the customer sale.",
       reviewTitle: "Electronics sale review",
       reviewDescription: "Confirm devices, accessories, quantities, customer, and payment method before recording the sale.",
@@ -1367,7 +1389,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       requirement: "No table required",
       workflow: "Find item, confirm stock, record payment",
       workflowSteps: ["Find device", "Check cart", "Record payment"],
-      nextFoundation: "Serial numbers and repairs later",
+      nextFoundation: "",
       counterHint: "Electronics checkout prioritizes SKU/barcode search, stock visibility, and clean receipts.",
       customerTitle: "Customer",
       customerSearchPlaceholder: "Search customer or phone number",
@@ -1382,9 +1404,9 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       kicker: "Retail counter",
       title: "Retail shop checkout POS",
       shortTitle: "retail checkout",
-      description: "Run fast shop-counter sales with customer selection available for repeat buyers and account history later.",
+      description: "",
       productSectionTitle: "Product entry",
-      productEntryHint: "Search products, categories, SKU, or barcode before adding items to the cart.",
+      productEntryHint: "Search product name, category, SKU, or barcode before adding items to the cart.",
       emptyCartText: "Tap active retail items to prepare a checkout cart.",
       reviewTitle: "Checkout review",
       reviewDescription: "Confirm the cart and payment method before recording the retail sale.",
@@ -1392,7 +1414,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       requirement: "No table required",
       workflow: "Product first, cart second, payment last",
       workflowSteps: ["Find product", "Check cart", "Record payment"],
-      nextFoundation: "Inventory sync later",
+      nextFoundation: "",
       counterHint: "Retail checkout focuses on clear product search and simple payment.",
       customerTitle: "Customer",
       customerSearchPlaceholder: "Search saved customers",
@@ -1407,7 +1429,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       kicker: "Store counter",
       title: "Store checkout support",
       shortTitle: "catalog checkout",
-      description: "Support checkout while keeping product names, categories, and prices clear for the team.",
+      description: "",
       productSectionTitle: "Product entry",
       productEntryHint: "Search products and categories to verify catalog readiness or prepare a quick sale.",
       emptyCartText: "Tap active products to prepare a checkout cart.",
@@ -1417,7 +1439,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
       requirement: "No table required",
       workflow: "Catalog first, cart second, payment last",
       workflowSteps: ["Find product", "Check cart", "Record payment"],
-      nextFoundation: "Stock controls later",
+      nextFoundation: "",
       counterHint: "Store checkout focuses on clear product search and catalog accuracy.",
       customerTitle: "Customer",
       customerSearchPlaceholder: "Search saved customers",
@@ -1431,7 +1453,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
     kicker: "Retail counter",
     title: "Retail checkout POS",
     shortTitle: "checkout",
-    description: "Run fast counter sales with customer selection available for repeat buyers and credit-history foundations later.",
+    description: "",
     productSectionTitle: "Product entry",
     productEntryHint: "Search, filter, and tap products into the cart for a quick counter checkout.",
     emptyCartText: "Tap active products to prepare a checkout cart.",
@@ -1441,7 +1463,7 @@ function getPOSModeInfo(posMode, roleName = "", businessType = "") {
     requirement: "No table required",
     workflow: "Cart first, customer optional, payment last",
     workflowSteps: ["Add products", "Attach customer", "Record payment"],
-    nextFoundation: "Inventory sync later",
+    nextFoundation: "",
     counterHint: "Counter sales are optimized for fast product search and simple payment.",
     customerTitle: "Customer",
     customerSearchPlaceholder: "Search saved customers",
@@ -1456,6 +1478,16 @@ function StatusPill({ helper, label, ready }) {
       <span className="block text-[0.65rem] font-bold uppercase tracking-wide opacity-80">{helper}</span>
       <span className="block truncate text-sm font-bold">{label}</span>
     </span>
+  );
+}
+
+function POSInlineContext({ label, ready, value }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 text-sm">
+      <span className={`h-2 w-2 shrink-0 rounded-full ${ready ? "bg-zera-green" : "bg-red-500"}`} />
+      <span className="shrink-0 text-[11px] font-bold uppercase tracking-wide text-zera-muted">{label}</span>
+      <span className="max-w-[210px] truncate font-semibold text-zera-ink">{value}</span>
+    </div>
   );
 }
 

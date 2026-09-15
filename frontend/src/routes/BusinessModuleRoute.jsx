@@ -2,7 +2,7 @@ import { Navigate, Outlet } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useWorkspace } from "../context/WorkspaceContext.jsx";
 
-export default function BusinessModuleRoute({ allowedRoles, moduleKey }) {
+export default function BusinessModuleRoute({ allowedRoles, moduleKey, moduleKeys }) {
   const { user } = useAuth();
   const { activeBusiness, activeRoleName, loading } = useWorkspace();
 
@@ -22,7 +22,8 @@ export default function BusinessModuleRoute({ allowedRoles, moduleKey }) {
     return <Navigate to="/dashboard" replace />;
   }
 
-  const moduleIsActive = activeBusiness.modules?.some((module) => module.key === moduleKey && module.active);
+  const requiredModuleKeys = moduleKeys?.length ? moduleKeys : [moduleKey];
+  const moduleIsActive = activeBusiness.modules?.some((module) => requiredModuleKeys.includes(module.key) && module.active);
   const roleIsAllowed = allowedRoles.includes(activeRoleName);
 
   if (!moduleIsActive || !roleIsAllowed) {

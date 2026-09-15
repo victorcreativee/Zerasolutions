@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Banknote, Boxes, CreditCard, MapPin, ReceiptText, RefreshCcw, Smartphone } from "lucide-react";
+import { BarChart3, Banknote, Boxes, CreditCard, Download, MapPin, ReceiptText, RefreshCcw, Smartphone } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
-import { getRecentSales } from "../../services/posService.js";
+import { getReportSummary } from "../../services/reportsService.js";
 
 const periodOptions = [
   { label: "Today", value: "today" },
@@ -12,26 +12,39 @@ const periodOptions = [
 
 export default function ReportsPage() {
   const { activeBusiness, activeBusinessId, branches } = useWorkspace();
+  const [report, setReport] = useState(null);
   const [sales, setSales] = useState([]);
   const [filters, setFilters] = useState(() => createDefaultFilters());
   const [activePeriod, setActivePeriod] = useState("today");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const completedSales = sales.filter((sale) => sale.status === "COMPLETED");
-  const voidedSales = sales.filter((sale) => sale.status === "VOIDED");
-  const totalSales = completedSales.reduce((total, sale) => total + Number(sale.total), 0);
-  const averageSale = completedSales.length ? totalSales / completedSales.length : 0;
-  const itemCount = countItems(completedSales);
-  const paymentRows = useMemo(() => buildPaymentRows(completedSales), [completedSales]);
-  const branchRows = useMemo(() => buildBranchRows(completedSales), [completedSales]);
-  const productRows = useMemo(() => buildProductRows(completedSales), [completedSales]);
-  const waiterRows = useMemo(() => buildWaiterRows(completedSales), [completedSales]);
-  const cashierRows = useMemo(() => buildCashierRows(completedSales), [completedSales]);
-  const staffRows = useMemo(() => buildStaffPerformanceRows(waiterRows, cashierRows), [cashierRows, waiterRows]);
+  const completedSales = useMemo(() => sales.filter((sale) => sale.status === "COMPLETED"), [sales]);
+  const fallbackVoidedSales = useMemo(() => sales.filter((sale) => sale.status === "VOIDED"), [sales]);
+  const fallbackTotalSales = completedSales.reduce((total, sale) => total + Number(sale.total), 0);
+  const fallbackItemCount = countItems(completedSales);
+  const fallbackPaymentRows = useMemo(() => buildPaymentRows(completedSales), [completedSales]);
+  const fallbackBranchRows = useMemo(() => buildBranchRows(completedSales), [completedSales]);
+  const fallbackProductRows = useMemo(() => buildProductRows(completedSales), [completedSales]);
+  const fallbackWaiterRows = useMemo(() => buildWaiterRows(completedSales), [completedSales]);
+  const fallbackCashierRows = useMemo(() => buildCashierRows(completedSales), [completedSales]);
+  const fallbackStaffRows = useMemo(() => buildStaffPerformanceRows(fallbackWaiterRows, fallbackCashierRows), [fallbackCashierRows, fallbackWaiterRows]);
+  const reportSummary = report?.summary || {};
+  const totalSales = reportSummary.totalSales ?? fallbackTotalSales;
+  const discountTotal = reportSummary.discountTotal ?? completedSales.reduce((total, sale) => total + Number(sale.discountAmount || 0), 0);
+  const taxCollected = reportSummary.taxCollected ?? completedSales.reduce((total, sale) => total + Number(sale.taxAmount || 0), 0);
+  const receiptCount = reportSummary.receiptCount ?? completedSales.length;
+  const voidedCount = reportSummary.voidedCount ?? fallbackVoidedSales.length;
+  const averageSale = reportSummary.averageSale ?? (completedSales.length ? totalSales / completedSales.length : 0);
+  const itemCount = reportSummary.itemCount ?? fallbackItemCount;
+  const paymentRows = report?.paymentRows || fallbackPaymentRows;
+  const branchRows = report?.branchRows || fallbackBranchRows;
+  const productRows = report?.productRows || fallbackProductRows;
+  const staffRows = report?.staffRows || fallbackStaffRows;
 
   useEffect(() => {
     if (!activeBusinessId) {
+      setReport(null);
       setSales([]);
       return;
     }
@@ -44,8 +57,9 @@ export default function ReportsPage() {
       setLoading(true);
       setError("");
       const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value));
-      const data = await getRecentSales(activeBusinessId, params);
-      setSales(data);
+      const data = await getReportSummary(activeBusinessId, params);
+      setReport(data);
+      setSales(data.recentReceipts || []);
     } catch (apiError) {
       setError(apiError.response?.data?.message || "Unable to load reports.");
     } finally {
@@ -91,17 +105,23 @@ export default function ReportsPage() {
               A clear view of sales, payment methods, branches, products, and staff activity from POS receipts.
             </p>
           </div>
-          <Button type="button" variant="secondary" className="h-10 gap-2 px-3 shadow-xs" onClick={loadReport}>
-            <RefreshCcw size={16} />
-            Refresh
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="secondary" className="h-10 gap-2 px-3 shadow-xs" onClick={() => exportReportCsv({ business: activeBusiness, filters, rows: sales })}>
+              <Download size={16} />
+              Export CSV
+            </Button>
+            <Button type="button" variant="secondary" className="h-10 gap-2 px-3 shadow-xs" onClick={loadReport}>
+              <RefreshCcw size={16} />
+              Refresh
+            </Button>
+          </div>
         </div>
 
         <div className="grid divide-y divide-zera-line md:grid-cols-4 md:divide-x md:divide-y-0">
           <ReportMetricCell icon={Banknote} label="Net sales" value={loading ? "..." : formatMoney(totalSales, activeBusiness.currency)} helper="Completed receipts" />
-          <ReportMetricCell icon={ReceiptText} label="Receipts" value={loading ? "..." : completedSales.length} helper={`${voidedSales.length} voided`} />
-          <ReportMetricCell icon={Boxes} label="Items sold" value={loading ? "..." : itemCount} helper={productRows[0]?.label || "No top item yet"} />
-          <ReportMetricCell icon={BarChart3} label="Average sale" value={loading ? "..." : formatMoney(averageSale, activeBusiness.currency)} helper="Per receipt" />
+          <ReportMetricCell icon={ReceiptText} label="Receipts" value={loading ? "..." : receiptCount} helper={`${voidedCount} voided`} />
+          <ReportMetricCell icon={Boxes} label="Discounts" value={loading ? "..." : formatMoney(discountTotal, activeBusiness.currency)} helper="Approved at checkout" />
+          <ReportMetricCell icon={BarChart3} label="Tax collected" value={loading ? "..." : formatMoney(taxCollected, activeBusiness.currency)} helper={`Average ${formatMoney(averageSale, activeBusiness.currency)}`} />
         </div>
       </section>
 
@@ -127,7 +147,7 @@ export default function ReportsPage() {
             {activePeriod === "custom" ? <span className="inline-flex h-9 items-center rounded-[6px] bg-white px-3 text-sm font-bold text-zera-muted shadow-xs">Custom</span> : null}
           </div>
 
-          <div className="grid gap-2 md:grid-cols-3">
+          <div className="grid gap-2 md:grid-cols-4">
             <label className="block">
               <span className="mb-1 block text-xs font-bold uppercase text-zera-muted">Branch</span>
               <select
@@ -141,6 +161,19 @@ export default function ReportsPage() {
                     {branch.name}
                   </option>
                 ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-bold uppercase text-zera-muted">Payment</span>
+              <select
+                className="h-10 w-full rounded-md border border-zera-line bg-white px-3 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                value={filters.paymentMethod}
+                onChange={(event) => updateFilter("paymentMethod", event.target.value)}
+              >
+                <option value="">All payments</option>
+                <option value="CASH">Cash</option>
+                <option value="CARD">Card</option>
+                <option value="MOBILE_MONEY">Mobile money</option>
               </select>
             </label>
             <FilterInput label="From" value={filters.dateFrom} onChange={(value) => updateFilter("dateFrom", value)} />
@@ -172,9 +205,9 @@ export default function ReportsPage() {
           <div className="rounded-md border border-zera-line bg-white p-4 shadow-xs">
             <p className="text-xs font-bold uppercase text-zera-muted">Notes</p>
             <div className="mt-3 grid gap-2">
-              <Note label="Voided receipts" value={`${voidedSales.length}`} />
+              <Note label="Items sold" value={`${itemCount}`} />
+              <Note label="Voided receipts" value={`${voidedCount}`} />
               <Note label="Source" value="POS sales only" />
-              <Note label="Finance" value="Not posted yet" />
             </div>
           </div>
         </aside>
@@ -474,6 +507,7 @@ function countItems(sales) {
 function createDefaultFilters() {
   return {
     branchId: "",
+    paymentMethod: "",
     ...getPeriodRange("today")
   };
 }
@@ -525,4 +559,47 @@ function formatDateLabel(value) {
     month: "short",
     year: "numeric"
   });
+}
+
+function exportReportCsv({ business, filters, rows }) {
+  const headers = ["Receipt", "Date", "Branch", "Customer", "Payment", "Cashier", "Status", "Subtotal", "Discount", "Tax", "Total"];
+  const body = rows.map((sale) => [
+    sale.receiptNumber,
+    sale.createdAt ? new Date(sale.createdAt).toLocaleString() : "",
+    sale.branch?.name || "",
+    sale.customer?.name || "Walk-in",
+    formatPayment(sale.paymentMethod),
+    sale.cashier?.name || "",
+    sale.status || "",
+    Number(sale.subtotal || 0),
+    Number(sale.discountAmount || 0),
+    Number(sale.taxAmount || 0),
+    Number(sale.total || 0)
+  ]);
+  const csv = [headers, ...body].map((row) => row.map(escapeCsvValue).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const dateLabel = [filters.dateFrom, filters.dateTo].filter(Boolean).join("_to_") || "all_dates";
+  link.href = url;
+  link.download = `${slugify(business?.name || "zera")}-sales-report-${dateLabel}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function escapeCsvValue(value) {
+  const text = String(value ?? "");
+
+  if (/[",\n]/.test(text)) {
+    return `"${text.replaceAll('"', '""')}"`;
+  }
+
+  return text;
+}
+
+function slugify(value) {
+  return String(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
 }

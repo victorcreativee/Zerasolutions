@@ -8,14 +8,13 @@ import {
   UserRound,
   X
 } from "lucide-react";
-import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { Link, Outlet, useLocation } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useWorkspace } from "../context/WorkspaceContext.jsx";
 import WorkspaceSwitcher from "../components/WorkspaceSwitcher.jsx";
 import {
   businessNavigation,
-  getRouteMetadata,
   getVisibleNavigation,
   systemAdminNavigation
 } from "../config/navigation.js";
@@ -33,12 +32,12 @@ export default function DashboardLayout() {
     selectBusiness
   } = useWorkspace();
   const location = useLocation();
-  const userMenuRef = useRef(null);
+  const topUserMenuRef = useRef(null);
+  const sidebarUserMenuRef = useRef(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("zera_sidebar_collapsed") === "true");
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const isSystemAdmin = user?.systemRole === "SYSTEM_ADMIN";
-  const route = getRouteMetadata(location.pathname);
 
   const navigation = useMemo(() => {
     if (isSystemAdmin) {
@@ -61,7 +60,10 @@ export default function DashboardLayout() {
 
   useEffect(() => {
     function closeUserMenu(event) {
-      if (userMenuRef.current && !userMenuRef.current.contains(event.target)) {
+      const insideTopMenu = topUserMenuRef.current?.contains(event.target);
+      const insideSidebarMenu = sidebarUserMenuRef.current?.contains(event.target);
+
+      if (!insideTopMenu && !insideSidebarMenu) {
         setUserMenuOpen(false);
       }
     }
@@ -108,23 +110,47 @@ export default function DashboardLayout() {
               <div className="space-y-1">
                 {group.items.map((item) => {
                   const Icon = item.icon;
+                  const isActive = isNavigationTargetActive(item.path, location, Boolean(item.children?.length));
 
                   return (
-                    <NavLink
-                      key={item.path}
-                      to={item.path}
-                      title={sidebarCollapsed ? item.label : undefined}
-                      className={({ isActive }) =>
-                        `group flex h-10 items-center gap-3 rounded-md border px-3 text-sm font-semibold transition ${
+                    <div key={item.path}>
+                      <Link
+                        to={item.path}
+                        title={sidebarCollapsed ? item.label : undefined}
+                        className={`group flex h-10 items-center gap-3 rounded-md border px-3 text-sm font-semibold transition ${
                           isActive
                             ? "border-zera-line bg-white text-zera-green shadow-xs"
                             : "border-transparent text-zera-muted hover:border-zera-line hover:bg-white hover:text-zera-ink"
-                        } ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`
-                      }
-                    >
-                      <Icon className="shrink-0" size={17} />
-                      <span className={`truncate ${sidebarCollapsed ? "lg:hidden" : ""}`}>{item.label}</span>
-                    </NavLink>
+                        } ${sidebarCollapsed ? "lg:justify-center lg:px-0" : ""}`}
+                      >
+                        <Icon className="shrink-0" size={17} />
+                        <span className={`truncate ${sidebarCollapsed ? "lg:hidden" : ""}`}>{item.label}</span>
+                      </Link>
+
+                      {item.children?.length && !sidebarCollapsed ? (
+                        <div className="mt-1 space-y-1 border-l border-zera-line/80 pl-4 lg:block">
+                          {item.children.map((child) => {
+                            const ChildIcon = child.icon;
+                            const childActive = isNavigationTargetActive(child.path, location);
+
+                            return (
+                              <Link
+                                key={child.path}
+                                to={child.path}
+                                className={`group flex h-9 items-center gap-2 rounded-md px-3 text-[13px] font-semibold transition ${
+                                  childActive
+                                    ? "bg-zera-mint text-zera-green"
+                                    : "text-zera-muted hover:bg-white hover:text-zera-ink"
+                                }`}
+                              >
+                                <ChildIcon className="shrink-0" size={15} />
+                                <span className="truncate">{child.label}</span>
+                              </Link>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
                   );
                 })}
               </div>
@@ -133,14 +159,43 @@ export default function DashboardLayout() {
         </nav>
 
         <div className="shrink-0 border-t border-zera-line p-3">
-          <div className={`flex items-center gap-3 rounded-md border border-zera-line bg-white p-2 shadow-xs ${sidebarCollapsed ? "lg:justify-center" : ""}`}>
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-              <UserRound size={18} />
-            </div>
-            <div className={`min-w-0 ${sidebarCollapsed ? "lg:hidden" : ""}`}>
-              <p className="truncate text-sm font-bold">{user?.name}</p>
-              <p className="truncate text-xs text-zera-muted">{isSystemAdmin ? "System admin" : activeRoleName || "Business user"}</p>
-            </div>
+          <div className="relative" ref={sidebarUserMenuRef}>
+            {userMenuOpen ? (
+              <div className={`absolute bottom-full z-50 mb-2 w-56 rounded-md border border-zera-line bg-white p-2 shadow-panel ${sidebarCollapsed ? "left-0" : "left-0"}`}>
+                <div className="border-b border-zera-line px-2 py-2">
+                  <p className="truncate text-sm font-bold">{user?.name}</p>
+                  <p className="mt-1 truncate text-xs text-zera-muted">{user?.email}</p>
+                </div>
+                <Link className="mt-1 flex h-10 items-center gap-2 rounded-md px-2 text-sm font-semibold hover:bg-zera-surface" to="/account">
+                  <UserRound size={16} />
+                  My account
+                </Link>
+                <button
+                  className="flex h-10 w-full items-center gap-2 rounded-md px-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+                  onClick={logout}
+                >
+                  <LogOut size={16} />
+                  Logout
+                </button>
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              className={`flex w-full items-center gap-3 rounded-md border border-zera-line bg-white p-2 text-left shadow-xs transition hover:bg-zera-surface ${sidebarCollapsed ? "lg:justify-center" : ""}`}
+              onClick={() => setUserMenuOpen((current) => !current)}
+              aria-expanded={userMenuOpen}
+              aria-label="Open account menu"
+            >
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
+                <UserRound size={18} />
+              </div>
+              <div className={`min-w-0 flex-1 ${sidebarCollapsed ? "lg:hidden" : ""}`}>
+                <p className="truncate text-sm font-bold">{user?.name}</p>
+                <p className="truncate text-xs text-zera-muted">{isSystemAdmin ? "System admin" : activeRoleName || "Business user"}</p>
+              </div>
+              <ChevronDown className={`shrink-0 text-zera-muted transition ${userMenuOpen ? "rotate-180" : ""} ${sidebarCollapsed ? "lg:hidden" : ""}`} size={14} />
+            </button>
           </div>
           <button
             className="mt-2 hidden h-9 w-full items-center justify-center rounded-md text-zera-muted hover:bg-zera-surface hover:text-zera-ink lg:flex"
@@ -158,8 +213,8 @@ export default function DashboardLayout() {
       ) : null}
 
       <div className={`min-w-0 transition-[padding] duration-200 ${desktopContentOffset}`}>
-        <header className="sticky top-0 z-20 border-b border-zera-line bg-white/95 shadow-[0_1px_0_rgba(23,33,29,0.02)] backdrop-blur">
-          <div className="flex min-h-[68px] items-center gap-3 px-4 sm:px-5 lg:px-6">
+        <header className="sticky top-0 z-20 border-b border-zera-line bg-white/95 shadow-[0_1px_0_rgba(23,33,29,0.02)] backdrop-blur lg:hidden">
+          <div className="flex min-h-[56px] items-center gap-3 px-4 sm:px-5">
             <button
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-zera-line bg-white text-zera-ink shadow-xs lg:hidden"
               onClick={() => setSidebarOpen(true)}
@@ -168,27 +223,10 @@ export default function DashboardLayout() {
               <Menu size={20} />
             </button>
 
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-semibold text-zera-muted">{route.section}</p>
-              <h1 className="truncate text-xl font-bold tracking-tight text-zera-ink">{route.title}</h1>
-            </div>
+            <div className="min-w-0 flex-1" />
 
             {!isSystemAdmin ? (
-              <div className="hidden min-w-0 lg:block">
-                <WorkspaceSwitcher
-                  activeBranchId={activeBranchId}
-                  activeBusinessId={activeBusinessId}
-                  branches={branches}
-                  businesses={businesses}
-                  loading={loading}
-                  onBranchChange={selectBranch}
-                  onBusinessChange={selectBusiness}
-                  roleName={activeRoleName}
-                />
-              </div>
-            ) : null}
-
-            <div className="relative" ref={userMenuRef}>
+            <div className="relative" ref={topUserMenuRef}>
               <button
                 className="flex h-10 items-center gap-2 rounded-md border border-zera-line bg-white px-2 text-left shadow-xs hover:bg-zera-surface"
                 onClick={() => setUserMenuOpen((current) => !current)}
@@ -222,6 +260,7 @@ export default function DashboardLayout() {
                 </div>
               ) : null}
             </div>
+            ) : null}
           </div>
 
           {!isSystemAdmin ? (
@@ -268,6 +307,24 @@ function getBusinessNavigationForMode(groups, business) {
         })
     }))
     .filter((group) => group.items.length);
+}
+
+function isNavigationTargetActive(targetPath, location, includeChildren = false) {
+  const [pathname, search = ""] = targetPath.split("?");
+
+  if (pathname !== location.pathname) {
+    return false;
+  }
+
+  if (includeChildren) {
+    return true;
+  }
+
+  if (!search) {
+    return !location.search;
+  }
+
+  return location.search === `?${search}`;
 }
 
 function getPOSNavigationLabel(business) {

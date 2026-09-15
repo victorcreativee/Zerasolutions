@@ -2,16 +2,25 @@ export default function PrintableBill({ business, order }) {
   const currency = business?.currency || "UGX";
   const billDate = new Date(order?.updatedAt || order?.createdAt || Date.now());
   const subtotal = order?.items?.reduce((total, item) => total + Number(item.lineTotal), 0) || Number(order?.total || 0);
+  const taxLabel = business?.taxName || "Tax";
+  const taxAmount = business?.taxEnabled ? Math.max(Number(order?.total || 0) - subtotal, 0) : 0;
 
   return (
     <article className="receipt-print-root mx-auto w-full max-w-[360px] bg-white p-5 font-mono text-[12px] leading-tight text-black shadow-soft">
       <header className="text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border-2 border-black text-lg font-black">
-          {business?.name?.charAt(0)?.toUpperCase() || "Z"}
-        </div>
+        {business?.logoUrl ? (
+          <img className="mx-auto h-12 max-w-28 object-contain" src={business.logoUrl} alt={`${business?.name || "Business"} logo`} />
+        ) : (
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border-2 border-black text-lg font-black">
+            {business?.name?.charAt(0)?.toUpperCase() || "Z"}
+          </div>
+        )}
         <h3 className="mt-3 text-base font-black uppercase tracking-normal">{business?.name || "Zera Business"}</h3>
         <p className="mt-1">{order?.branch?.name || "Main Branch"}</p>
-        {business?.country ? <p>{business.country}</p> : null}
+        {business?.address ? <p>{business.address}</p> : business?.country ? <p>{business.country}</p> : null}
+        {business?.contactPhone ? <p>{business.contactPhone}</p> : null}
+        {business?.contactEmail ? <p>{business.contactEmail}</p> : null}
+        {business?.receiptHeader ? <p className="mt-2 font-bold">{business.receiptHeader}</p> : null}
         <p>Powered by Zera Solutions</p>
       </header>
 
@@ -74,14 +83,12 @@ export default function PrintableBill({ business, order }) {
           <span>Subtotal</span>
           <span>{formatMoney(subtotal, currency)}</span>
         </div>
-        <div className="mt-1 flex justify-between">
-          <span>Tax</span>
-          <span>{formatMoney(0, currency)}</span>
-        </div>
-        <div className="mt-1 flex justify-between">
-          <span>Discount</span>
-          <span>{formatMoney(0, currency)}</span>
-        </div>
+        {taxAmount > 0 ? (
+          <div className="mt-1 flex justify-between">
+            <span>{taxLabel}</span>
+            <span>{formatMoney(taxAmount, currency)}</span>
+          </div>
+        ) : null}
         <div className="mt-3 border-2 border-black p-2 text-center">
           <p className="text-xs font-black uppercase">Amount due</p>
           <p className="mt-1 text-xl font-black">{formatMoney(order?.total || subtotal, currency)}</p>
@@ -90,7 +97,7 @@ export default function PrintableBill({ business, order }) {
 
       <footer className="mt-5 text-center">
         <p className="font-black">Please pay at cashier</p>
-        <p className="mt-1 text-[11px]">This is a customer bill, not a payment receipt.</p>
+        <p className="mt-1 text-[11px]">{business?.receiptFooter || "This is a customer bill, not a payment receipt."}</p>
       </footer>
     </article>
   );

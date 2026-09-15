@@ -946,7 +946,7 @@ function buildRoleDashboard({
       emptyFocusText: "No pharmacy products are active yet. Add medicines or services before selling.",
       todayTitle: "Today’s pharmacy sales",
       todaySubtitle: "Recent completed pharmacy counter transactions.",
-      guidance: "Prescription and batch/expiry controls are not built yet; this foundation keeps the counter flow simple."
+      guidance: "Use the checkout flow for medicine and service sales."
     };
   }
 
@@ -980,7 +980,7 @@ function buildRoleDashboard({
       emptyFocusText: "No service items yet. Add repair services or charges in products.",
       todayTitle: "Today’s service sales",
       todaySubtitle: "Recent completed electronics transactions.",
-      guidance: "A full repair ticket workflow comes later; for now, use service items to sell diagnosis, repair labor, and charges."
+      guidance: "Use service items for diagnosis, repair labor, and charges."
     };
   }
 
@@ -999,7 +999,7 @@ function buildRoleDashboard({
       { icon: MapPin, label: "Branch", value: branchName, helper: businessType }
     ],
     workTitle: "Front desk flow",
-    workSubtitle: "Simple guest-facing sales until the hotel module is built.",
+    workSubtitle: "Simple guest-facing sales for front desk teams.",
     steps: [
       { icon: UserRound, title: "Find guest", description: "Use customer records for repeat guests or walk-in for quick service sales." },
       { icon: Store, title: "Choose service", description: "Select the service or item being charged." },
@@ -1013,7 +1013,7 @@ function buildRoleDashboard({
     emptyFocusText: "No customers or recent service sales yet. Add customers as front desk work begins.",
     todayTitle: "Today’s front desk sales",
     todaySubtitle: "Recent completed service transactions.",
-    guidance: "Reservations, rooms, and night audit will come in the hotel module; this keeps front desk useful today."
+    guidance: "Use this workspace for guest-facing service sales, customer records, and receipt control."
   };
 }
 
@@ -1115,7 +1115,7 @@ function getPOSWorkflowInfo(business) {
     return {
       icon: Hotel,
       title: "Front desk service POS",
-      description: "Built for hotel front-desk charges. Staff record guest-facing services now, with room folios and reservations planned for later modules.",
+      description: "Built for hotel front-desk charges, guest services, and payment records.",
       primaryRule: "Guest optional"
     };
   }

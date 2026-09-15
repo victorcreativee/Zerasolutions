@@ -5,6 +5,11 @@ export async function getCustomers(businessId, params = {}) {
   return response.data.customers;
 }
 
+export async function getCustomerSummary(businessId, customerId) {
+  const response = await api.get(`/customers/business/${businessId}/${customerId}/summary`);
+  return response.data.customer;
+}
+
 export async function createCustomer(businessId, payload) {
   const response = await api.post(`/customers/business/${businessId}`, payload);
   return response.data.customer;

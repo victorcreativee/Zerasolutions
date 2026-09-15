@@ -8,11 +8,12 @@ import {
   Plus,
   Search,
   Tag,
+  Upload,
   Wrench,
   X
 } from "lucide-react";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
-import { createProduct, getProducts, updateProduct, updateProductStatus } from "../../services/productService.js";
+import { createProduct, getProducts, importProducts, updateProduct, updateProductStatus } from "../../services/productService.js";
 
 const defaultForm = {
   name: "",
@@ -35,6 +36,8 @@ export default function ProductsPage() {
   const [products, setProducts] = useState([]);
   const [form, setForm] = useState(defaultForm);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importText, setImportText] = useState("");
   const [editingProductId, setEditingProductId] = useState("");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("ALL");
@@ -42,6 +45,7 @@ export default function ProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [visibleCount, setVisibleCount] = useState(100);
   const [loading, setLoading] = useState(false);
+  const [importSaving, setImportSaving] = useState(false);
   const [saving, setSaving] = useState(false);
   const [updatingProductId, setUpdatingProductId] = useState("");
   const [error, setError] = useState("");
@@ -157,6 +161,26 @@ export default function ProductsPage() {
     }
   }
 
+  async function handleImportSubmit(event) {
+    event.preventDefault();
+
+    try {
+      setImportSaving(true);
+      setError("");
+      setMessage("");
+      const rows = parseProductImport(importText);
+      const result = await importProducts(activeBusinessId, rows);
+      setImportOpen(false);
+      setImportText("");
+      await loadProducts("");
+      setMessage(`${result.imported} products imported${result.skipped ? `, ${result.skipped} duplicate rows skipped` : ""}.`);
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || apiError.message || "Unable to import products.");
+    } finally {
+      setImportSaving(false);
+    }
+  }
+
   function handleSearchSubmit(event) {
     event.preventDefault();
     loadProducts(search);
@@ -215,16 +239,25 @@ export default function ProductsPage() {
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase text-zera-green">{guide.eyebrow}</p>
           <h2 className="mt-1 text-xl font-bold tracking-tight text-zera-ink">Products</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">{guide.description}</p>
         </div>
-        <button
-          className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-zera-green px-4 text-sm font-bold text-white shadow-xs hover:bg-zera-greenDark"
-          type="button"
-          onClick={openCreateDrawer}
-        >
-          <Plus size={17} />
-          New product
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md border border-zera-line bg-white px-4 text-sm font-bold text-zera-ink shadow-xs hover:bg-zera-mintSoft"
+            type="button"
+            onClick={() => setImportOpen(true)}
+          >
+            <Upload size={17} />
+            Import
+          </button>
+          <button
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-zera-green px-4 text-sm font-bold text-white shadow-xs hover:bg-zera-greenDark"
+            type="button"
+            onClick={openCreateDrawer}
+          >
+            <Plus size={17} />
+            New product
+          </button>
+        </div>
       </header>
 
       {error ? <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
@@ -279,6 +312,16 @@ export default function ProductsPage() {
           onClose={closeDrawer}
           onSubmit={handleSubmit}
           saving={saving}
+        />
+      ) : null}
+
+      {importOpen ? (
+        <ProductImportDialog
+          importText={importText}
+          onChange={setImportText}
+          onClose={() => setImportOpen(false)}
+          onSubmit={handleImportSubmit}
+          saving={importSaving}
         />
       ) : null}
     </div>
@@ -661,6 +704,52 @@ function ProductDrawer({ business, form, isEditing, onChange, onClose, onSubmit,
   );
 }
 
+function ProductImportDialog({ importText, onChange, onClose, onSubmit, saving }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/25 p-4">
+      <section className="flex max-h-[calc(100vh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-md border border-zera-line bg-white shadow-panel">
+        <div className="flex items-start justify-between gap-3 border-b border-zera-line bg-zera-mintSoft/40 px-5 py-4">
+          <div>
+            <p className="text-xs font-bold uppercase text-zera-green">Bulk catalog setup</p>
+            <h3 className="mt-1 text-xl font-bold">Import products</h3>
+            <p className="mt-1 text-sm text-zera-muted">Paste up to 500 rows. Columns: name, price, category, unit, sku, barcode, type.</p>
+          </div>
+          <button className="flex h-9 w-9 items-center justify-center rounded-md text-zera-muted hover:bg-zera-surface" type="button" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <form className="min-h-0 flex-1 overflow-y-auto p-5" onSubmit={onSubmit}>
+          <div className="rounded-md border border-zera-line bg-zera-mintSoft p-3 text-sm text-zera-muted">
+            <p className="font-bold text-zera-ink">CSV format</p>
+            <p className="mt-1 font-mono text-xs">name,price,category,unit,sku,barcode,type</p>
+          </div>
+
+          <label className="mt-4 block">
+            <span className="mb-2 block text-sm font-semibold text-zera-ink">Product rows</span>
+            <textarea
+              className="min-h-[320px] w-full rounded-md border border-zera-line bg-white px-3 py-3 font-mono text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+              placeholder="Paste product CSV rows"
+              value={importText}
+              onChange={(event) => onChange(event.target.value)}
+            />
+          </label>
+
+          <div className="mt-5 flex flex-col-reverse gap-2 border-t border-zera-line pt-4 sm:flex-row sm:justify-end">
+            <button className="inline-flex h-10 items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-bold text-zera-ink hover:bg-zera-surface" type="button" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-zera-green px-4 text-sm font-bold text-white hover:bg-zera-greenDark disabled:cursor-not-allowed disabled:opacity-60" disabled={saving} type="submit">
+              <Upload size={16} />
+              {saving ? "Importing..." : "Import products"}
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
 function getProductFormHints(business, productType) {
   const businessType = (business?.type || "").toLowerCase();
 
@@ -715,6 +804,74 @@ function getProductFormHints(business, productType) {
     sku: "Optional product code",
     barcode: "Scan or type barcode"
   };
+}
+
+function parseProductImport(text) {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  if (!lines.length) {
+    throw new Error("Paste product rows before importing.");
+  }
+
+  const firstRow = parseCsvLine(lines[0]).map((cell) => cell.toLowerCase());
+  const hasHeader = firstRow.includes("name") && firstRow.includes("price");
+  const headers = hasHeader ? firstRow : ["name", "price", "category", "unit", "sku", "barcode", "type"];
+  const rows = hasHeader ? lines.slice(1) : lines;
+
+  if (!rows.length) {
+    throw new Error("Add product rows below the header.");
+  }
+
+  return rows.map((line, index) => {
+    const values = parseCsvLine(line);
+    const product = headers.reduce((row, header, columnIndex) => ({ ...row, [header]: values[columnIndex] || "" }), {});
+    return {
+      name: product.name,
+      price: product.price,
+      category: product.category,
+      unit: product.unit,
+      sku: product.sku,
+      barcode: product.barcode,
+      type: (product.type || "PHYSICAL").toUpperCase(),
+      rowNumber: index + 1
+    };
+  });
+}
+
+function parseCsvLine(line) {
+  const values = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    const nextCharacter = line[index + 1];
+
+    if (character === '"' && inQuotes && nextCharacter === '"') {
+      current += '"';
+      index += 1;
+      continue;
+    }
+
+    if (character === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if (character === "," && !inQuotes) {
+      values.push(current.trim());
+      current = "";
+      continue;
+    }
+
+    current += character;
+  }
+
+  values.push(current.trim());
+  return values;
 }
 
 function SectionLabel({ helper, title }) {
@@ -779,7 +936,7 @@ function getCatalogGuide(business) {
   if (type.includes("pharmacy")) {
     return {
       eyebrow: "Pharmacy catalog",
-      description: "Medicines, consultations, and counter charges prepared for fast search and checkout."
+      description: "Medicines, consultations, and counter charges for fast search and checkout."
     };
   }
 
@@ -800,7 +957,7 @@ function getCatalogGuide(business) {
   if (type.includes("electronic")) {
     return {
       eyebrow: "Electronics catalog",
-      description: "Devices, accessories, repair services, and charges prepared for fast search, stock tracking, and clean receipts."
+      description: "Devices, accessories, repair services, and charges for fast search, stock tracking, and clean receipts."
     };
   }
 

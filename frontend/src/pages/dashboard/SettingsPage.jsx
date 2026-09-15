@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Boxes, Building2, ChartNoAxesCombined, MapPin, Plus, ReceiptText, ShieldCheck, Smartphone, Store, Table2, Wallet, X } from "lucide-react";
+import { Boxes, Building2, ChartNoAxesCombined, Download, HardDrive, MapPin, Plus, ReceiptText, RefreshCcw, ShieldCheck, Smartphone, Store, Table2, Wallet, Wifi, X } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import Input from "../../components/Input.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
 import { createBranch, updateBranchStatus, updateBusinessProfile } from "../../services/setupService.js";
+import { getSyncOperations, getSyncStatus, prepareSyncRun } from "../../services/syncService.js";
 
 const defaultProfileForm = {
   name: "",
@@ -20,7 +21,8 @@ const defaultBranchForm = {
 const settingsTabs = [
   { label: "Profile", value: "profile" },
   { label: "Branches", value: "branches" },
-  { label: "Modules & roles", value: "access" }
+  { label: "Modules & roles", value: "access" },
+  { label: "System updates", value: "updates" }
 ];
 
 const moduleDetails = {
@@ -36,7 +38,7 @@ const moduleDetails = {
   },
   FINANCE: {
     name: "Finance",
-    description: "Money tracking and business reports. Deeper accounting comes later.",
+    description: "Money tracking and business reports.",
     icon: Wallet
   },
   OPERATIONS: {
@@ -55,6 +57,7 @@ export default function SettingsPage() {
   const { activeBusiness, activeBusinessId, loading, refreshWorkspace, selectBranch } = useWorkspace();
   const roleDetails = useMemo(() => buildRoleDetails(activeBusiness), [activeBusiness]);
   const workflow = useMemo(() => getPOSWorkflowInfo(activeBusiness), [activeBusiness]);
+  const desktopInfo = getDesktopInfo();
   const [activeTab, setActiveTab] = useState("profile");
   const [profileForm, setProfileForm] = useState(defaultProfileForm);
   const [branchForm, setBranchForm] = useState(defaultBranchForm);
@@ -62,6 +65,10 @@ export default function SettingsPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingBranch, setSavingBranch] = useState(false);
   const [updatingBranchId, setUpdatingBranchId] = useState("");
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
+  const [syncOperations, setSyncOperations] = useState([]);
+  const [syncStatus, setSyncStatus] = useState(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -82,6 +89,55 @@ export default function SettingsPage() {
         : defaultProfileForm
     );
   }, [activeBusiness]);
+
+  useEffect(() => {
+    if (activeTab !== "updates" || !activeBusinessId) {
+      return;
+    }
+
+    loadSyncState();
+  }, [activeTab, activeBusinessId]);
+
+  async function loadSyncState() {
+    if (!activeBusinessId) {
+      return;
+    }
+
+    setSyncLoading(true);
+    setSyncMessage("");
+
+    try {
+      const [status, operations] = await Promise.all([getSyncStatus(activeBusinessId), getSyncOperations(activeBusinessId)]);
+      setSyncStatus(status);
+      setSyncOperations(operations);
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || "Unable to load sync status.");
+    } finally {
+      setSyncLoading(false);
+    }
+  }
+
+  async function handlePrepareSync() {
+    if (!activeBusinessId) {
+      return;
+    }
+
+    setSyncLoading(true);
+    setSyncMessage("");
+    setError("");
+
+    try {
+      const result = await prepareSyncRun(activeBusinessId);
+      setSyncStatus(result.status);
+      setSyncMessage(result.message);
+      const operations = await getSyncOperations(activeBusinessId);
+      setSyncOperations(operations);
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || "Unable to prepare sync.");
+    } finally {
+      setSyncLoading(false);
+    }
+  }
 
   async function handleProfileSubmit(event) {
     event.preventDefault();
@@ -166,9 +222,6 @@ export default function SettingsPage() {
           <div>
             <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Business setup</p>
             <h2 className="mt-1 text-2xl font-bold">Workspace settings</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">
-              Manage the selected business profile, branch locations, and active foundations.
-            </p>
           </div>
           {activeBusiness ? <SummaryPill label="Selected business" value={activeBusiness.name} /> : null}
         </div>
@@ -318,6 +371,19 @@ export default function SettingsPage() {
             </section>
           ) : null}
 
+          {activeTab === "updates" ? (
+            <SystemUpdatesPanel
+              activeBusiness={activeBusiness}
+              desktopInfo={desktopInfo}
+              loading={syncLoading}
+              onPrepareSync={handlePrepareSync}
+              onRefresh={loadSyncState}
+              syncMessage={syncMessage}
+              syncOperations={syncOperations}
+              syncStatus={syncStatus}
+            />
+          ) : null}
+
           {showBranchPanel ? (
             <div className="fixed inset-0 z-40 flex justify-end bg-black/20 no-print">
               <form className="h-full w-full max-w-md overflow-y-auto bg-white shadow-2xl" onSubmit={handleBranchSubmit}>
@@ -355,7 +421,6 @@ function ModulesTable({ modules }) {
     <section className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
       <div className="border-b border-zera-line p-4">
         <h3 className="font-bold">Enabled modules</h3>
-        <p className="mt-0.5 text-sm text-zera-muted">Visible foundations for this business.</p>
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-[700px] w-full text-left text-sm">
@@ -370,7 +435,7 @@ function ModulesTable({ modules }) {
             {modules.map((module) => {
               const details = moduleDetails[module.key] || {
                 name: module.key,
-                description: "Prepared for future use.",
+                description: "Configured for this business.",
                 icon: Store
               };
               const Icon = details.icon;
@@ -408,7 +473,7 @@ function RolesPanel({ roles }) {
         </div>
         <div>
           <h3 className="font-bold">Role structure</h3>
-          <p className="mt-0.5 text-sm text-zera-muted">Prepared access levels for this business type.</p>
+          <p className="mt-0.5 text-sm text-zera-muted">Access levels for this business type.</p>
         </div>
       </div>
       <div className="divide-y divide-zera-line rounded-md border border-zera-line">
@@ -423,6 +488,214 @@ function RolesPanel({ roles }) {
   );
 }
 
+function SystemUpdatesPanel({ activeBusiness, desktopInfo, loading, onPrepareSync, onRefresh, syncMessage, syncOperations, syncStatus }) {
+  const isDesktop = desktopInfo.mode === "desktop";
+  const version = desktopInfo.appVersion || import.meta.env.VITE_APP_VERSION || "Local build";
+  const counts = syncStatus?.counts || {};
+  const pendingCount = Number(counts.PENDING || 0);
+  const syncingCount = Number(counts.SYNCING || 0);
+  const syncedCount = Number(counts.SYNCED || 0);
+  const failedCount = Number(counts.FAILED || 0);
+  const updateRows = [
+    {
+      icon: Download,
+      label: "Installed version",
+      value: version,
+      helper: isDesktop ? "Version installed on this computer." : "Version checks run inside the desktop app."
+    },
+    {
+      icon: RefreshCcw,
+      label: "Update channel",
+      value: activeBusiness?.name || "Business workspace",
+      helper: "Updates are prepared from the configured business package and modules."
+    },
+    {
+      icon: Wifi,
+      label: "Online sync",
+      value: syncStatus?.configured ? "Configured" : "Not connected",
+      helper: syncStatus?.configured ? "This desktop build has a sync target configured." : "Pending work stays local until the secure cloud sync connector is configured."
+    },
+    {
+      icon: HardDrive,
+      label: "Local queue",
+      value: `${pendingCount} pending`,
+      helper: failedCount ? `${failedCount} failed item${failedCount === 1 ? "" : "s"} need review.` : "Offline records are kept in the local database queue."
+    }
+  ];
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_460px]">
+      <article className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
+        <div className="flex flex-col gap-3 border-b border-zera-line px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">System updates</p>
+            <h3 className="mt-1 text-lg font-bold text-zera-ink">Desktop app status</h3>
+            <p className="mt-1 text-sm text-zera-muted">Installed version, update readiness, and offline queue state.</p>
+          </div>
+          <button
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zera-line bg-white px-3 text-sm font-bold text-zera-ink shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            disabled={loading}
+            onClick={onRefresh}
+          >
+            <RefreshCcw size={15} />
+            Refresh
+          </button>
+        </div>
+        <div className="grid divide-y divide-zera-line md:grid-cols-2 md:divide-x md:divide-y-0">
+          {updateRows.slice(0, 2).map((row) => (
+            <SystemStatusCell key={row.label} {...row} />
+          ))}
+        </div>
+        <div className="border-t border-zera-line p-4">
+          <div className="grid gap-3 sm:grid-cols-4">
+            <SyncCount label="Pending" tone="warning" value={pendingCount} />
+            <SyncCount label="Syncing" tone="info" value={syncingCount} />
+            <SyncCount label="Synced" tone="success" value={syncedCount} />
+            <SyncCount label="Failed" tone="danger" value={failedCount} />
+          </div>
+        </div>
+      </article>
+
+      <article className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
+        <div className="border-b border-zera-line px-4 py-4">
+          <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Offline readiness</p>
+          <h3 className="mt-1 text-lg font-bold text-zera-ink">Local sync queue</h3>
+        </div>
+        <div className="divide-y divide-zera-line">
+          {updateRows.slice(2).map((row) => (
+            <SystemStatusCell key={row.label} {...row} compact />
+          ))}
+        </div>
+        <div className="border-t border-zera-line p-4">
+          <button
+            className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-md bg-zera-green px-4 text-sm font-bold text-white shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
+            type="button"
+            disabled={!isDesktop || loading}
+            onClick={onPrepareSync}
+          >
+            <Wifi size={16} />
+            {loading ? "Checking..." : "Check sync readiness"}
+          </button>
+          <p className="mt-2 text-sm leading-5 text-zera-muted">
+            {isDesktop
+              ? "The desktop keeps offline work locally and reports what still needs to be synchronized."
+              : "Open this section in the desktop app to use offline sync."}
+          </p>
+          {syncMessage ? <p className="mt-3 rounded-md bg-zera-mintSoft px-3 py-2 text-sm font-semibold text-zera-green">{syncMessage}</p> : null}
+        </div>
+      </article>
+
+      <article className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs xl:col-span-2">
+        <div className="flex flex-col gap-1 border-b border-zera-line px-4 py-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Recent offline changes</p>
+            <h3 className="mt-1 text-lg font-bold text-zera-ink">{activeBusiness?.name || "Business"} queue</h3>
+          </div>
+          <p className="text-sm text-zera-muted">{syncOperations.length} latest item{syncOperations.length === 1 ? "" : "s"}</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="min-w-[820px] w-full text-left text-sm">
+            <thead>
+              <tr className="border-b border-zera-line bg-zera-mintSoft text-xs uppercase text-zera-muted">
+                <th className="px-4 py-3 font-bold">Action</th>
+                <th className="px-4 py-3 font-bold">Record</th>
+                <th className="px-4 py-3 font-bold">Status</th>
+                <th className="px-4 py-3 font-bold">Created</th>
+                <th className="px-4 py-3 font-bold">Last error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {syncOperations.length ? (
+                syncOperations.map((operation) => (
+                  <tr className="border-b border-zera-line last:border-0 hover:bg-zera-mintSoft" key={operation.id}>
+                    <td className="px-4 py-3">
+                      <p className="font-bold text-zera-ink">{formatSyncAction(operation)}</p>
+                      <p className="mt-0.5 text-xs text-zera-muted">{operation.endpoint}</p>
+                    </td>
+                    <td className="px-4 py-3 text-zera-muted">{operation.entityId || "Batch import"}</td>
+                    <td className="px-4 py-3">
+                      <SyncStatusBadge status={operation.status} />
+                    </td>
+                    <td className="px-4 py-3 text-zera-muted">{formatSyncDate(operation.createdAt)}</td>
+                    <td className="max-w-xs truncate px-4 py-3 text-zera-muted">{operation.lastError || "None"}</td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td className="px-4 py-10 text-center text-zera-muted" colSpan="5">
+                    No offline changes are waiting for sync.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+  );
+}
+
+function SyncCount({ label, tone, value }) {
+  const toneClass = {
+    danger: "bg-red-50 text-red-700",
+    info: "bg-blue-50 text-blue-700",
+    success: "bg-emerald-50 text-emerald-700",
+    warning: "bg-amber-50 text-amber-700"
+  }[tone];
+
+  return (
+    <div className={`rounded-md px-3 py-3 ${toneClass}`}>
+      <p className="text-xs font-bold uppercase">{label}</p>
+      <p className="mt-1 text-xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function SyncStatusBadge({ status }) {
+  const normalizedStatus = String(status || "PENDING").toUpperCase();
+  const className =
+    normalizedStatus === "SYNCED"
+      ? "bg-emerald-50 text-emerald-700"
+      : normalizedStatus === "FAILED"
+        ? "bg-red-50 text-red-700"
+        : normalizedStatus === "SYNCING"
+          ? "bg-blue-50 text-blue-700"
+          : "bg-amber-50 text-amber-700";
+
+  return <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${className}`}>{normalizedStatus.toLowerCase()}</span>;
+}
+
+function formatSyncAction(operation) {
+  return `${operation.entityType?.replace(/_/g, " ") || "record"} ${operation.operation?.replace(/_/g, " ") || "change"}`;
+}
+
+function formatSyncDate(value) {
+  if (!value) {
+    return "Not available";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
+}
+
+function SystemStatusCell({ compact = false, helper, icon: Icon, label, value }) {
+  return (
+    <div className={`flex items-start gap-3 ${compact ? "px-4 py-3" : "p-4"}`}>
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
+        <Icon size={17} />
+      </span>
+      <div className="min-w-0">
+        <p className="text-xs font-bold uppercase tracking-wide text-zera-muted">{label}</p>
+        <p className="mt-1 truncate font-bold text-zera-ink">{value}</p>
+        <p className="mt-1 text-sm leading-5 text-zera-muted">{helper}</p>
+      </div>
+    </div>
+  );
+}
+
 function ReadOnlyField({ label, value }) {
   return (
     <label className="block">
@@ -430,6 +703,14 @@ function ReadOnlyField({ label, value }) {
       <div className="flex h-10 items-center rounded-md border border-zera-line bg-zera-mintSoft px-3 text-sm font-semibold text-zera-muted">{value}</div>
     </label>
   );
+}
+
+function getDesktopInfo() {
+  if (typeof window === "undefined") {
+    return {};
+  }
+
+  return window.zeraDesktop || {};
 }
 
 function SummaryPill({ label, value }) {

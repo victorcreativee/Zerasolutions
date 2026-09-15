@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Banknote, CheckCircle2, Clock3, CreditCard, Printer, ReceiptText, RefreshCcw, Smartphone, Table2, UserRound } from "lucide-react";
+import { AlertTriangle, Banknote, CheckCircle2, Clock3, CreditCard, Printer, ReceiptText, RefreshCcw, Smartphone, Table2, Trash2, UserRound } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import PrintableBill from "../../components/PrintableBill.jsx";
 import PrintableReceipt from "../../components/PrintableReceipt.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
-import { getActivePOSOrders, markPOSOrderBillPrinted, payPOSOrder } from "../../services/posService.js";
+import { cancelPOSOrder, getActivePOSOrders, markPOSOrderBillPrinted, payPOSOrder } from "../../services/posService.js";
 
 const queueFilters = [
   { label: "All", value: "ALL" },
@@ -13,16 +13,18 @@ const queueFilters = [
 ];
 
 export default function OpenBillsPage() {
-  const { activeBranch, activeBranchId, activeBusiness, activeBusinessId } = useWorkspace();
+  const { activeBranch, activeBranchId, activeBusiness, activeBusinessId, activeRoleName } = useWorkspace();
   const [orders, setOrders] = useState([]);
   const [selectedOrderId, setSelectedOrderId] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("CASH");
   const [billFilter, setBillFilter] = useState("ALL");
   const [billToPrint, setBillToPrint] = useState(null);
+  const [cancelCandidateOrder, setCancelCandidateOrder] = useState(null);
   const [lastSale, setLastSale] = useState(null);
   const [loading, setLoading] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
   const [printingBill, setPrintingBill] = useState(false);
+  const [cancellingOrderId, setCancellingOrderId] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -32,10 +34,13 @@ export default function OpenBillsPage() {
   const selectedOrder = visibleOrders.find((order) => order.id === selectedOrderId) || visibleOrders[0] || null;
   const totalDue = orders.reduce((total, order) => total + Number(order.total), 0);
   const selectedItemsTotal = useMemo(
-    () => selectedOrder?.items?.reduce((total, item) => total + Number(item.lineTotal), 0) || Number(selectedOrder?.total || 0),
+    () => selectedOrder?.items?.reduce((total, item) => total + Number(item.lineTotal), 0) || Number(selectedOrder?.subtotal || selectedOrder?.total || 0),
     [selectedOrder]
   );
+  const selectedBillTotal = Number(selectedOrder?.total || selectedItemsTotal);
+  const selectedTaxAmount = Math.max(selectedBillTotal - selectedItemsTotal, 0);
   const waiterQueue = useMemo(() => buildWaiterQueue(orders), [orders]);
+  const canCancelBills = ["Owner", "Manager"].includes(activeRoleName);
 
   useEffect(() => {
     if (!activeBusinessId || !activeBranchId || activeBusiness?.posMode !== "TABLE_SERVICE") {
@@ -102,6 +107,27 @@ export default function OpenBillsPage() {
       setError(apiError.response?.data?.message || "Unable to receive payment.");
     } finally {
       setSavingPayment(false);
+    }
+  }
+
+  async function handleCancelOrder(order = cancelCandidateOrder) {
+    if (!order || !canCancelBills) {
+      return;
+    }
+
+    try {
+      setCancellingOrderId(order.id);
+      setError("");
+      setMessage("");
+      const cancelledOrder = await cancelPOSOrder(order.id);
+      setOrders((current) => current.filter((item) => item.id !== cancelledOrder.id));
+      setSelectedOrderId((current) => (current === cancelledOrder.id ? "" : current));
+      setCancelCandidateOrder(null);
+      setMessage(`${cancelledOrder.orderNumber} cancelled. ${cancelledOrder.table?.name || "Table"} is available again if no other bill is open.`);
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || "Unable to cancel this table bill.");
+    } finally {
+      setCancellingOrderId("");
     }
   }
 
@@ -252,9 +278,21 @@ export default function OpenBillsPage() {
                 </div>
 
                 <div className="rounded-md bg-zera-mintSoft p-4">
-                  <div className="flex items-center justify-between gap-4">
+                  <div className="space-y-2 border-b border-zera-line pb-3 text-sm">
+                    <div className="flex items-center justify-between gap-4">
+                      <span className="text-zera-muted">Subtotal</span>
+                      <span className="font-bold">{formatMoney(selectedItemsTotal, activeBusiness.currency)}</span>
+                    </div>
+                    {selectedTaxAmount > 0 ? (
+                      <div className="flex items-center justify-between gap-4">
+                        <span className="text-zera-muted">{getBusinessTaxLabel(activeBusiness)}</span>
+                        <span className="font-bold">{formatMoney(selectedTaxAmount, activeBusiness.currency)}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 flex items-center justify-between gap-4">
                     <span className="text-sm font-bold text-zera-muted">Amount due</span>
-                    <span className="text-2xl font-bold">{formatMoney(selectedItemsTotal, activeBusiness.currency)}</span>
+                    <span className="text-2xl font-bold">{formatMoney(selectedBillTotal, activeBusiness.currency)}</span>
                   </div>
                 </div>
 
@@ -291,6 +329,17 @@ export default function OpenBillsPage() {
                     <ReceiptText size={17} />
                     {savingPayment ? "Receiving..." : "Receive payment"}
                   </Button>
+                  {canCancelBills ? (
+                    <button
+                      type="button"
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-md border border-red-200 bg-white px-3 text-sm font-bold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={cancellingOrderId === selectedOrder.id || savingPayment || printingBill}
+                      onClick={() => setCancelCandidateOrder(selectedOrder)}
+                    >
+                      <Trash2 size={16} />
+                      {cancellingOrderId === selectedOrder.id ? "Cancelling..." : "Cancel bill"}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             )}
@@ -323,6 +372,38 @@ export default function OpenBillsPage() {
       {billToPrint ? (
         <div className="print-host">
           <PrintableBill business={activeBusiness} order={billToPrint} />
+        </div>
+      ) : null}
+
+      {cancelCandidateOrder ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-zera-ink/30 px-4">
+          <section className="w-full max-w-md rounded-md border border-zera-line bg-white p-5 shadow-xl">
+            <div className="flex items-start gap-3">
+              <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-red-50 text-red-700">
+                <AlertTriangle size={20} />
+              </span>
+              <div>
+                <p className="text-xs font-bold uppercase text-red-700">Cancel table bill</p>
+                <h3 className="mt-1 text-xl font-bold text-zera-ink">{cancelCandidateOrder.orderNumber}</h3>
+                <p className="mt-2 text-sm leading-6 text-zera-muted">
+                  This removes the bill from the cashier queue and frees {cancelCandidateOrder.table?.name || "the table"} when no other active bill remains.
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button type="button" variant="secondary" className="h-10 px-4" onClick={() => setCancelCandidateOrder(null)}>
+                Keep bill
+              </Button>
+              <button
+                type="button"
+                className="inline-flex h-10 items-center justify-center rounded-md bg-red-700 px-4 text-sm font-bold text-white transition hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={cancellingOrderId === cancelCandidateOrder.id}
+                onClick={() => handleCancelOrder(cancelCandidateOrder)}
+              >
+                {cancellingOrderId === cancelCandidateOrder.id ? "Cancelling..." : "Cancel bill"}
+              </button>
+            </div>
+          </section>
         </div>
       ) : null}
     </div>
@@ -464,6 +545,17 @@ function filterBillsForCashier(orders, billFilter) {
 
 function formatMoney(value, currency = "UGX") {
   return `${currency} ${Number(value).toLocaleString()}`;
+}
+
+function getBusinessTaxLabel(business) {
+  const label = business?.taxName?.trim() || "Tax";
+  const rate = Number(business?.taxRate || 0);
+
+  if (!business?.taxEnabled || !Number.isFinite(rate) || rate <= 0) {
+    return label;
+  }
+
+  return `${label} ${rate}%`;
 }
 
 function formatTime(value) {

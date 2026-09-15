@@ -1,12 +1,14 @@
 import {
   BarChart3,
   Boxes,
+  Building2,
   ClipboardList,
   Home,
   Package,
   ReceiptText,
   Settings,
   ShieldCheck,
+  SlidersHorizontal,
   UserRound,
   Users,
   Wallet
@@ -60,7 +62,18 @@ export const businessNavigation = [
 export const systemAdminNavigation = [
   {
     label: "Platform",
-    items: [{ label: "System Admin", path: "/system-admin", icon: ShieldCheck }]
+    items: [
+      {
+        label: "System Control",
+        path: "/system-admin",
+        icon: ShieldCheck,
+        children: [
+          { label: "Organizations", path: "/system-admin?section=organizations", icon: Building2 },
+          { label: "Packages", path: "/system-admin?section=packages", icon: Package },
+          { label: "Settings", path: "/system-admin?section=platform", icon: SlidersHorizontal }
+        ]
+      }
+    ]
   }
 ];
 
@@ -78,7 +91,7 @@ const routeMetadata = {
   "/finance": { title: "Finance", section: "Insights" },
   "/users": { title: "Team", section: "Administration" },
   "/settings": { title: "Business Settings", section: "Administration" },
-  "/system-admin": { title: "System Admin", section: "Zera Platform" }
+  "/system-admin": { title: "System Control", section: "Zera Platform" }
 };
 
 export function getRouteMetadata(pathname) {

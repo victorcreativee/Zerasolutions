@@ -14,3 +14,8 @@ export async function receiveInventoryStock(businessId, branchId, productId, pay
   const response = await api.post(`/inventory/business/${businessId}/branch/${branchId}/products/${productId}/receive`, payload);
   return response.data.stock;
 }
+
+export async function transferInventoryStock(businessId, payload) {
+  const response = await api.post(`/inventory/business/${businessId}/transfer`, payload);
+  return response.data;
+}

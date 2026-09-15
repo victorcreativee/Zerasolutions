@@ -4,10 +4,11 @@ import RegisterPage from "./pages/auth/RegisterPage.jsx";
 import AccountPage from "./pages/account/AccountPage.jsx";
 import CustomersPage from "./pages/customers/CustomersPage.jsx";
 import DashboardPage from "./pages/dashboard/DashboardPage.jsx";
-import PlaceholderPage from "./pages/dashboard/PlaceholderPage.jsx";
 import SettingsPage from "./pages/dashboard/SettingsPage.jsx";
 import UsersPage from "./pages/dashboard/UsersPage.jsx";
+import FinancePage from "./pages/finance/FinancePage.jsx";
 import InventoryPage from "./pages/inventory/InventoryPage.jsx";
+import OperationsPage from "./pages/operations/OperationsPage.jsx";
 import OpenBillsPage from "./pages/pos/OpenBillsPage.jsx";
 import POSPage from "./pages/pos/POSPage.jsx";
 import ProductsPage from "./pages/products/ProductsPage.jsx";
@@ -46,19 +47,19 @@ export default function App() {
           <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={salesRoles} />}>
             <Route path="/customers" element={<CustomersPage />} />
           </Route>
-          <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={productRoles} />}>
+          <Route element={<BusinessModuleRoute moduleKeys={["POS", "INVENTORY"]} allowedRoles={productRoles} />}>
             <Route path="/products" element={<ProductsPage />} />
           </Route>
           <Route element={<BusinessModuleRoute moduleKey="INVENTORY" allowedRoles={["Owner", "Manager", "Store Keeper", "Pharmacist"]} />}>
             <Route path="/inventory" element={<InventoryPage />} />
           </Route>
           <Route element={<BusinessModuleRoute moduleKey="FINANCE" allowedRoles={["Owner"]} />}>
-            <Route path="/finance" element={<PlaceholderPage title="Finance" moduleKey="FINANCE" />} />
+            <Route path="/finance" element={<FinancePage />} />
           </Route>
           <Route element={<BusinessModuleRoute moduleKey="OPERATIONS" allowedRoles={["Owner", "Manager"]} />}>
-            <Route path="/operations" element={<PlaceholderPage title="Operations" moduleKey="OPERATIONS" />} />
+            <Route path="/operations" element={<OperationsPage />} />
           </Route>
-          <Route element={<BusinessModuleRoute moduleKey="POS" allowedRoles={reportRoles} />}>
+          <Route element={<BusinessModuleRoute moduleKeys={["REPORTS", "POS"]} allowedRoles={reportRoles} />}>
             <Route path="/reports" element={<ReportsPage />} />
           </Route>
           <Route element={<BusinessOwnerRoute />}>

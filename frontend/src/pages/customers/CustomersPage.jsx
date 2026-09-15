@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { Mail, Pencil, Phone, Plus, Search, ToggleLeft, ToggleRight, UserRound, X } from "lucide-react";
+import { Banknote, Eye, Mail, Pencil, Phone, Plus, ReceiptText, Search, ToggleLeft, ToggleRight, UserRound, X } from "lucide-react";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
-import { createCustomer, getCustomers, updateCustomer, updateCustomerStatus } from "../../services/customerService.js";
+import { createCustomer, getCustomerSummary, getCustomers, updateCustomer, updateCustomerStatus } from "../../services/customerService.js";
 
 const defaultForm = {
   name: "",
@@ -15,11 +15,13 @@ export default function CustomersPage() {
   const [customers, setCustomers] = useState([]);
   const [form, setForm] = useState(defaultForm);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [profileCustomer, setProfileCustomer] = useState(null);
   const [editingCustomerId, setEditingCustomerId] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ACTIVE");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [profileLoadingCustomerId, setProfileLoadingCustomerId] = useState("");
   const [updatingCustomerId, setUpdatingCustomerId] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -143,6 +145,20 @@ export default function CustomersPage() {
     setError("");
   }
 
+  async function openCustomerProfile(customer) {
+    try {
+      setProfileLoadingCustomerId(customer.id);
+      setError("");
+      setMessage("");
+      const profile = await getCustomerSummary(activeBusinessId, customer.id);
+      setProfileCustomer(profile);
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || "Unable to load customer history.");
+    } finally {
+      setProfileLoadingCustomerId("");
+    }
+  }
+
   function closeDrawer() {
     setDrawerOpen(false);
     setEditingCustomerId("");
@@ -205,7 +221,9 @@ export default function CustomersPage() {
           customers={customers}
           loading={loading}
           onEdit={openEditDrawer}
+          onOpenProfile={openCustomerProfile}
           onStatusToggle={handleStatusToggle}
+          profileLoadingCustomerId={profileLoadingCustomerId}
           updatingCustomerId={updatingCustomerId}
         />
       </section>
@@ -219,6 +237,18 @@ export default function CustomersPage() {
           onClose={closeDrawer}
           onSubmit={handleSubmit}
           saving={saving}
+        />
+      ) : null}
+
+      {profileCustomer ? (
+        <CustomerProfileDrawer
+          currency={activeBusiness.currency}
+          customer={profileCustomer}
+          onClose={() => setProfileCustomer(null)}
+          onEdit={() => {
+            setProfileCustomer(null);
+            openEditDrawer(profileCustomer);
+          }}
         />
       ) : null}
     </div>
@@ -301,7 +331,7 @@ function SegmentedStatusFilter({ onChange, value }) {
   );
 }
 
-function CustomerTable({ canManageStatus, customers, loading, onEdit, onStatusToggle, updatingCustomerId }) {
+function CustomerTable({ canManageStatus, customers, loading, onEdit, onOpenProfile, onStatusToggle, profileLoadingCustomerId, updatingCustomerId }) {
   if (!loading && customers.length === 0) {
     return (
       <div className="m-4 rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-6 text-sm text-zera-muted">
@@ -349,6 +379,15 @@ function CustomerTable({ canManageStatus, customers, loading, onEdit, onStatusTo
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex justify-end gap-2">
+                    <button
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zera-line bg-white text-zera-ink hover:bg-zera-mintSoft"
+                      type="button"
+                      disabled={profileLoadingCustomerId === customer.id}
+                      onClick={() => onOpenProfile(customer)}
+                      aria-label={`View ${customer.name}`}
+                    >
+                      <Eye size={14} />
+                    </button>
                     <button
                       className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-zera-line bg-white text-zera-ink hover:bg-zera-mintSoft"
                       type="button"
@@ -403,7 +442,7 @@ function CustomerDrawer({ customer, form, isEditing, onChange, onClose, onSubmit
                 <Field label="Customer name" required value={form.name} onChange={(value) => onChange({ ...form, name: value })} />
                 <div className="grid gap-3 sm:grid-cols-2">
                   <Field label="Phone" placeholder="+256..." value={form.phone} onChange={(value) => onChange({ ...form, phone: value })} />
-                  <Field label="Email" placeholder="customer@example.com" type="email" value={form.email} onChange={(value) => onChange({ ...form, email: value })} />
+                  <Field label="Email" placeholder="name@business.com" type="email" value={form.email} onChange={(value) => onChange({ ...form, email: value })} />
                 </div>
               </div>
             </section>
@@ -449,6 +488,103 @@ function CustomerDrawer({ customer, form, isEditing, onChange, onClose, onSubmit
   );
 }
 
+function CustomerProfileDrawer({ currency, customer, onClose, onEdit }) {
+  const summary = customer.summary || {};
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/25">
+      <button className="hidden flex-1 cursor-default lg:block" type="button" aria-label="Close customer profile" onClick={onClose} />
+      <aside className="flex h-full w-full max-w-xl flex-col border-l border-zera-line bg-white shadow-panel">
+        <div className="flex items-start justify-between gap-3 border-b border-zera-line bg-zera-mintSoft/40 px-5 py-4">
+          <div className="min-w-0">
+            <p className="text-xs font-bold uppercase text-zera-green">Customer profile</p>
+            <h3 className="mt-1 truncate text-xl font-bold">{customer.name}</h3>
+            <p className="mt-1 truncate text-sm text-zera-muted">{customer.phone || "No phone"} · {customer.email || "No email"}</p>
+          </div>
+          <button className="flex h-9 w-9 items-center justify-center rounded-md text-zera-muted hover:bg-zera-surface" type="button" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          <div className="grid gap-2 sm:grid-cols-3">
+            <ProfileMetric icon={ReceiptText} label="Receipts" value={summary.receiptCount || 0} />
+            <ProfileMetric icon={Banknote} label="Total spent" value={formatMoney(summary.totalSpent, currency)} />
+            <ProfileMetric icon={UserRound} label="Status" value={customer.status === "ACTIVE" ? "Active" : "Inactive"} />
+          </div>
+
+          <section className="mt-4 rounded-md border border-zera-line">
+            <div className="border-b border-zera-line px-4 py-3">
+              <h4 className="font-bold text-zera-ink">Recent receipts</h4>
+              <p className="mt-0.5 text-sm text-zera-muted">Latest sales connected to this customer.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-[620px] w-full text-left text-sm">
+                <thead className="border-b border-zera-line bg-zera-mintSoft text-xs font-bold uppercase text-zera-muted">
+                  <tr>
+                    <th className="px-4 py-2.5">Receipt</th>
+                    <th className="px-4 py-2.5">Branch</th>
+                    <th className="px-4 py-2.5">Payment</th>
+                    <th className="px-4 py-2.5 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {customer.recentSales?.length ? (
+                    customer.recentSales.map((sale) => (
+                      <tr className="border-b border-zera-line last:border-0" key={sale.id}>
+                        <td className="px-4 py-3">
+                          <p className="font-bold text-zera-ink">{sale.receiptNumber}</p>
+                          <p className="mt-0.5 text-xs text-zera-muted">{formatDate(sale.createdAt)}</p>
+                        </td>
+                        <td className="px-4 py-3 text-zera-muted">{sale.branch?.name || "Branch"}</td>
+                        <td className="px-4 py-3 text-zera-muted">{formatPayment(sale.paymentMethod)}</td>
+                        <td className="px-4 py-3 text-right font-bold text-zera-ink">{formatMoney(sale.total, currency)}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td className="px-4 py-8 text-sm text-zera-muted" colSpan={4}>
+                        No saved receipt history yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          {customer.notes ? (
+            <section className="mt-4 rounded-md border border-zera-line bg-zera-mintSoft p-4">
+              <p className="text-xs font-bold uppercase text-zera-muted">Notes</p>
+              <p className="mt-2 text-sm leading-6 text-zera-ink">{customer.notes}</p>
+            </section>
+          ) : null}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-zera-line px-5 py-4">
+          <button className="inline-flex h-10 items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-bold text-zera-ink hover:bg-zera-surface" type="button" onClick={onClose}>
+            Close
+          </button>
+          <button className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-zera-green px-4 text-sm font-bold text-white hover:bg-zera-greenDark" type="button" onClick={onEdit}>
+            <Pencil size={15} />
+            Edit customer
+          </button>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function ProfileMetric({ icon: Icon, label, value }) {
+  return (
+    <div className="rounded-md border border-zera-line bg-white p-3">
+      <Icon className="text-zera-green" size={17} />
+      <p className="mt-2 text-[11px] font-bold uppercase text-zera-muted">{label}</p>
+      <p className="mt-0.5 truncate font-bold text-zera-ink">{value}</p>
+    </div>
+  );
+}
+
 function ContactLine({ icon: Icon, value }) {
   return (
     <p className="flex min-w-0 items-center gap-2">
@@ -486,4 +622,27 @@ function StatusBadge({ status }) {
       {status === "ACTIVE" ? "Active" : "Inactive"}
     </span>
   );
+}
+
+function formatMoney(value, currency = "UGX") {
+  return `${currency} ${Number(value || 0).toLocaleString()}`;
+}
+
+function formatDate(value) {
+  if (!value) {
+    return "No sales yet";
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric"
+  }).format(new Date(value));
+}
+
+function formatPayment(method = "") {
+  return method
+    .replace("_", " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }

@@ -10,6 +10,11 @@ export async function createProduct(businessId, payload) {
   return response.data.product;
 }
 
+export async function importProducts(businessId, products) {
+  const response = await api.post(`/products/business/${businessId}/import`, { products });
+  return response.data;
+}
+
 export async function updateProduct(businessId, productId, payload) {
   const response = await api.patch(`/products/business/${businessId}/${productId}`, payload);
   return response.data.product;

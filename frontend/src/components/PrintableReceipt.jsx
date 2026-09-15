@@ -2,16 +2,26 @@ export default function PrintableReceipt({ business, sale }) {
   const currency = business?.currency || "UGX";
   const receiptDate = new Date(sale.createdAt);
   const subtotal = sale.items?.reduce((total, item) => total + Number(item.lineTotal), 0) || Number(sale.total);
+  const taxLabel = business?.taxName || "Tax";
+  const discountAmount = Number(sale.discountAmount || 0);
+  const taxAmount = Number(sale.taxAmount ?? (business?.taxEnabled ? Math.max(Number(sale.total || 0) - subtotal + discountAmount, 0) : 0));
 
   return (
     <article className="receipt-print-root mx-auto w-full max-w-[360px] bg-white p-5 font-mono text-[12px] leading-tight text-black shadow-soft">
       <header className="text-center">
-        <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border-2 border-black text-lg font-black">
-          {business?.name?.charAt(0)?.toUpperCase() || "Z"}
-        </div>
+        {business?.logoUrl ? (
+          <img className="mx-auto h-12 max-w-28 object-contain" src={business.logoUrl} alt={`${business?.name || "Business"} logo`} />
+        ) : (
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border-2 border-black text-lg font-black">
+            {business?.name?.charAt(0)?.toUpperCase() || "Z"}
+          </div>
+        )}
         <h3 className="mt-3 text-base font-black uppercase tracking-normal">{business?.name || "Zera Business"}</h3>
         <p className="mt-1">{sale.branch?.name || "Main Branch"}</p>
-        {business?.country ? <p>{business.country}</p> : null}
+        {business?.address ? <p>{business.address}</p> : business?.country ? <p>{business.country}</p> : null}
+        {business?.contactPhone ? <p>{business.contactPhone}</p> : null}
+        {business?.contactEmail ? <p>{business.contactEmail}</p> : null}
+        {business?.receiptHeader ? <p className="mt-2 font-bold">{business.receiptHeader}</p> : null}
         <p>Powered by Zera Solutions</p>
       </header>
 
@@ -76,14 +86,18 @@ export default function PrintableReceipt({ business, sale }) {
           <span>Subtotal</span>
           <span>{formatMoney(subtotal, currency)}</span>
         </div>
-        <div className="mt-1 flex justify-between">
-          <span>Tax</span>
-          <span>{formatMoney(0, currency)}</span>
-        </div>
-        <div className="mt-1 flex justify-between">
-          <span>Discount</span>
-          <span>{formatMoney(0, currency)}</span>
-        </div>
+        {taxAmount > 0 ? (
+          <div className="mt-1 flex justify-between">
+            <span>{taxLabel}</span>
+            <span>{formatMoney(taxAmount, currency)}</span>
+          </div>
+        ) : null}
+        {discountAmount > 0 ? (
+          <div className="mt-1 flex justify-between">
+            <span>Discount</span>
+            <span>-{formatMoney(discountAmount, currency)}</span>
+          </div>
+        ) : null}
         <div className="mt-3 border-2 border-black p-2 text-center">
           <p className="text-xs font-black uppercase">Total</p>
           <p className="mt-1 text-xl font-black">{formatMoney(sale.total, currency)}</p>
@@ -96,7 +110,7 @@ export default function PrintableReceipt({ business, sale }) {
 
       <footer className="mt-5 text-center">
         <div className="mx-auto h-10 w-44 bg-[repeating-linear-gradient(90deg,#000_0_2px,#fff_2px_5px,#000_5px_6px,#fff_6px_9px)]" />
-        <p className="mt-4 font-black">Thank you for your purchase</p>
+        <p className="mt-4 font-black">{business?.receiptFooter || "Thank you for your purchase"}</p>
         <p className="mt-1 text-[11px]">Goods sold are subject to the shop return policy.</p>
       </footer>
     </article>

@@ -3,7 +3,7 @@ import AuthLayout from "../../layouts/AuthLayout.jsx";
 
 export default function RegisterPage() {
   return (
-    <AuthLayout title="Account setup" subtitle="Zera accounts are created by a system admin or by the owner of your business workspace.">
+    <AuthLayout title="Account setup" subtitle="Use the workspace login issued by your organization.">
       <div className="rounded-md bg-zera-mint px-4 py-4 text-sm leading-6 text-zera-ink">
         Ask your Zera system admin or business owner for your email and temporary password.
       </div>

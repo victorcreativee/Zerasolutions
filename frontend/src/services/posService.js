@@ -51,6 +51,11 @@ export async function markPOSOrderBillPrinted(orderId) {
   return response.data.order;
 }
 
+export async function cancelPOSOrder(orderId) {
+  const response = await api.patch(`/pos/orders/${orderId}/cancel`);
+  return response.data.order;
+}
+
 export async function payPOSOrder(orderId, payload) {
   const response = await api.patch(`/pos/orders/${orderId}/pay`, payload);
   return response.data.sale;

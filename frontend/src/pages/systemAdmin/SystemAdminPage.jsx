@@ -1,20 +1,25 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
   Boxes,
   Building2,
   CalendarClock,
+  ChevronLeft,
   ChevronRight,
   CreditCard,
   Database,
+  Download,
+  FileText,
   Hotel,
   KeyRound,
-  LayoutDashboard,
   MapPin,
+  Palette,
   Pill,
   Plus,
   RefreshCw,
+  ReceiptText,
   Search,
   Settings,
   ShieldCheck,
@@ -31,9 +36,24 @@ import {
 import Button from "../../components/Button.jsx";
 import Input from "../../components/Input.jsx";
 import { useAuth } from "../../context/AuthContext.jsx";
-import { updateBranchStatus, updateBusinessModule } from "../../services/setupService.js";
-import { getSystemBusinesses, getSystemSetupCatalog, provisionBusiness, updatePlatformPackage, updateSystemBusinessSettings } from "../../services/systemAdminService.js";
-import { createBusinessUser, updateBusinessUserStatus } from "../../services/teamService.js";
+import { updateBusinessModule } from "../../services/setupService.js";
+import {
+  buildSystemBusinessDesktopInstaller,
+  createPlatformBusinessType,
+  createPlatformPackage,
+  createSystemBusinessBranch,
+  createSystemBusinessUser,
+  downloadSystemBusinessDesktopInstaller,
+  downloadSystemBusinessDeploymentPackage,
+  getSystemBusinesses,
+  getSystemSetupCatalog,
+  provisionBusiness,
+  updatePlatformBusinessType,
+  updatePlatformPackage,
+  updateSystemBusinessBranchStatus,
+  updateSystemBusinessUserStatus,
+  updateSystemBusinessSettings
+} from "../../services/systemAdminService.js";
 
 const defaultForm = {
   businessName: "",
@@ -54,6 +74,19 @@ const defaultUserForm = {
   password: "",
   roleName: ""
 };
+
+const defaultBranchForm = {
+  name: "",
+  location: ""
+};
+
+const packageStatusOptions = [
+  { value: "TRIAL", label: "Trial", helper: "Customer is testing Zera before paid activation." },
+  { value: "ACTIVE", label: "Active", helper: "Package is paid or approved for normal use." },
+  { value: "PAST_DUE", label: "Payment due", helper: "Payment needs follow-up, but access can remain open." },
+  { value: "SUSPENDED", label: "Suspended", helper: "Temporarily blocked until the account is resolved." },
+  { value: "CANCELLED", label: "Cancelled", helper: "Customer is no longer using this package." }
+];
 
 const fallbackBusinessTypeOptions = [
   {
@@ -86,7 +119,7 @@ const fallbackBusinessTypeOptions = [
     label: "Electronics shop",
     posMode: "RETAIL_CHECKOUT",
     icon: Smartphone,
-    helper: "Device, accessory, stock, receipt, and repair-service foundations.",
+    helper: "Device, accessory, stock, receipt, and repair-service tools.",
     roles: [
       { name: "Cashier", description: "Sell devices and accessories and receive payments." },
       { name: "Store Keeper", description: "Receive stock, monitor device quantities, and keep product records clean." },
@@ -111,7 +144,7 @@ const fallbackBusinessTypeOptions = [
     label: "Pharmacy",
     posMode: "RETAIL_CHECKOUT",
     icon: Pill,
-    helper: "Pharmacy sales now, batch and medicine controls later.",
+    helper: "Medicine sales, services, stock control, and counter reporting.",
     roles: [
       { name: "Pharmacist", description: "Serve pharmacy customers and record medicine sales." },
       { name: "Cashier", description: "Receive payments and run checkout." }
@@ -123,7 +156,7 @@ const fallbackBusinessTypeOptions = [
     label: "Hotel",
     posMode: "RETAIL_CHECKOUT",
     icon: Hotel,
-    helper: "Front-desk service sales now, room and folio workflows later.",
+    helper: "Front-desk service sales, guest charges, and branch reporting.",
     roles: [
       { name: "Front Desk", description: "Serve guest-facing hotel workflows and record service sales." },
       { name: "Cashier", description: "Receive payments and close service bills." }
@@ -143,7 +176,7 @@ const fallbackPlatformProducts = [
     key: "INVENTORY",
     title: "Inventory",
     icon: Boxes,
-    summary: "Products, stock visibility, branches, and warehouse foundations.",
+    summary: "Products, stock visibility, branches, and warehouse control.",
     detail: "Designed to grow from simple product records into stock transfers, reorder alerts, and multi-location inventory."
   },
   {
@@ -151,7 +184,7 @@ const fallbackPlatformProducts = [
     title: "Finance",
     icon: ShieldCheck,
     summary: "Cash, expenses, payment tracking, and business reporting.",
-    detail: "Keeps owner and manager finance workflows understandable before adding heavier accounting features."
+    detail: "Keeps owner and manager finance workflows clear with collections, expenses, payment tracking, and net cash visibility."
   },
   {
     key: "OPERATIONS",
@@ -191,15 +224,41 @@ const fallbackPackageOptions = [
   {
     key: "BUSINESS",
     name: "Business",
-    description: "All current Zera foundations for multi-team operations.",
+    description: "All active Zera modules for multi-team operations.",
     maxBranches: 10,
     maxUsers: 50,
     maxProducts: 10000,
+    defaultModuleKeys: ["POS", "INVENTORY", "FINANCE", "OPERATIONS", "REPORTS"]
+  },
+  {
+    key: "CUSTOM",
+    name: "Custom",
+    description: "Tailored package for customers with negotiated limits or a special module mix.",
+    maxBranches: null,
+    maxUsers: null,
+    maxProducts: null,
     defaultModuleKeys: ["POS", "INVENTORY", "FINANCE", "OPERATIONS", "REPORTS"]
   }
 ];
 
 const selectedBusinessStorageKey = "zera_system_admin_selected_business";
+
+const SYSTEM_ADMIN_SECTIONS = [
+  { id: "organizations", label: "Organizations", icon: Building2 },
+  { id: "packages", label: "Packages", icon: CreditCard },
+  { id: "platform", label: "Settings", icon: SlidersHorizontal }
+];
+
+const configurationSectionIds = SYSTEM_ADMIN_SECTIONS.map((section) => section.id);
+const systemAdminSectionIds = new Set(["dashboard", ...configurationSectionIds, "create"]);
+
+function getSystemAdminSection(section) {
+  if (section === "overview") {
+    return "dashboard";
+  }
+
+  return systemAdminSectionIds.has(section) ? section : "dashboard";
+}
 
 const businessTypeIconMap = {
   BAR_RESTAURANT: Utensils,
@@ -274,8 +333,79 @@ function getPackageOption(packageKey = "STARTER", options = fallbackPackageOptio
   return options.find((option) => option.key === packageKey || option.id === packageKey) || options[0] || fallbackPackageOptions[0];
 }
 
+function getBusinessPackageKey(business) {
+  return business?.platformPackage?.key || business?.packageKey || business?.packageCode || "STARTER";
+}
+
+function getBusinessPosMode(business, businessTypeOptions = fallbackBusinessTypeOptions) {
+  return business?.posMode || getBusinessTypeOption(business?.type, businessTypeOptions).posMode || "RETAIL_CHECKOUT";
+}
+
+function formatPosLabel(posMode, businessType = "") {
+  return formatPOSMode(posMode, businessType);
+}
+
+function getPackageSummary(packageKey, packageOptions = fallbackPackageOptions) {
+  return getPackageOption(packageKey, packageOptions);
+}
+
+function getBusinessSetupSummary(business) {
+  const branches = business?.branches || [];
+  const memberships = business?.memberships || [];
+  const modules = business?.modules || [];
+
+  return {
+    activeBranches: branches.filter((branch) => branch.status === "ACTIVE").length,
+    totalBranches: branches.length,
+    activeUsers: memberships.filter((membership) => membership.user?.status === "ACTIVE").length,
+    totalUsers: memberships.length,
+    activeModules: modules.filter((module) => module.active).length,
+    totalModules: modules.length
+  };
+}
+
+function getBusinessDeploymentReadiness(business) {
+  const summary = getBusinessSetupSummary(business);
+  const missing = [];
+  const hasPOS = (business?.modules || []).some((module) => module.key === "POS" && module.active);
+
+  if (business?.status !== "ACTIVE") {
+    missing.push("Activate the organization.");
+  }
+
+  if (!business?.platformPackage) {
+    missing.push("Assign a package.");
+  }
+
+  if (!isPackageStatusHealthy(business?.packageStatus)) {
+    missing.push("Resolve the package status.");
+  }
+
+  if (summary.activeBranches === 0) {
+    missing.push("Create or activate at least one branch.");
+  }
+
+  if (summary.activeUsers === 0) {
+    missing.push("Create at least one active user.");
+  }
+
+  if (summary.activeModules === 0) {
+    missing.push("Enable at least one module.");
+  }
+
+  if (!hasPOS) {
+    missing.push("Enable POS before installation.");
+  }
+
+  return {
+    ready: missing.length === 0,
+    missing
+  };
+}
+
 export default function SystemAdminPage() {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [businesses, setBusinesses] = useState([]);
   const [setupCatalog, setSetupCatalog] = useState({
     businessTypes: fallbackBusinessTypeOptions,
@@ -284,17 +414,23 @@ export default function SystemAdminPage() {
   });
   const [form, setForm] = useState(defaultForm);
   const [selectedBusinessId, setSelectedBusinessId] = useState(() => localStorage.getItem(selectedBusinessStorageKey) || "");
-  const [activeSection, setActiveSection] = useState("overview");
-  const [selectedProductKey, setSelectedProductKey] = useState("POS");
+  const [activeSection, setActiveSection] = useState(() => getSystemAdminSection(searchParams.get("section")));
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [moduleSavingKey, setModuleSavingKey] = useState("");
   const [packageSavingKey, setPackageSavingKey] = useState("");
+  const [packageCreating, setPackageCreating] = useState(false);
+  const [businessTypeSavingKey, setBusinessTypeSavingKey] = useState("");
+  const [businessTypeCreating, setBusinessTypeCreating] = useState(false);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [branchCreating, setBranchCreating] = useState(false);
   const [branchSavingId, setBranchSavingId] = useState("");
   const [userSaving, setUserSaving] = useState(false);
   const [userSavingId, setUserSavingId] = useState("");
+  const [deploymentDownloading, setDeploymentDownloading] = useState("");
+  const [installerBuilding, setInstallerBuilding] = useState("");
+  const [installerDownloading, setInstallerDownloading] = useState("");
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -303,6 +439,11 @@ export default function SystemAdminPage() {
       loadBusinesses();
     }
   }, [user?.systemRole]);
+
+  useEffect(() => {
+    const nextSection = getSystemAdminSection(searchParams.get("section"));
+    setActiveSection((current) => (current === nextSection ? current : nextSection));
+  }, [searchParams]);
 
   useEffect(() => {
     if (!businesses.length) {
@@ -402,6 +543,12 @@ export default function SystemAdminPage() {
     setError("");
   }
 
+  function selectSection(sectionId) {
+    const nextSection = getSystemAdminSection(sectionId);
+    setActiveSection(nextSection);
+    setSearchParams(nextSection === "dashboard" ? {} : { section: nextSection });
+  }
+
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
@@ -432,7 +579,7 @@ export default function SystemAdminPage() {
 
       setBusinesses((current) => [business, ...current]);
       setSelectedBusinessId(business.id);
-      setActiveSection("organizations");
+      selectSection("organizations");
       setMessage(`Organization created. Owner login: ${form.ownerEmail}`);
       setForm(defaultForm);
     } catch (apiError) {
@@ -484,6 +631,92 @@ export default function SystemAdminPage() {
     }
   }
 
+  async function handlePackageCreate() {
+    setError("");
+    setMessage("");
+    setPackageCreating(true);
+
+    try {
+      const packageName = getNextPackageName(packageOptions);
+      const data = await createPlatformPackage({
+        name: packageName,
+        description: "Configure this package before making it available to new customers.",
+        price: null,
+        currency: "UGX",
+        billingCycle: "MONTHLY",
+        maxBranches: 1,
+        maxUsers: 3,
+        maxProducts: 300,
+        defaultModuleKeys: ["POS", "REPORTS"],
+        active: false
+      });
+
+      setSetupCatalog((current) => ({
+        ...current,
+        packages: data.catalog?.packages?.length ? data.catalog.packages : [...current.packages, data.package]
+      }));
+      setMessage(`${data.package?.name || packageName} package created. Review it before activating.`);
+      return data.package;
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || "Unable to create package.");
+      return null;
+    } finally {
+      setPackageCreating(false);
+    }
+  }
+
+  async function handleBusinessTypeSave(businessType, payload) {
+    setError("");
+    setMessage("");
+    setBusinessTypeSavingKey(businessType.key);
+
+    try {
+      const data = await updatePlatformBusinessType(businessType.id || businessType.key, payload);
+      setSetupCatalog((current) => ({
+        ...current,
+        businessTypes: data.catalog?.businessTypes?.length
+          ? data.catalog.businessTypes
+          : current.businessTypes.map((item) => (item.key === data.businessType?.key ? data.businessType : item))
+      }));
+      setMessage(`${data.businessType?.label || businessType.label} setup updated.`);
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || "Unable to update business type.");
+    } finally {
+      setBusinessTypeSavingKey("");
+    }
+  }
+
+  async function handleBusinessTypeCreate() {
+    setError("");
+    setMessage("");
+    setBusinessTypeCreating(true);
+
+    try {
+      const businessTypeName = getNextBusinessTypeName(businessTypeOptions);
+      const data = await createPlatformBusinessType({
+        label: businessTypeName,
+        helper: "Configure this business type before using it for new customer workspaces.",
+        posMode: "RETAIL_CHECKOUT",
+        defaultTableCount: null,
+        defaultModuleKeys: ["POS", "INVENTORY", "REPORTS"],
+        roles: [{ name: "Cashier", description: "Run checkout and receive payments." }],
+        active: true
+      });
+
+      setSetupCatalog((current) => ({
+        ...current,
+        businessTypes: data.catalog?.businessTypes?.length ? data.catalog.businessTypes : [...current.businessTypes, data.businessType]
+      }));
+      setMessage(`${data.businessType?.label || businessTypeName} business type created.`);
+      return data.businessType;
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || "Unable to create business type.");
+      return null;
+    } finally {
+      setBusinessTypeCreating(false);
+    }
+  }
+
   async function handleModuleToggle(key, active) {
     if (!selectedBusiness) {
       return;
@@ -523,7 +756,7 @@ export default function SystemAdminPage() {
     setBranchSavingId(branchId);
 
     try {
-      const updatedBranch = await updateBranchStatus(selectedBusiness.id, branchId, status);
+      const updatedBranch = await updateSystemBusinessBranchStatus(selectedBusiness.id, branchId, status);
       setBusinesses((current) =>
         current.map((business) =>
           business.id === selectedBusiness.id
@@ -542,6 +775,39 @@ export default function SystemAdminPage() {
     }
   }
 
+  async function handleCreateBranch(payload) {
+    if (!selectedBusiness) {
+      return;
+    }
+
+    setError("");
+    setMessage("");
+    setBranchCreating(true);
+
+    try {
+      const branch = await createSystemBusinessBranch(selectedBusiness.id, {
+        name: payload.name,
+        location: payload.location
+      });
+
+      setBusinesses((current) =>
+        current.map((business) =>
+          business.id === selectedBusiness.id
+            ? {
+                ...business,
+                branches: [...(business.branches || []), branch]
+              }
+            : business
+        )
+      );
+      setMessage(`${branch.name} branch created for ${selectedBusiness.name}.`);
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || "Unable to create branch.");
+    } finally {
+      setBranchCreating(false);
+    }
+  }
+
   async function handleCreateBusinessUser(payload) {
     if (!selectedBusiness) {
       return null;
@@ -552,7 +818,7 @@ export default function SystemAdminPage() {
     setUserSaving(true);
 
     try {
-      const createdMembership = await createBusinessUser(selectedBusiness.id, payload);
+      const createdMembership = await createSystemBusinessUser(selectedBusiness.id, payload);
       setBusinesses((current) =>
         current.map((business) =>
           business.id === selectedBusiness.id
@@ -563,7 +829,7 @@ export default function SystemAdminPage() {
             : business
         )
       );
-      setMessage(`${createdMembership.user.name} can now access ${selectedBusiness.name}.`);
+      setMessage(`${createdMembership.user?.name || "User"} can now access ${selectedBusiness.name}.`);
       return createdMembership;
     } catch (apiError) {
       setError(apiError.response?.data?.message || "Unable to create user account.");
@@ -574,7 +840,7 @@ export default function SystemAdminPage() {
   }
 
   async function handleBusinessUserStatusChange(membership) {
-    if (!selectedBusiness) {
+    if (!selectedBusiness || !membership?.user) {
       return;
     }
 
@@ -584,7 +850,7 @@ export default function SystemAdminPage() {
     setUserSavingId(membership.id);
 
     try {
-      const updatedMembership = await updateBusinessUserStatus(selectedBusiness.id, membership.id, nextStatus);
+      const updatedMembership = await updateSystemBusinessUserStatus(selectedBusiness.id, membership.id, nextStatus);
       setBusinesses((current) =>
         current.map((business) =>
           business.id === selectedBusiness.id
@@ -595,11 +861,93 @@ export default function SystemAdminPage() {
             : business
         )
       );
-      setMessage(`${updatedMembership.user.name} is now ${updatedMembership.user.status.toLowerCase()}.`);
+      setMessage(`${updatedMembership.user?.name || "User"} is now ${updatedMembership.user?.status?.toLowerCase() || "updated"}.`);
     } catch (apiError) {
       setError(apiError.response?.data?.message || "Unable to update user status.");
     } finally {
       setUserSavingId("");
+    }
+  }
+
+  async function handleDeploymentManifestExport(platform = "manifest") {
+    if (!selectedBusiness) {
+      return;
+    }
+
+    setError("");
+    setMessage("");
+    setDeploymentDownloading(platform);
+
+    try {
+      const { blob, filename } = await downloadSystemBusinessDeploymentPackage(selectedBusiness.id, platform);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = filename || `${slugifyFileName(selectedBusiness.name)}-${platform}-setup`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setMessage(`${selectedBusiness.name} ${formatDeploymentPlatform(platform)} file downloaded.`);
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || "Unable to download deployment file.");
+    } finally {
+      setDeploymentDownloading("");
+    }
+  }
+
+  async function handleDesktopInstallerBuild(platform) {
+    if (!selectedBusiness) {
+      return;
+    }
+
+    setError("");
+    setMessage("");
+    setInstallerBuilding(platform);
+
+    try {
+      const installer = await buildSystemBusinessDesktopInstaller(selectedBusiness.id, platform);
+      setMessage(
+        [
+          `${formatDeploymentPlatform(platform)} installer built for ${selectedBusiness.name}: ${installer.fileName}`,
+          installer.verification?.warning
+        ]
+          .filter(Boolean)
+          .join(" ")
+      );
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || `Unable to build ${formatDeploymentPlatform(platform)} installer.`);
+    } finally {
+      setInstallerBuilding("");
+    }
+  }
+
+  async function handleDesktopInstallerDownload(platform) {
+    if (!selectedBusiness) {
+      return;
+    }
+
+    setError("");
+    setMessage("");
+    setInstallerDownloading(platform);
+
+    try {
+      const { blob, filename } = await downloadSystemBusinessDesktopInstaller(selectedBusiness.id, platform);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = filename || `${slugifyFileName(selectedBusiness.name)}-${platform}-installer`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setMessage(`${formatDeploymentPlatform(platform)} installer downloaded for ${selectedBusiness.name}.`);
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || `Build the ${formatDeploymentPlatform(platform)} installer before downloading.`);
+    } finally {
+      setInstallerDownloading("");
     }
   }
 
@@ -620,505 +968,512 @@ export default function SystemAdminPage() {
   }
 
   return (
-    <div className="mx-auto flex max-w-[1540px] flex-col gap-4 px-0">
-      <SystemAdminCommandHeader
-        activeSection={activeSection}
-        businesses={businesses}
-        loading={loading}
-        onCreate={() => setActiveSection("create")}
-        onRefresh={loadBusinesses}
-        onSectionChange={setActiveSection}
-        onSelect={(businessId) => {
-          selectBusiness(businessId);
-          setActiveSection("organizations");
-        }}
-        platformTotals={platformTotals}
-        selectedBusiness={selectedBusiness}
-      />
-
+    <div className="mx-auto flex max-w-[1680px] flex-col gap-4 px-0">
       {error ? <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
       {message ? <div className="rounded-md bg-zera-mint px-4 py-3 text-sm font-semibold text-zera-green">{message}</div> : null}
 
-      {activeSection === "overview" ? (
-        <OverviewSection
+      {configurationSectionIds.includes(activeSection) ? (
+        <SystemAdminScopeBar
           businesses={businesses}
-          filteredBusinesses={filteredBusinesses}
-          loading={loading}
-          onCreate={() => setActiveSection("create")}
-          onManageSelected={() => setActiveSection("organizations")}
-          onProductSelect={setSelectedProductKey}
-          onSearch={setSearch}
-          onSelect={(businessId) => {
-            selectBusiness(businessId);
-            setActiveSection("organizations");
-          }}
-          platformTotals={platformTotals}
-          platformHealth={platformHealth}
-          attentionItems={attentionItems}
-          recentActivity={recentActivity}
-          search={search}
+          businessTypeOptions={businessTypeOptions}
+          onSelectBusiness={selectBusiness}
+          packageOptions={packageOptions}
           selectedBusiness={selectedBusiness}
-          selectedProductKey={selectedProductKey}
-          platformProducts={platformProducts}
-          businessTypeOptions={businessTypeOptions}
-          packageOptions={packageOptions}
         />
       ) : null}
 
-      {activeSection === "create" ? (
-        <CreateBusinessPanel
-          form={form}
-          onCancel={() => setActiveSection("overview")}
-          onChange={setForm}
-          onSubmit={handleSubmit}
-          saving={saving}
-          businessTypeOptions={businessTypeOptions}
-          packageOptions={packageOptions}
-        />
-      ) : null}
+      <main className="min-w-0 space-y-4">
+        {activeSection === "dashboard" ? (
+          <SystemControlDashboard
+            businesses={businesses}
+            businessTypeOptions={businessTypeOptions}
+            health={platformHealth}
+            onCreate={() => selectSection("create")}
+            onOpenOrganizations={() => selectSection("organizations")}
+            onOpenPackages={() => selectSection("packages")}
+            onOpenSettings={() => selectSection("platform")}
+            onSelectBusiness={selectBusiness}
+            packageOptions={packageOptions}
+            platformTotals={platformTotals}
+            recentActivity={recentActivity}
+          />
+        ) : null}
 
-      {activeSection === "organizations" ? (
-        <SettingsSection
-          branchSavingId={branchSavingId}
-          business={selectedBusiness}
-          businesses={businesses}
-          filteredBusinesses={filteredBusinesses}
-          loading={loading}
-          onCreate={() => setActiveSection("create")}
-          onSearch={setSearch}
-          onSelect={selectBusiness}
-          moduleSavingKey={moduleSavingKey}
-          onBranchStatusChange={handleBranchStatusChange}
-          onBusinessSave={handleBusinessSettingsSave}
-          onCreateUser={handleCreateBusinessUser}
-          onModuleToggle={handleModuleToggle}
-          onUserStatusChange={handleBusinessUserStatusChange}
-          search={search}
-          settingsSaving={settingsSaving}
-          userSaving={userSaving}
-          userSavingId={userSavingId}
-          platformProducts={platformProducts}
-          businessTypeOptions={businessTypeOptions}
-          packageOptions={packageOptions}
-        />
-      ) : null}
+        {activeSection === "create" ? (
+          <CreateBusinessPanel
+            form={form}
+            onCancel={() => selectSection("organizations")}
+            onChange={setForm}
+            onSubmit={handleSubmit}
+            saving={saving}
+            businessTypeOptions={businessTypeOptions}
+            packageOptions={packageOptions}
+          />
+        ) : null}
 
-      {activeSection === "packages" ? (
-        <PackageSettingsSection
-          businesses={businesses}
-          onSave={handlePackageSave}
-          packageOptions={packageOptions}
-          packageSavingKey={packageSavingKey}
-          platformProducts={platformProducts}
-        />
-      ) : null}
+        {activeSection === "organizations" ? (
+          <SettingsSection
+            branchSavingId={branchSavingId}
+            branchCreating={branchCreating}
+            businessTypeOptions={businessTypeOptions}
+            moduleSavingKey={moduleSavingKey}
+            onBranchStatusChange={handleBranchStatusChange}
+            onBusinessSave={handleBusinessSettingsSave}
+            onCreateBranch={handleCreateBranch}
+            onCreateUser={handleCreateBusinessUser}
+            onBuildInstaller={handleDesktopInstallerBuild}
+            onDownloadInstaller={handleDesktopInstallerDownload}
+            onExportDeployment={handleDeploymentManifestExport}
+            deploymentDownloading={deploymentDownloading}
+            installerBuilding={installerBuilding}
+            installerDownloading={installerDownloading}
+            onModuleToggle={handleModuleToggle}
+            onUserStatusChange={handleBusinessUserStatusChange}
+            packageOptions={packageOptions}
+            platformProducts={platformProducts}
+            selectedBusiness={selectedBusiness}
+            settingsSaving={settingsSaving}
+            userSaving={userSaving}
+            userSavingId={userSavingId}
+          />
+        ) : null}
 
-      {activeSection === "platform" ? (
-        <PlatformSettingsSection businessTypeOptions={businessTypeOptions} packageOptions={packageOptions} platformProducts={platformProducts} />
-      ) : null}
+        {activeSection === "packages" ? (
+          <PackageSettingsSection
+            businesses={businesses}
+            onCreate={handlePackageCreate}
+            onSave={handlePackageSave}
+            packageCreating={packageCreating}
+            packageOptions={packageOptions}
+            packageSavingKey={packageSavingKey}
+            platformProducts={platformProducts}
+            selectedBusiness={selectedBusiness}
+          />
+        ) : null}
+
+        {activeSection === "platform" ? (
+          <PlatformSettingsSection
+            businessTypeCreating={businessTypeCreating}
+            businessTypeSavingKey={businessTypeSavingKey}
+            businessTypeOptions={businessTypeOptions}
+            onBusinessTypeCreate={handleBusinessTypeCreate}
+            onBusinessTypeSave={handleBusinessTypeSave}
+            packageOptions={packageOptions}
+            platformProducts={platformProducts}
+            selectedBusiness={selectedBusiness}
+          />
+        ) : null}
+      </main>
     </div>
   );
 }
 
 function SystemAdminCommandHeader({
-  activeSection,
-  businesses,
-  loading,
-  onCreate,
-  onRefresh,
-  onSectionChange,
-  onSelect,
   platformTotals,
-  selectedBusiness
+  onRefresh,
+  onCreate,
 }) {
+  const activeSummary = `${platformTotals.activeBusinesses}/${platformTotals.businesses || 0} active`;
+
   return (
-    <header className="overflow-hidden rounded-xl border border-zera-line bg-white shadow-xs">
-      <div className="grid gap-3 border-b border-zera-line px-4 py-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+    <header className="overflow-hidden rounded-2xl border border-zera-line bg-white shadow-[0_10px_24px_rgba(20,31,27,0.04)]">
+      <div className="flex flex-col gap-3 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2 text-[11px] font-bold uppercase tracking-wide text-zera-muted">
-            <span>Platform</span>
-            <ChevronRight size={12} />
-            <span className="text-zera-green">System Admin</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-xl font-bold leading-tight text-zera-ink">System Control</h1>
+            <span className="rounded-full bg-zera-mint px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.1em] text-zera-green">{activeSummary}</span>
           </div>
-          <div className="mt-1 flex flex-wrap items-end gap-x-3 gap-y-1">
-            <p className="text-xl font-bold tracking-tight text-zera-ink">Admin workspace</p>
-            <span className="pb-0.5 text-sm text-zera-muted">
-              {platformTotals.activeBusinesses}/{platformTotals.businesses} active organizations
-            </span>
-          </div>
+          <p className="mt-1 max-w-3xl text-sm leading-5 text-zera-muted">Create and control every customer workspace from one place.</p>
         </div>
 
         <SystemAdminHeaderActions
-          businesses={businesses}
-          loading={loading}
-          onCreate={onCreate}
           onRefresh={onRefresh}
-          onSelect={onSelect}
-          selectedBusiness={selectedBusiness}
+          onCreate={onCreate}
         />
-      </div>
-
-      <div className="flex flex-col gap-3 bg-[#fbfdfb] px-4 py-2.5 lg:flex-row lg:items-center lg:justify-between">
-        <SystemAdminNav activeSection={activeSection} onChange={onSectionChange} />
-        <div className="grid grid-cols-3 gap-px overflow-hidden rounded-lg border border-zera-line bg-zera-line text-xs font-semibold text-zera-muted lg:min-w-[320px]">
-          <HeaderStat label="Branches" value={platformTotals.branches} />
-          <HeaderStat label="Users" value={platformTotals.users} />
-          <HeaderStat label="Products" value={platformTotals.products} />
-        </div>
       </div>
     </header>
   );
 }
 
-function HeaderStat({ label, value }) {
+function SystemAdminScopeBar({
+  businesses,
+  businessTypeOptions,
+  onSelectBusiness,
+  packageOptions,
+  selectedBusiness,
+}) {
+  const packageSummary = selectedBusiness ? getPackageSummary(getBusinessPackageKey(selectedBusiness), packageOptions) : null;
+  const posMode = selectedBusiness ? getBusinessPosMode(selectedBusiness, businessTypeOptions) : "";
+
   return (
-    <div className="bg-white px-3 py-1.5">
-      <span className="font-bold text-zera-ink">{value}</span>
-      <span className="ml-1">{label}</span>
+    <section className="rounded-2xl border border-zera-line bg-white px-4 py-3 shadow-[0_8px_22px_rgba(20,31,27,0.04)]">
+      <div className="grid gap-3 xl:grid-cols-[minmax(260px,360px)_minmax(0,1fr)] xl:items-center">
+        <label className="block min-w-0">
+          <span className="mb-1 block text-[10px] font-bold uppercase tracking-[0.14em] text-zera-muted">Selected organization</span>
+          <select
+            className="h-10 w-full rounded-xl border border-zera-line bg-[#fbfdfb] px-3 text-sm font-bold text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+            value={selectedBusiness?.id || ""}
+            onChange={(event) => onSelectBusiness(event.target.value)}
+          >
+            {businesses.length ? null : <option value="">No organization yet</option>}
+            {businesses.map((business) => (
+              <option key={business.id} value={business.id}>
+                {business.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <div className="grid min-w-0 gap-2 text-sm md:grid-cols-4">
+          <ScopeFact label="Type" value={selectedBusiness?.type || "No organization"} />
+          <ScopeFact label="Package" value={packageSummary?.name || "No package"} />
+          <ScopeFact label="Plan status" value={getPackageStatusLabel(selectedBusiness?.packageStatus)} />
+          <ScopeFact label="Workflow" value={posMode ? formatPosLabel(posMode) : "Not set"} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SystemAdminHeaderActions({ onRefresh, onCreate }) {
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+      <button
+        type="button"
+        onClick={onRefresh}
+        title="Refresh data"
+        aria-label="Refresh system admin data"
+        className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-zera-line bg-white text-zera-muted transition hover:border-zera-green/40 hover:text-zera-green"
+      >
+        <RefreshCw className="h-4 w-4" />
+      </button>
+
+      <Button onClick={onCreate} className="h-10 rounded-xl px-3.5">
+        <Plus className="h-4 w-4" />
+        New
+      </Button>
     </div>
   );
 }
 
-function SystemAdminNav({ activeSection, onChange }) {
-  const sections = [
-    { key: "overview", label: "Overview", icon: LayoutDashboard },
-    { key: "organizations", label: "Organizations", icon: Building2 },
-    { key: "packages", label: "Packages", icon: CreditCard },
-    { key: "platform", label: "Settings", icon: SlidersHorizontal }
-  ];
-
+function ScopeFact({ label, value }) {
   return (
-    <nav className="flex w-full overflow-x-auto rounded-md border border-zera-line bg-white p-1 lg:w-fit" aria-label="System admin sections">
-      {sections.map((section) => {
-        const Icon = section.icon;
-
-        return (
-          <button
-            key={section.key}
-            type="button"
-            className={`inline-flex h-9 shrink-0 items-center gap-2 rounded-[6px] px-3 text-sm font-semibold transition ${
-              activeSection === section.key ? "bg-zera-green text-white shadow-sm" : "text-zera-muted hover:bg-[#f7faf8] hover:text-zera-ink"
-            }`}
-            onClick={() => onChange(section.key)}
-          >
-            <Icon size={15} />
-            {section.label}
-          </button>
-        );
-      })}
-    </nav>
+    <div className="min-w-0 rounded-xl border border-zera-line bg-[#f7faf8] px-3 py-2">
+      <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-zera-muted">{label}</p>
+      <p className="mt-0.5 truncate text-sm font-bold text-zera-ink">{value}</p>
+    </div>
   );
 }
 
-function SystemAdminHeaderActions({ businesses, loading, onCreate, onRefresh, onSelect, selectedBusiness }) {
-  const selectOptions = selectedBusiness && !businesses.some((business) => business.id === selectedBusiness.id) ? [selectedBusiness, ...businesses] : businesses;
+function SystemControlDashboard({
+  businesses,
+  businessTypeOptions,
+  health,
+  onCreate,
+  onOpenOrganizations,
+  onOpenPackages,
+  onOpenSettings,
+  onSelectBusiness,
+  packageOptions,
+  platformTotals,
+  recentActivity,
+}) {
+  const activePackages = packageOptions.filter((packageItem) => packageItem.active !== false).length;
+  const setupScore = platformTotals.businesses ? Math.round((health.readyToOperate / platformTotals.businesses) * 100) : 0;
+  const dashboardMetrics = [
+    {
+      label: "Organizations",
+      value: platformTotals.businesses,
+      helper: `${platformTotals.activeBusinesses} active workspaces`,
+      icon: Building2
+    },
+    {
+      label: "Users",
+      value: platformTotals.users,
+      helper: `${platformTotals.activeUsers} active accounts`,
+      icon: Users
+    },
+    {
+      label: "Packages",
+      value: packageOptions.length,
+      helper: `${activePackages} available for setup`,
+      icon: CreditCard
+    },
+    {
+      label: "Readiness",
+      value: `${setupScore}%`,
+      helper: `${health.readyToOperate}/${platformTotals.businesses || 0} ready to operate`,
+      icon: Activity
+    }
+  ];
+
+  const dashboardActions = [
+    {
+      label: "Configure organizations",
+      helper: "",
+      action: onOpenOrganizations,
+      icon: Building2
+    },
+    {
+      label: "Review packages",
+      helper: "",
+      action: onOpenPackages,
+      icon: CreditCard
+    },
+    {
+      label: "Platform settings",
+      helper: "",
+      action: onOpenSettings,
+      icon: SlidersHorizontal
+    }
+  ];
 
   return (
-    <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
-      <label className="flex h-10 min-w-0 items-center gap-2 rounded-lg border border-zera-line bg-[#fbfdfb] px-3 shadow-xs focus-within:border-zera-green focus-within:bg-white focus-within:ring-4 focus-within:ring-zera-green/10 lg:w-[410px]">
-        <Building2 size={16} className="shrink-0 text-zera-green" />
-        <span className="shrink-0 text-[11px] font-bold uppercase text-zera-muted">Organization</span>
-        <select
-          className="min-w-0 flex-1 border-0 bg-transparent text-sm font-semibold text-zera-ink outline-none"
-          value={selectedBusiness?.id || ""}
-          onChange={(event) => onSelect(event.target.value)}
-          disabled={loading || selectOptions.length === 0}
-        >
-          {!selectedBusiness ? <option value="">Select organization</option> : null}
-          {selectOptions.map((business) => (
-            <option key={business.id} value={business.id}>
-              {business.name} - {formatPOSMode(business.posMode, business.type)}
-            </option>
+    <section className="space-y-3">
+      <section className="overflow-hidden rounded-2xl border border-zera-line bg-white shadow-[0_10px_26px_rgba(20,31,27,0.045)]">
+        <div className="grid divide-y divide-zera-line sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+          {dashboardMetrics.map((metric) => (
+            <SystemDashboardMetric key={metric.label} {...metric} />
           ))}
-        </select>
-      </label>
-      <div className="flex gap-2">
-        <Button type="button" variant="secondary" className="h-10 px-3" onClick={onRefresh} aria-label="Refresh system admin data">
-          <RefreshCw size={16} />
-          <span className="hidden sm:inline">Refresh</span>
-        </Button>
-        <Button type="button" className="h-10 gap-2 px-3" onClick={onCreate}>
-          <Plus size={16} />
+        </div>
+      </section>
+
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.85fr)]">
+        <SystemOrganizationsOverview
+          businesses={businesses}
+          businessTypeOptions={businessTypeOptions}
+          onOpenOrganizations={onOpenOrganizations}
+          onSelectBusiness={onSelectBusiness}
+        />
+        <SystemAttentionPanel health={health} onOpenOrganizations={onOpenOrganizations} />
+      </div>
+
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_420px]">
+        <SystemActionPanel actions={dashboardActions} onCreate={onCreate} />
+        <SystemActivityPanel activity={recentActivity} />
+      </div>
+    </section>
+  );
+}
+
+function SystemDashboardMetric({ helper, icon: Icon, label, value }) {
+  return (
+    <div className="flex min-h-[92px] items-center gap-3 px-4 py-4">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#eef7f1] text-zera-green">
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-zera-muted">{label}</p>
+        <p className="mt-0.5 text-2xl font-bold leading-none text-zera-ink">{value}</p>
+        <p className="mt-1 truncate text-xs text-zera-muted">{helper}</p>
+      </div>
+    </div>
+  );
+}
+
+function SystemActionPanel({ actions, onCreate }) {
+  return (
+    <section className="overflow-hidden rounded-2xl border border-zera-line bg-white shadow-[0_10px_26px_rgba(20,31,27,0.045)]">
+      <div className="flex items-center justify-between gap-3 border-b border-zera-line px-4 py-3">
+        <SectionTitle icon={ShieldCheck} title="System setup" subtitle="Open the area you need to manage." />
+        <Button type="button" className="h-9 shrink-0 rounded-xl px-3" onClick={onCreate}>
+          <Plus className="h-4 w-4" />
           New
         </Button>
       </div>
-    </div>
-  );
-}
-
-function OverviewSection({
-  businessTypeOptions,
-  businesses,
-  filteredBusinesses,
-  loading,
-  attentionItems,
-  onCreate,
-  onManageSelected,
-  onProductSelect,
-  onSearch,
-  onSelect,
-  packageOptions,
-  platformHealth,
-  platformProducts,
-  platformTotals,
-  recentActivity,
-  search,
-  selectedBusiness,
-  selectedProductKey
-}) {
-  const selectedProduct = platformProducts.find((product) => product.key === selectedProductKey) || platformProducts[0];
-  const activePackages = packageOptions.filter((packageItem) => packageItem.active !== false).length;
-
-  return (
-    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="min-w-0 space-y-4">
-        <PlatformOperatingPanel
-          activePackages={activePackages}
-          loading={loading}
-          onCreate={onCreate}
-          onManageSelected={onManageSelected}
-          platformTotals={platformTotals}
-          selectedBusiness={selectedBusiness}
-        />
-        <OrganizationTableCard
-          businessTypeOptions={businessTypeOptions}
-          businesses={businesses}
-          filteredBusinesses={filteredBusinesses}
-          loading={loading}
-          maxHeightClass="max-h-[calc(100vh-420px)] min-h-[360px]"
-          onSearch={onSearch}
-          onSelect={onSelect}
-          search={search}
-          selectedBusiness={selectedBusiness}
-          showCreateAction
-          onCreate={onCreate}
-          subtitle="Search, select, and manage each customer workspace from one register."
-          title="Organizations"
-        />
-      </div>
-
-      <aside className="min-w-0 space-y-4">
-        <AdminFocusPanel
-          attentionItems={attentionItems}
-          onCreate={onCreate}
-          onManageSelected={onManageSelected}
-          onSelect={onSelect}
-          selectedBusiness={selectedBusiness}
-        />
-        <PlatformHealthCard compact health={platformHealth} />
-        <ModuleSnapshot
-          onProductSelect={onProductSelect}
-          platformProducts={platformProducts}
-          selectedProduct={selectedProduct}
-          selectedProductKey={selectedProductKey}
-        />
-        <RecentActivityList activity={recentActivity} />
-      </aside>
-    </section>
-  );
-}
-
-function PlatformOperatingPanel({ activePackages, loading, onCreate, onManageSelected, platformTotals, selectedBusiness }) {
-  const stats = [
-    { label: "Organizations", value: loading ? "..." : platformTotals.businesses, helper: `${platformTotals.activeBusinesses} active` },
-    { label: "Users", value: loading ? "..." : platformTotals.users, helper: `${platformTotals.activeUsers} active` },
-    { label: "Packages", value: loading ? "..." : activePackages, helper: "Available plans" },
-    { label: "Products", value: loading ? "..." : platformTotals.products, helper: "Managed items" }
-  ];
-
-  return (
-    <section className="overflow-hidden rounded-xl border border-zera-line bg-white shadow-card">
-      <div className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
-        <div className="space-y-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Zera Solutions</p>
-            <h2 className="mt-1 text-2xl font-bold tracking-tight text-zera-ink">Business operating system</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-zera-muted">
-              Configure each customer by business type, package, modules, roles, and sales workflow. Keep every organization simple for its team, while the platform stays scalable.
-            </p>
-          </div>
-          <div className="grid gap-px overflow-hidden rounded-lg border border-zera-line bg-zera-line sm:grid-cols-4">
-            {stats.map((stat) => (
-              <div key={stat.label} className="bg-[#fbfdfb] px-3 py-2.5">
-                <p className="text-[11px] font-bold uppercase tracking-wide text-zera-muted">{stat.label}</p>
-                <p className="mt-1 text-xl font-bold text-zera-ink">{stat.value}</p>
-                <p className="truncate text-xs text-zera-muted">{stat.helper}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="flex flex-col gap-2 xl:w-[250px]">
-          <Button type="button" className="h-10 gap-2 px-3" onClick={onCreate}>
-            <Plus size={16} />
-            New organization
-          </Button>
-          <Button type="button" variant="secondary" className="h-10 gap-2 px-3" onClick={onManageSelected} disabled={!selectedBusiness}>
-            <Settings size={16} />
-            Manage selected
-          </Button>
-          {selectedBusiness ? (
-            <div className="rounded-lg border border-zera-line bg-[#f7faf8] px-3 py-2.5">
-              <p className="text-[11px] font-bold uppercase tracking-wide text-zera-muted">Selected organization</p>
-              <p className="mt-1 truncate text-sm font-bold text-zera-ink">{selectedBusiness.name}</p>
-              <p className="truncate text-xs text-zera-muted">{formatPOSMode(selectedBusiness.posMode, selectedBusiness.type)}</p>
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function AdminFocusPanel({ attentionItems, onCreate, onManageSelected, onSelect, selectedBusiness }) {
-  return (
-    <section className="overflow-hidden rounded-xl border border-zera-line bg-white shadow-card">
-      <div className="border-b border-zera-line bg-[#fbfdfb] px-4 py-3">
-        <SectionTitle icon={ShieldCheck} title="Admin focus" subtitle="The next actions that matter." />
-      </div>
-      <div className="space-y-3 p-4">
-        {attentionItems.length ? (
-          attentionItems.slice(0, 3).map((item) => (
-            <button
-              key={`${item.businessId}-${item.label}`}
-              type="button"
-              className="flex w-full items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-left transition hover:bg-amber-100"
-              onClick={() => onSelect(item.businessId)}
-            >
-              <span className="min-w-0">
-                <span className="block truncate text-sm font-bold text-zera-ink">{item.label}</span>
-                <span className="block truncate text-xs text-zera-muted">{item.businessName}</span>
-              </span>
-              <StatusPill label={item.severity} muted={item.severity !== "critical"} />
-            </button>
-          ))
-        ) : (
-          <div className="rounded-lg border border-zera-line bg-[#f7faf8] px-3 py-3 text-sm text-zera-muted">
-            No setup issues found. Customer workspaces are ready for daily operations.
-          </div>
-        )}
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            className="min-h-10 rounded-md border border-zera-line bg-white px-3 text-sm font-semibold text-zera-ink transition hover:border-zera-green hover:text-zera-green"
-            onClick={onCreate}
-          >
-            Add customer
-          </button>
-          <button
-            type="button"
-            className="min-h-10 rounded-md border border-zera-line bg-white px-3 text-sm font-semibold text-zera-ink transition hover:border-zera-green hover:text-zera-green disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={!selectedBusiness}
-            onClick={onManageSelected}
-          >
-            Configure
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function ModuleSnapshot({ onProductSelect, platformProducts, selectedProduct, selectedProductKey }) {
-  return (
-    <section className="overflow-hidden rounded-xl border border-zera-line bg-white shadow-card">
-      <div className="border-b border-zera-line bg-[#fbfdfb] px-4 py-3">
-        <SectionTitle icon={Boxes} title="Product catalog" subtitle="Modules available for packages." />
-      </div>
-      <div className="space-y-2 p-3">
-        {platformProducts.map((product) => {
-          const Icon = product.icon;
-          const selected = product.key === selectedProductKey;
-
+      <div className="grid divide-y divide-zera-line md:grid-cols-3 md:divide-x md:divide-y-0">
+        {actions.map((item) => {
+          const Icon = item.icon;
           return (
             <button
-              key={product.key}
+              key={item.label}
               type="button"
-              className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2 text-left transition ${
-                selected ? "border-zera-green bg-zera-mint" : "border-zera-line bg-white hover:border-zera-green/60 hover:bg-[#f7faf8]"
-              }`}
-              onClick={() => onProductSelect(product.key)}
+              className="grid min-h-[94px] grid-cols-[auto_minmax(0,1fr)] gap-3 px-4 py-3 text-left transition hover:bg-[#f7faf8]"
+              onClick={item.action}
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white text-zera-green">
-                <Icon size={16} />
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#eef7f1] text-zera-green">
+                <Icon className="h-4 w-4" />
               </span>
               <span className="min-w-0">
-                <span className="block truncate text-sm font-bold text-zera-ink">{product.title}</span>
-                <span className="block truncate text-xs text-zera-muted">{product.summary}</span>
+                <span className="block text-sm font-bold text-zera-ink">{item.label}</span>
+                {item.helper ? <span className="mt-1 block text-xs leading-5 text-zera-muted">{item.helper}</span> : null}
               </span>
             </button>
           );
         })}
       </div>
-      <div className="border-t border-zera-line bg-[#f7faf8] px-4 py-3">
-        <p className="text-xs font-bold uppercase text-zera-green">{selectedProduct.title}</p>
-        <p className="mt-1 text-xs leading-5 text-zera-muted">{selectedProduct.detail}</p>
-      </div>
     </section>
   );
 }
 
-function RecentActivityList({ activity }) {
+function SystemActivityPanel({ activity = [] }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-zera-line bg-white shadow-card">
-      <div className="border-b border-zera-line bg-[#fbfdfb] px-4 py-3">
-        <SectionTitle icon={CalendarClock} title="Recent activity" subtitle="Latest setup changes." />
+    <section className="overflow-hidden rounded-2xl border border-zera-line bg-white shadow-[0_10px_26px_rgba(20,31,27,0.045)]">
+      <div className="border-b border-zera-line px-4 py-3">
+        <SectionTitle icon={CalendarClock} title="Latest activity" subtitle="Recent organization changes." />
       </div>
       <div className="divide-y divide-zera-line">
-        {activity.length === 0 ? (
-          <div className="p-4">
-            <EmptyState text="Activity will appear after organizations are created or updated." />
-          </div>
-        ) : (
-          activity.slice(0, 5).map((item) => (
-            <div key={`${item.label}-${item.date}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-3">
+        {activity.length ? (
+          activity.slice(0, 4).map((item) => (
+            <div key={`${item.label}-${item.date}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-4 py-3 text-sm">
               <div className="min-w-0">
-                <p className="truncate text-sm font-bold text-zera-ink">{item.label}</p>
+                <p className="truncate font-bold text-zera-ink">{item.label}</p>
                 <p className="mt-0.5 truncate text-xs text-zera-muted">{item.description}</p>
               </div>
-              <p className="text-right text-xs font-semibold text-zera-muted">{formatShortDate(item.date)}</p>
+              <span className="text-right text-xs font-bold uppercase tracking-[0.08em] text-zera-muted">{formatShortDate(item.date)}</span>
             </div>
           ))
+        ) : (
+          <p className="px-4 py-5 text-sm text-zera-muted">No activity yet.</p>
         )}
       </div>
     </section>
   );
 }
 
-function AdminMetricCard({ detail, icon: Icon, label, value }) {
+function SystemOrganizationsOverview({ businesses, businessTypeOptions, onOpenOrganizations, onSelectBusiness }) {
+  const pageSize = 5;
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(businesses.length / pageSize));
+  const startIndex = (page - 1) * pageSize;
+  const visibleBusinesses = businesses.slice(startIndex, startIndex + pageSize);
+  const showPagination = businesses.length > pageSize;
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount));
+  }, [pageCount]);
+
   return (
-    <div className="rounded-xl border border-zera-line bg-white p-4 shadow-card">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-zera-muted">{label}</p>
-          <p className="mt-1 text-2xl font-bold text-zera-ink">{value}</p>
-          <p className="mt-1 text-sm text-zera-muted">{detail}</p>
-        </div>
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#f1f5f3] text-zera-green">
-          <Icon size={18} />
-        </div>
+    <section className="overflow-hidden rounded-2xl border border-zera-line bg-white shadow-[0_10px_26px_rgba(20,31,27,0.045)]">
+      <div className="flex items-start justify-between gap-3 border-b border-zera-line px-4 py-3">
+        <SectionTitle icon={Building2} title="Organizations using Zera" subtitle="All customer workspaces currently registered on the platform." />
+        <button
+          type="button"
+          className="h-9 shrink-0 rounded-xl border border-zera-line bg-white px-3 text-sm font-bold text-zera-ink transition hover:border-zera-green hover:text-zera-green"
+          onClick={onOpenOrganizations}
+        >
+          Manage
+        </button>
       </div>
-    </div>
+
+      <div className="overflow-auto">
+        <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+          <thead className="border-b border-zera-line bg-[#f7faf8] text-[10px] font-bold uppercase tracking-[0.12em] text-zera-muted">
+            <tr>
+              <th className="px-4 py-2.5">Organization</th>
+              <th className="px-3 py-2.5">Type</th>
+              <th className="px-3 py-2.5">Package</th>
+              <th className="px-3 py-2.5">Setup</th>
+              <th className="px-4 py-2.5 text-right">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zera-line">
+            {businesses.length ? (
+              visibleBusinesses.map((business) => {
+                const owner = getOwner(business);
+                const setup = getBusinessSetupSummary(business);
+                const posMode = getBusinessPosMode(business, businessTypeOptions);
+
+                return (
+                  <tr key={business.id} className="transition hover:bg-[#f7faf8]">
+                    <td className="px-4 py-3">
+                      <button
+                        type="button"
+                        className="max-w-[280px] text-left"
+                        onClick={() => {
+                          onSelectBusiness(business.id);
+                          onOpenOrganizations();
+                        }}
+                      >
+                        <span className="block truncate font-bold text-zera-ink">{business.name}</span>
+                        <span className="mt-0.5 block truncate text-xs text-zera-muted">{owner?.user?.email || "Owner not assigned"}</span>
+                      </button>
+                    </td>
+                    <td className="px-3 py-3">
+                      <p className="max-w-[180px] truncate font-semibold text-zera-ink">{business.type || "Not set"}</p>
+                      <p className="mt-0.5 max-w-[220px] truncate text-xs font-semibold text-zera-green">{formatPosLabel(posMode, business.type)}</p>
+                    </td>
+                    <td className="px-3 py-3">
+                      <p className="font-semibold text-zera-ink">{business.platformPackage?.name || "Starter"}</p>
+                      <p className="mt-0.5 text-xs text-zera-muted">{getPackageStatusLabel(business.packageStatus)}</p>
+                    </td>
+                    <td className="px-3 py-3">
+                      <div className="flex flex-wrap gap-1.5 text-xs">
+                        <span className="rounded-md bg-[#f7faf8] px-2 py-1 font-semibold text-zera-ink">{setup.activeBranches}/{setup.totalBranches} branches</span>
+                        <span className="rounded-md bg-[#f7faf8] px-2 py-1 font-semibold text-zera-ink">{setup.activeUsers}/{setup.totalUsers} users</span>
+                        <span className="rounded-md bg-[#f7faf8] px-2 py-1 font-semibold text-zera-ink">{setup.activeModules}/{setup.totalModules} modules</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <StatusPill active={business.status === "ACTIVE"} label={business.status === "ACTIVE" ? "Active" : "Inactive"} />
+                    </td>
+                  </tr>
+                );
+              })
+            ) : (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-sm text-zera-muted">
+                  No organizations have been created yet.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {showPagination ? (
+        <div className="flex items-center justify-between gap-3 border-t border-zera-line bg-[#fbfdfb] px-4 py-2.5 text-sm">
+          <p className="text-xs font-semibold text-zera-muted">
+            {startIndex + 1}-{Math.min(startIndex + pageSize, businesses.length)} of {businesses.length}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zera-line bg-white text-zera-muted transition hover:border-zera-green hover:text-zera-green disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={page === 1}
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              aria-label="Previous organizations"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="min-w-12 text-center text-xs font-bold text-zera-ink">
+              {page}/{pageCount}
+            </span>
+            <button
+              type="button"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-zera-line bg-white text-zera-muted transition hover:border-zera-green hover:text-zera-green disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={page === pageCount}
+              onClick={() => setPage((current) => Math.min(pageCount, current + 1))}
+              aria-label="Next organizations"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
-function PlatformHealthCard({ compact = false, health }) {
+function SystemReadinessPanel({ health }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-zera-line bg-white shadow-card">
-      <div className="flex flex-col gap-3 border-b border-zera-line bg-[#fbfdfb] px-4 py-3 md:flex-row md:items-center md:justify-between">
-        <SectionTitle icon={Activity} title="Platform health" subtitle="Operational readiness for configured customer workspaces." />
-        <StatusPill label={health.score >= 90 ? "healthy" : health.score >= 70 ? "needs review" : "attention needed"} muted={health.score < 90} />
+    <section className="overflow-hidden rounded-2xl border border-zera-line bg-white shadow-[0_10px_26px_rgba(20,31,27,0.045)]">
+      <div className="border-b border-zera-line px-4 py-4">
+        <SectionTitle icon={Activity} title="Platform readiness" subtitle="Configuration health across all customer workspaces." />
       </div>
-      <div className={`${compact ? "divide-y divide-zera-line bg-white" : "grid gap-px bg-zera-line md:grid-cols-3"}`}>
-        {health.rows.map((row) => (
-          <div key={row.label} className="bg-white p-4">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold text-zera-muted">{row.label}</p>
-              <p className="text-lg font-bold text-zera-ink">{row.value}</p>
+      <div className="grid divide-y divide-zera-line lg:grid-cols-3 lg:divide-x lg:divide-y-0">
+        {health.rows.map((item) => (
+          <div key={item.label} className="px-4 py-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="font-bold text-zera-ink">{item.label}</p>
+                <p className="mt-1 text-sm leading-5 text-zera-muted">{item.helper}</p>
+              </div>
+              <span className="shrink-0 text-xl font-bold text-zera-ink">{item.value}</span>
             </div>
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#eef3ef]">
-              <div className={`h-full rounded-full ${row.warning ? "bg-amber-500" : "bg-zera-green"}`} style={{ width: `${row.percent}%` }} />
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-[#edf3ef]">
+              <div className={`h-full rounded-full ${item.warning ? "bg-amber-500" : "bg-zera-green"}`} style={{ width: `${item.percent}%` }} />
             </div>
-            <p className="mt-2 text-xs text-zera-muted">{row.helper}</p>
           </div>
         ))}
       </div>
@@ -1126,212 +1481,476 @@ function PlatformHealthCard({ compact = false, health }) {
   );
 }
 
-function AttentionPanel({ attentionItems, onSelect }) {
+function SystemAttentionPanel({ health, onOpenOrganizations }) {
   return (
-    <section className="overflow-hidden rounded-xl border border-zera-line bg-white shadow-card">
-      <div className="border-b border-zera-line px-4 py-3">
-        <SectionTitle icon={AlertTriangle} title="Needs attention" subtitle="Setup gaps and configuration risks." />
+    <section className="overflow-hidden rounded-2xl border border-zera-line bg-white shadow-[0_10px_26px_rgba(20,31,27,0.045)]">
+      <div className="flex items-start justify-between gap-3 border-b border-zera-line px-4 py-4">
+        <SectionTitle icon={AlertTriangle} title="Needs attention" subtitle="Problems that can block a customer workspace." />
+        {health.attention.length ? (
+          <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-bold text-amber-700">{health.attention.length}</span>
+        ) : null}
       </div>
-      <div className="overflow-x-auto">
-        {attentionItems.length === 0 ? (
-          <div className="p-4">
-            <EmptyState text="No setup issues found." />
+
+      {health.attention.length ? (
+        <div className="divide-y divide-zera-line">
+          {health.attention.slice(0, 5).map((item) => (
+            <button
+              key={`${item.businessId}-${item.label}`}
+              type="button"
+              className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition hover:bg-[#f7faf8]"
+              onClick={onOpenOrganizations}
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-bold text-zera-ink">{item.businessName}</span>
+                <span className={`mt-0.5 block text-xs font-semibold ${item.severity === "critical" ? "text-red-700" : "text-amber-700"}`}>
+                  {item.label}
+                </span>
+              </span>
+              <ChevronRight className="h-4 w-4 text-zera-muted" />
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="px-4 py-6">
+          <p className="rounded-xl border border-dashed border-zera-line bg-[#fbfdfb] px-4 py-5 text-sm text-zera-muted">
+            No setup issues found.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SelectedSystemWorkspace({ onOpen, owner, packageItem, selectedBusiness, summary }) {
+  if (!selectedBusiness) {
+    return (
+      <section className="rounded-2xl border border-dashed border-zera-line bg-white p-4 text-sm text-zera-muted">
+        Select a workspace from the table to see its setup snapshot.
+      </section>
+    );
+  }
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-zera-line bg-white shadow-[0_10px_26px_rgba(20,31,27,0.045)]">
+      <div className="border-b border-zera-line px-4 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-zera-green">Selected workspace</p>
+            <h3 className="mt-1 truncate text-lg font-bold text-zera-ink">{selectedBusiness.name}</h3>
+            <p className="mt-1 truncate text-sm text-zera-muted">{owner?.user?.email || "Owner login not assigned"}</p>
           </div>
-        ) : (
-          <table className="w-full min-w-[420px] border-collapse text-left text-sm">
-            <thead className="bg-[#f7faf8] text-xs uppercase text-zera-muted">
-              <tr>
-                <th className="px-4 py-3 font-bold">Issue</th>
-                <th className="px-4 py-3 font-bold">Organization</th>
-                <th className="px-4 py-3 text-right font-bold">Priority</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zera-line">
-              {attentionItems.slice(0, 5).map((item) => (
-                <tr key={`${item.businessId}-${item.label}`} className="cursor-pointer hover:bg-[#f7faf8]" onClick={() => onSelect(item.businessId)}>
-                  <td className="px-4 py-3 font-semibold text-zera-ink">{item.label}</td>
-                  <td className="max-w-[150px] truncate px-4 py-3 text-zera-muted">{item.businessName}</td>
-                  <td className="px-4 py-3 text-right">
-                    <StatusPill label={item.severity} muted={item.severity !== "critical"} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+          <StatusPill active={selectedBusiness.status === "ACTIVE"} label={selectedBusiness.status === "ACTIVE" ? "Active" : "Inactive"} />
+        </div>
+      </div>
+
+      <dl className="divide-y divide-zera-line text-sm">
+        <SummaryRow label="Business type" value={selectedBusiness.type || "Not set"} />
+        <SummaryRow label="Package" value={packageItem?.name || "No package"} />
+        <SummaryRow label="Plan status" value={getPackageStatusLabel(selectedBusiness.packageStatus)} />
+        <SummaryRow label="Branches" value={`${summary?.activeBranches || 0}/${summary?.totalBranches || 0} active`} />
+        <SummaryRow label="Users" value={`${summary?.activeUsers || 0}/${summary?.totalUsers || 0} active`} />
+        <SummaryRow label="Modules" value={`${summary?.activeModules || 0}/${summary?.totalModules || 0} enabled`} />
+      </dl>
+
+      <div className="border-t border-zera-line bg-[#fbfdfb] px-4 py-3">
+        <Button type="button" variant="secondary" className="w-full justify-center" onClick={onOpen}>
+          Configure workspace
+          <ChevronRight className="h-4 w-4" />
+        </Button>
       </div>
     </section>
   );
 }
 
-function RecentActivityPanel({ activity }) {
+function OverviewSection({
+  platformTotals,
+  health,
+  packageOptions,
+  selectedBusiness,
+  recentActivity,
+  onManage,
+}) {
   return (
-    <section className="overflow-hidden rounded-xl border border-zera-line bg-white shadow-card">
-      <div className="border-b border-zera-line px-4 py-3">
-        <SectionTitle icon={CalendarClock} title="Recent activity" subtitle="Latest platform setup events." />
-      </div>
-      <div className="overflow-x-auto">
-        {activity.length === 0 ? (
-          <div className="p-4">
-            <EmptyState text="Activity will appear after organizations are created or updated." />
-          </div>
-        ) : (
-          <table className="w-full min-w-[420px] border-collapse text-left text-sm">
-            <thead className="bg-[#f7faf8] text-xs uppercase text-zera-muted">
-              <tr>
-                <th className="px-4 py-3 font-bold">Organization</th>
-                <th className="px-4 py-3 font-bold">Status</th>
-                <th className="px-4 py-3 text-right font-bold">Updated</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zera-line">
-              {activity.slice(0, 5).map((item) => (
-                <tr key={`${item.label}-${item.date}`} className="hover:bg-[#f7faf8]">
-                  <td className="px-4 py-3 font-semibold text-zera-ink">{item.label}</td>
-                  <td className="max-w-[190px] truncate px-4 py-3 text-zera-muted">{item.description}</td>
-                  <td className="px-4 py-3 text-right text-xs font-semibold text-zera-muted">{formatShortDate(item.date)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+    <section className="space-y-3">
+      <PlatformSummaryStrip platformTotals={platformTotals} health={health} packageCount={packageOptions.length} />
+
+      <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <AdminOverviewRail
+          selectedBusiness={selectedBusiness}
+          health={health}
+          platformTotals={platformTotals}
+          packageCount={packageOptions.length}
+          onManage={onManage}
+        />
+        <RecentActivityList activity={recentActivity} />
       </div>
     </section>
   );
 }
 
-function ModuleFoundationTable({ onProductSelect, platformProducts, selectedProductKey }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full min-w-[860px] border-collapse text-left text-sm">
-        <thead className="bg-[#f7faf8] text-xs uppercase text-zera-muted">
-          <tr>
-            <th className="px-4 py-3 font-bold">Module</th>
-            <th className="px-4 py-3 font-bold">Purpose</th>
-            <th className="px-4 py-3 font-bold">Key</th>
-            <th className="px-4 py-3 text-right font-bold">Action</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-zera-line">
-          {platformProducts.map((product) => {
-            const Icon = product.icon;
-            const selected = product.key === selectedProductKey;
+function AdminOverviewRail({ selectedBusiness, health, platformTotals, packageCount, onManage }) {
+  const setupSummary = selectedBusiness ? getBusinessSetupSummary(selectedBusiness) : null;
+  const packageSummary = selectedBusiness ? getPackageSummary(getBusinessPackageKey(selectedBusiness)) : null;
+  const selectedPosMode = selectedBusiness ? getBusinessPosMode(selectedBusiness) : "";
+  const readinessTotal = platformTotals.businesses || 0;
+  const readinessValue = readinessTotal ? Math.round((health.readyToOperate / readinessTotal) * 100) : 0;
+  const products = selectedBusiness?._count?.products || 0;
 
-            return (
-              <tr key={product.key} className={`transition hover:bg-[#f7faf8] ${selected ? "bg-zera-mint/60" : "bg-white"}`}>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-zera-mint text-zera-green">
-                      <Icon size={17} />
-                    </span>
-                    <span className="font-bold text-zera-ink">{product.title}</span>
-                  </div>
-                </td>
-                <td className="max-w-[460px] truncate px-4 py-3 text-zera-muted">{product.summary}</td>
-                <td className="px-4 py-3">
-                  <span className="rounded-md bg-[#f7faf8] px-2 py-1 text-xs font-bold text-zera-muted">{product.key}</span>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <button
-                    type="button"
-                    className="inline-flex h-9 items-center rounded-md border border-zera-line bg-white px-3 text-sm font-semibold text-zera-ink transition hover:border-zera-green hover:text-zera-green"
-                    onClick={() => onProductSelect(product.key)}
-                  >
-                    {selected ? "Viewing" : "View"}
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+  return (
+    <aside className="overflow-hidden rounded-2xl border border-zera-line bg-white shadow-[0_10px_24px_rgba(20,31,27,0.04)]">
+      <section className="border-b border-zera-line p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-zera-muted">Selected workspace</p>
+            <h2 className="mt-1 text-base font-bold text-zera-ink">Configuration inspector</h2>
+          </div>
+          <span className="rounded-full bg-zera-mint px-2.5 py-1 text-xs font-bold text-zera-green">
+            {health.readyToOperate}/{readinessTotal || 0} ready
+          </span>
+        </div>
+
+        {selectedBusiness ? (
+          <div className="mt-4 space-y-4">
+            <div>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="truncate text-lg font-bold text-zera-ink">{selectedBusiness.name}</h3>
+                  <p className="mt-0.5 text-sm text-zera-muted">
+                    {selectedBusiness.type || "Business"} / {selectedBusiness.country || "Country"} / {selectedBusiness.currency || "Currency"}
+                  </p>
+                </div>
+                <StatusPill active={selectedBusiness.status === "ACTIVE"} label={selectedBusiness.status === "ACTIVE" ? "Active" : "Inactive"} />
+              </div>
+            </div>
+
+            <dl className="divide-y divide-zera-line rounded-xl border border-zera-line">
+              <InspectorRow label="Business type" value={selectedBusiness.type || "Not set"} />
+              <InspectorRow label="POS workflow" value={formatPosLabel(selectedPosMode)} />
+              <InspectorRow label="Package" value={packageSummary?.name || "No package"} />
+              <InspectorRow label="Package status" value={getPackageStatusLabel(selectedBusiness.packageStatus)} />
+              <InspectorRow label="Owner" value={getOwner(selectedBusiness)?.user?.email || "Owner not assigned"} />
+            </dl>
+
+            <div className="space-y-2">
+              <InspectorMeter label="Branches" value={setupSummary.activeBranches} total={setupSummary.totalBranches} />
+              <InspectorMeter label="Users" value={setupSummary.activeUsers} total={setupSummary.totalUsers} />
+              <InspectorMeter label="Modules" value={setupSummary.activeModules} total={setupSummary.totalModules} />
+              <InspectorMeter label="Products" value={products} />
+            </div>
+
+            <Button type="button" variant="secondary" className="w-full justify-center" onClick={onManage}>
+              <Settings className="h-4 w-4" />
+              Manage configuration
+            </Button>
+          </div>
+        ) : (
+          <p className="mt-4 rounded-xl border border-dashed border-zera-line px-3 py-4 text-sm text-zera-muted">Select an organization from the table.</p>
+        )}
+      </section>
+
+      <section className="border-b border-zera-line p-4">
+        <h2 className="text-base font-bold text-zera-ink">Platform readiness</h2>
+        <div className="mt-3 space-y-3">
+          <InspectorMeter label="Ready workspaces" value={health.readyToOperate} total={readinessTotal} helper={`${readinessValue}% configured`} />
+          <InspectorMeter label="Active organizations" value={platformTotals.activeBusinesses} total={platformTotals.businesses} />
+          <InspectorMeter label="Available packages" value={packageCount} />
+        </div>
+      </section>
+
+      <section className="p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-base font-bold text-zera-ink">Needs attention</h2>
+            <p className="mt-0.5 text-sm text-zera-muted">Setup gaps and configuration risks</p>
+          </div>
+          <AlertTriangle className="h-4 w-4 text-amber-600" />
+        </div>
+
+        {health.attention.length ? (
+          <ul className="mt-3 space-y-2">
+            {health.attention.slice(0, 4).map((item) => (
+              <li key={`${item.businessId}-${item.label}`} className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+                <p className="font-bold text-amber-900">{item.businessName}</p>
+                <p className="mt-0.5 text-amber-800">{item.label}</p>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-3 rounded-xl border border-dashed border-zera-line px-3 py-4 text-sm text-zera-muted">No setup issues found.</p>
+        )}
+      </section>
+    </aside>
+  );
+}
+
+function InspectorRow({ label, value }) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-3 py-2.5">
+      <dt className="text-xs font-bold uppercase tracking-[0.1em] text-zera-muted">{label}</dt>
+      <dd className="min-w-0 truncate text-right text-sm font-bold text-zera-ink">{value}</dd>
     </div>
   );
 }
 
-function OrganizationTableCard({
-  businessTypeOptions,
-  businesses,
-  compact = false,
-  filteredBusinesses,
-  loading,
-  maxHeightClass = "max-h-[420px]",
-  onCreate,
-  onSearch,
-  onSelect,
-  search,
-  showCreateAction = false,
-  selectedBusiness,
-  subtitle,
-  title = "Organizations"
-}) {
+function InspectorMeter({ label, value, total, helper }) {
+  const hasTotal = typeof total === "number" && total > 0;
+  const percentage = hasTotal ? Math.min(100, Math.round((value / total) * 100)) : 0;
+  const displayValue = typeof total === "number" ? `${value}/${total}` : value;
+
   return (
-    <section className="overflow-hidden rounded-xl border border-zera-line bg-white shadow-card">
-      <div className={`flex flex-col gap-3 border-b border-zera-line bg-[#fbfdfb] ${compact ? "px-3 py-3" : "px-4 py-3"} lg:flex-row lg:items-center lg:justify-between`}>
-        <SectionTitle
-          icon={Building2}
-          title={title}
-          subtitle={subtitle || `${loading ? "Loading" : `${filteredBusinesses.length} of ${businesses.length}`} customer workspaces`}
-        />
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <label className={`flex min-h-10 min-w-0 items-center gap-2 rounded-md border border-zera-line bg-white px-3 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10 ${compact ? "sm:w-64" : "sm:w-80"}`}>
-            <Search size={16} className="text-zera-muted" />
-            <span className="sr-only">Search organizations</span>
-            <input
-              className="w-full border-0 bg-transparent text-sm outline-none"
-              placeholder="Search organization, owner, type"
-              value={search}
-              onChange={(event) => onSearch(event.target.value)}
-            />
-          </label>
-          {showCreateAction ? (
-            <Button type="button" className="h-10 gap-2 px-3" onClick={onCreate}>
-              <Plus size={15} />
-              New
-            </Button>
-          ) : null}
+    <div className="rounded-xl border border-zera-line bg-[#fbfdfb] p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-bold text-zera-ink">{label}</p>
+        <p className="text-sm font-bold text-zera-ink">{displayValue}</p>
+      </div>
+      {typeof total === "number" ? (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zera-mint">
+          <div className="h-full rounded-full bg-zera-green" style={{ width: `${percentage}%` }} />
         </div>
+      ) : null}
+      {helper ? <p className="mt-1.5 text-xs text-zera-muted">{helper}</p> : null}
+    </div>
+  );
+}
+
+function PlatformSummaryStrip({ platformTotals, health, packageCount }) {
+  const stats = [
+    {
+      label: "Organizations",
+      value: platformTotals.businesses,
+      helper: `${platformTotals.activeBusinesses} active`,
+      icon: Building2,
+    },
+    {
+      label: "Users",
+      value: platformTotals.users,
+      helper: `${platformTotals.activeUsers} active accounts`,
+      icon: Users,
+    },
+    {
+      label: "Packages",
+      value: packageCount,
+      helper: `${packageCount} configured`,
+      icon: CreditCard,
+    },
+    {
+      label: "Readiness",
+      value: `${health.readyToOperate}/${platformTotals.businesses || 0}`,
+      helper: "Ready to operate",
+      icon: Activity,
+    },
+  ];
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-zera-line bg-white shadow-[0_10px_26px_rgba(20,31,27,0.045)]">
+      <div className="grid divide-y divide-zera-line sm:grid-cols-2 sm:divide-x sm:divide-y-0 xl:grid-cols-4">
+        {stats.map((stat) => {
+          const Icon = stat.icon;
+          return (
+            <div key={stat.label} className="flex min-h-[82px] items-center gap-3 px-4 py-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-zera-green/8 text-zera-green">
+                <Icon className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-zera-muted">{stat.label}</p>
+                <p className="mt-0.5 text-2xl font-bold leading-none text-zera-ink">{stat.value}</p>
+                <p className="mt-1 truncate text-xs text-zera-muted">{stat.helper}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function SelectedOrganizationPanel({ business }) {
+  if (!business) {
+    return (
+      <section className="rounded-[26px] border border-dashed border-zera-line bg-white p-5 text-sm text-zera-muted">
+        Select an organization to review its setup.
+      </section>
+    );
+  }
+
+  const posMode = getBusinessPosMode(business);
+  const packageSummary = getPackageSummary(getBusinessPackageKey(business));
+
+  return (
+    <section className="rounded-[26px] border border-zera-line bg-white p-5 shadow-[0_14px_34px_rgba(20,31,27,0.06)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-zera-muted">Selected organization</p>
+          <h2 className="mt-1 truncate text-xl font-bold text-zera-ink">{business.name}</h2>
+          <p className="mt-1 text-sm leading-5 text-zera-muted">
+            {business.type || "Business"} / {business.country || "Country not set"} / {business.currency || "Currency not set"}
+          </p>
+        </div>
+        <StatusPill active={business.status === "ACTIVE"} label={business.status === "ACTIVE" ? "Active" : "Inactive"} />
       </div>
 
-      <div className={`${maxHeightClass} overflow-auto`}>
-        <table className={`w-full border-collapse text-left text-sm ${compact ? "min-w-full table-fixed" : "min-w-[980px]"}`}>
-          <thead className="sticky top-0 z-10 bg-[#f7faf8] text-xs uppercase text-zera-muted shadow-[0_1px_0_rgba(20,31,27,0.08)]">
+      <div className="mt-4 grid gap-2 text-sm">
+        <div className="rounded-2xl bg-[#f6f9f7] px-3 py-2.5">
+          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-zera-muted">Workflow</p>
+          <p className="mt-1 font-bold text-zera-ink">{formatPosLabel(posMode)}</p>
+        </div>
+        <div className="rounded-2xl bg-[#f6f9f7] px-3 py-2.5">
+          <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-zera-muted">Package</p>
+          <p className="mt-1 font-bold text-zera-ink">{packageSummary?.name || "No package"}</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AdminWorkQueue({ health }) {
+  return (
+    <section className="rounded-[26px] border border-zera-line bg-white shadow-[0_14px_34px_rgba(20,31,27,0.06)]">
+      <div className="border-b border-zera-line px-5 py-4">
+        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-zera-green">Operational focus</p>
+        <h2 className="mt-1 text-lg font-bold text-zera-ink">Setup readiness</h2>
+      </div>
+      <div className="divide-y divide-zera-line">
+        {health.rows.slice(0, 3).map((item) => {
+          const percent = item.total ? Math.round((item.ready / item.total) * 100) : 0;
+          return (
+            <div key={item.label} className="px-5 py-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="font-bold text-zera-ink">{item.label}</p>
+                  <p className="mt-0.5 text-sm text-zera-muted">{item.description}</p>
+                </div>
+                <span className="text-lg font-bold text-zera-ink">
+                  {item.ready}/{item.total}
+                </span>
+              </div>
+              <div className="mt-3 h-2 rounded-full bg-[#eef3ef]">
+                <div className="h-full rounded-full bg-zera-green" style={{ width: `${percent}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="border-t border-zera-line px-5 py-4">
+        <p className="font-bold text-zera-ink">Needs attention</p>
+        {health.attention.length ? (
+          <ul className="mt-2 space-y-2">
+            {health.attention.slice(0, 3).map((item) => (
+              <li key={`${item.businessId}-${item.label}`} className="rounded-2xl bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+                {item.businessName}: {item.label}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-2 rounded-2xl border border-dashed border-zera-line px-3 py-4 text-sm text-zera-muted">No setup issues found.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function RecentActivityList({ activity = [] }) {
+  return (
+    <section className="rounded-[26px] border border-zera-line bg-white shadow-[0_14px_34px_rgba(20,31,27,0.06)]">
+      <div className="border-b border-zera-line px-5 py-4">
+        <h2 className="text-lg font-bold text-zera-ink">Recent activity</h2>
+        <p className="mt-0.5 text-sm text-zera-muted">Latest platform setup events.</p>
+      </div>
+      <div className="divide-y divide-zera-line">
+        {activity.length ? (
+          activity.map((item) => (
+            <div key={`${item.label}-${item.date}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 px-5 py-3.5 text-sm">
+              <div className="min-w-0">
+                <p className="truncate font-bold text-zera-ink">{item.label}</p>
+                <p className="mt-0.5 truncate text-zera-muted">{item.description}</p>
+              </div>
+              <span className="text-right text-xs font-bold uppercase tracking-[0.08em] text-zera-muted">{formatShortDate(item.date)}</span>
+            </div>
+          ))
+        ) : (
+          <p className="px-5 py-6 text-sm text-zera-muted">No activity yet.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function OrganizationTableCard({
+  businesses,
+  businessTypeOptions = fallbackBusinessTypeOptions,
+  selectedBusiness,
+  searchTerm,
+  onSearchChange,
+  onSelectBusiness,
+  onManage,
+  title = "Organization register",
+  subtitle = "Search, select, and manage customer workspaces from one register.",
+  compact = false,
+  maxHeightClass = "max-h-[620px]",
+}) {
+  const resultLabel = `${businesses.length} ${businesses.length === 1 ? "organization" : "organizations"}`;
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-zera-line bg-white shadow-[0_10px_26px_rgba(20,31,27,0.045)]">
+      <div className="flex flex-col gap-3 border-b border-zera-line px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-base font-bold text-zera-ink">{title}</h2>
+            <span className="rounded-full border border-zera-line bg-[#f7faf8] px-2 py-0.5 text-[11px] font-bold text-zera-muted">{resultLabel}</span>
+          </div>
+          <p className="mt-0.5 text-sm leading-5 text-zera-muted">{subtitle}</p>
+        </div>
+        <label className="flex h-9 min-w-0 items-center gap-2 rounded-xl border border-zera-line bg-white px-3 text-sm lg:w-[320px]">
+          <Search className="h-4 w-4 shrink-0 text-zera-muted" />
+          <input
+            value={searchTerm}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder={compact ? "Find organization" : "Search organization, owner, type"}
+            className="w-full bg-transparent text-sm text-zera-ink outline-none placeholder:text-zera-muted/70"
+          />
+        </label>
+      </div>
+
+      <div className={`overflow-auto ${maxHeightClass}`}>
+        <table className={`${compact ? "min-w-full" : "min-w-[980px]"} w-full border-collapse text-left text-sm`}>
+          <thead className="sticky top-0 z-10 border-b border-zera-line bg-[#f7faf8] text-[10px] font-bold uppercase tracking-[0.12em] text-zera-muted">
             {compact ? (
               <tr>
-                <th className="w-[32%] px-3 py-2.5 font-bold">Organization</th>
-                <th className="w-[25%] px-3 py-2.5 font-bold">Workflow</th>
-                <th className="w-[28%] px-3 py-2.5 font-bold">Setup</th>
-                <th className="w-[15%] px-3 py-2.5 text-right font-bold">Select</th>
+                <th className="px-4 py-2.5">Organization</th>
+                <th className="px-3 py-2.5">Setup</th>
+                <th className="px-4 py-2.5 text-right">Open</th>
               </tr>
             ) : (
               <tr>
-                <th className="px-4 py-3 font-bold">Organization</th>
-                <th className="px-4 py-3 font-bold">Type</th>
-                <th className="px-4 py-3 font-bold">Package</th>
-                <th className="px-4 py-3 font-bold">Usage</th>
-                <th className="px-4 py-3 font-bold">Owner</th>
-                <th className="px-4 py-3 text-right font-bold">Action</th>
+                <th className="px-4 py-2.5">Organization</th>
+                <th className="px-3 py-2.5">Type</th>
+                <th className="px-3 py-2.5">Package</th>
+                <th className="px-3 py-2.5">Usage</th>
+                <th className="px-3 py-2.5">Owner</th>
+                <th className="px-4 py-2.5 text-right">Open</th>
               </tr>
             )}
           </thead>
           <tbody className="divide-y divide-zera-line">
-            {!loading && filteredBusinesses.length === 0 ? (
+            {businesses.length ? (
+              businesses.map((business) => (
+                <OrganizationTableRow
+                  key={business.id}
+                  business={business}
+                  businessTypeOptions={businessTypeOptions}
+                  selected={selectedBusiness?.id === business.id}
+                  compact={compact}
+                  onSelect={() => onSelectBusiness(business.id)}
+                  onManage={onManage}
+                />
+              ))
+            ) : (
               <tr>
-                <td colSpan={compact ? 4 : 6} className="px-4 py-6">
-                  <EmptyState text={businesses.length === 0 ? "No organizations yet. Create the first customer workspace." : "No organizations match your search."} />
+                <td colSpan={compact ? 3 : 6} className="px-5 py-10 text-center text-sm text-zera-muted">
+                  No organizations match your search.
                 </td>
               </tr>
-            ) : null}
-            {filteredBusinesses.map((business) => (
-              <OrganizationTableRow
-                key={business.id}
-                business={business}
-                businessTypeOptions={businessTypeOptions}
-                compact={compact}
-                selected={selectedBusiness?.id === business.id}
-                onSelect={() => onSelect(business.id)}
-              />
-            ))}
+            )}
           </tbody>
         </table>
       </div>
@@ -1352,31 +1971,29 @@ function OrganizationTableRow({ business, businessTypeOptions, compact, onSelect
   if (compact) {
     return (
       <tr className={`transition hover:bg-[#f7faf8] ${selected ? "bg-[#f3faf6] shadow-[inset_3px_0_0_#14833b]" : "bg-white"}`}>
-        <td className="px-3 py-2.5">
+        <td className="min-w-0 px-4 py-3">
           <button type="button" className="w-full min-w-0 text-left" onClick={onSelect}>
             <span className="block truncate font-bold text-zera-ink">{business.name}</span>
+            <span className="mt-0.5 block truncate text-xs text-zera-muted">{business.type || "Business"} / {business.currency || "Currency"}</span>
             <span className="mt-0.5 block truncate text-xs text-zera-muted">{owner?.user?.email || "Owner not assigned"}</span>
           </button>
         </td>
-        <td className="px-3 py-2.5">
-          <p className="truncate font-semibold text-zera-ink">{business.type || "Not set"}</p>
-          <p className="mt-0.5 truncate text-xs text-zera-green">{formatPOSMode(posMode, business.type)}</p>
-        </td>
-        <td className="truncate px-3 py-2.5 text-xs text-zera-muted">
-          <span className="font-semibold text-zera-ink">{business.platformPackage?.name || "Starter"}</span>
-          <span className="mt-0.5 block">
+        <td className="min-w-[150px] px-3 py-3 text-xs text-zera-muted">
+          <span className="block truncate font-bold text-zera-green">{formatPOSMode(posMode, business.type)}</span>
+          <span className="mt-1 block truncate font-semibold text-zera-ink">{business.platformPackage?.name || "Starter"}</span>
+          <span className="mt-1 block truncate">
             {activeBranches}/{totalBranches} branches · {activeUsers}/{totalUsers} users · {activeModules}/{totalModules} modules
           </span>
         </td>
-        <td className="px-3 py-2.5 text-right">
+        <td className="px-4 py-3 text-right">
           <button
             type="button"
-            className={`inline-flex min-h-8 items-center rounded-md px-2.5 text-xs font-bold transition ${
+            className={`inline-flex min-h-8 items-center rounded-lg px-3 text-xs font-bold transition ${
               selected ? "bg-zera-green text-white" : "border border-zera-line bg-white text-zera-ink hover:border-zera-green hover:text-zera-green"
             }`}
             onClick={onSelect}
           >
-            {selected ? "Selected" : "Select"}
+            {selected ? "Open" : "Configure"}
           </button>
         </td>
       </tr>
@@ -1384,40 +2001,46 @@ function OrganizationTableRow({ business, businessTypeOptions, compact, onSelect
   }
 
   return (
-    <tr className={`transition hover:bg-[#f7faf8] ${selected ? "bg-[#f3faf6] shadow-[inset_3px_0_0_#14833b]" : "bg-white"}`}>
-      <td className="px-4 py-2.5">
+    <tr className={`transition hover:bg-[#f7faf8] ${selected ? "bg-[#f1faf5] shadow-[inset_3px_0_0_#14833b]" : "bg-white"}`}>
+      <td className="px-4 py-3">
         <button type="button" className="max-w-[280px] text-left" onClick={onSelect}>
           <span className="block truncate font-bold text-zera-ink">{business.name}</span>
           <span className="mt-1 block truncate text-xs text-zera-muted">
-            {business.country || "Country not set"} / {business.currency || "Currency"} / {formatPOSMode(posMode, business.type)}
+            {business.country || "Country not set"} / {business.currency || "Currency"}
           </span>
         </button>
       </td>
-      <td className="px-4 py-2.5">
-        <span className="font-semibold text-zera-ink">{business.type || "Not set"}</span>
-        <span className="mt-1 block">
-          <StatusPill label={business.status?.toLowerCase() || "active"} muted={business.status !== "ACTIVE"} />
-        </span>
+      <td className="px-3 py-3">
+        <p className="max-w-[180px] truncate font-semibold text-zera-ink">{business.type || "Not set"}</p>
+        <p className="mt-0.5 max-w-[220px] truncate text-xs font-semibold text-zera-green">{formatPOSMode(posMode, business.type)}</p>
       </td>
-      <td className="px-4 py-2.5">
+      <td className="px-3 py-3">
         <span className="font-semibold text-zera-ink">{business.platformPackage?.name || "Starter"}</span>
-        <span className="mt-1 block text-xs text-zera-muted">{activeModules}/{totalModules} modules</span>
+        <span className="mt-1 block">
+          <StatusPill active={isPackageStatusHealthy(business.packageStatus)} label={getPackageStatusLabel(business.packageStatus)} />
+        </span>
+        {business.status !== "ACTIVE" ? <span className="mt-1 block text-xs font-semibold text-red-700">Organization inactive</span> : null}
       </td>
-      <td className="px-4 py-2.5 text-zera-muted">
-        <span className="font-semibold text-zera-ink">{activeBranches}/{totalBranches}</span> branches
-        <span className="mx-2 text-zera-lineStrong">|</span>
-        <span className="font-semibold text-zera-ink">{activeUsers}/{totalUsers}</span> users
-        <span className="mx-2 text-zera-lineStrong">|</span>
-        <span className="font-semibold text-zera-ink">{business._count?.products || 0}</span> products
+      <td className="px-3 py-3">
+        <div className="flex flex-wrap gap-1.5 text-xs">
+          <span className="rounded-md bg-[#f7faf8] px-2 py-1 font-semibold text-zera-ink">{activeBranches}/{totalBranches} branches</span>
+          <span className="rounded-md bg-[#f7faf8] px-2 py-1 font-semibold text-zera-ink">{activeUsers}/{totalUsers} users</span>
+          <span className="rounded-md bg-[#f7faf8] px-2 py-1 font-semibold text-zera-ink">{activeModules}/{totalModules} modules</span>
+        </div>
       </td>
-      <td className="max-w-[220px] truncate px-4 py-2.5 text-zera-muted">{owner?.user?.email || "Owner not assigned"}</td>
-      <td className="px-4 py-2.5 text-right">
+      <td className="px-3 py-3">
+        <p className="max-w-[210px] truncate font-semibold text-zera-ink">{owner?.user?.name || "Owner not assigned"}</p>
+        <p className="mt-0.5 max-w-[210px] truncate text-xs text-zera-muted">{owner?.user?.email || "Create owner login"}</p>
+      </td>
+      <td className="px-4 py-3 text-right">
         <button
           type="button"
-          className="inline-flex min-h-9 items-center gap-1 rounded-md border border-zera-line bg-white px-3 text-sm font-semibold text-zera-ink transition hover:border-zera-green hover:text-zera-green"
+          className={`inline-flex min-h-8 items-center gap-1 rounded-lg px-3 text-sm font-semibold transition ${
+            selected ? "bg-zera-green text-white" : "border border-zera-line bg-white text-zera-ink hover:border-zera-green hover:bg-zera-mint hover:text-zera-green"
+          }`}
           onClick={onSelect}
         >
-          Manage
+          {selected ? "Open" : "Configure"}
           <ChevronRight size={15} />
         </button>
       </td>
@@ -1425,18 +2048,14 @@ function OrganizationTableRow({ business, businessTypeOptions, compact, onSelect
   );
 }
 
-function SelectedProductPanel({ product }) {
-  return (
-    <div className="border-t border-zera-line bg-[#f7faf8] px-4 py-3">
-      <p className="text-xs font-bold uppercase text-zera-green">{product.title}</p>
-      <p className="mt-1 text-sm leading-6 text-zera-muted">{product.detail}</p>
-    </div>
-  );
-}
-
-function PackageSettingsSection({ businesses, onSave, packageOptions, packageSavingKey, platformProducts }) {
+function PackageSettingsSection({ businesses, onCreate, onSave, packageCreating, packageOptions, packageSavingKey, platformProducts, selectedBusiness }) {
   const [selectedPackageKey, setSelectedPackageKey] = useState(packageOptions[0]?.key || "STARTER");
   const selectedPackage = packageOptions.find((packageItem) => packageItem.key === selectedPackageKey) || packageOptions[0];
+  const selectedBusinessPackageKey = selectedBusiness ? getBusinessPackageKey(selectedBusiness) : "";
+  const selectedBusinessPackage = selectedBusinessPackageKey ? getPackageOption(selectedBusinessPackageKey, packageOptions) : null;
+  const activePackageCount = packageOptions.filter((packageItem) => packageItem.active !== false).length;
+  const customPackageCount = packageOptions.filter((packageItem) => isCustomPackage(packageItem)).length;
+  const assignedPackageCount = businesses.filter((business) => business.platformPackage).length;
 
   useEffect(() => {
     if (packageOptions.some((packageItem) => packageItem.key === selectedPackageKey)) {
@@ -1446,33 +2065,63 @@ function PackageSettingsSection({ businesses, onSave, packageOptions, packageSav
     setSelectedPackageKey(packageOptions[0]?.key || "");
   }, [packageOptions, selectedPackageKey]);
 
+  useEffect(() => {
+    if (!selectedBusinessPackageKey || !packageOptions.some((packageItem) => packageItem.key === selectedBusinessPackageKey)) {
+      return;
+    }
+
+    setSelectedPackageKey(selectedBusinessPackageKey);
+  }, [packageOptions, selectedBusinessPackageKey]);
+
+  async function handleCreatePackage() {
+    const createdPackage = await onCreate();
+
+    if (createdPackage?.key) {
+      setSelectedPackageKey(createdPackage.key);
+    }
+  }
+
   return (
     <section className="space-y-4">
-      <article className="rounded-xl border border-zera-line bg-white px-4 py-3 shadow-card">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <article className="overflow-hidden rounded-xl border border-zera-line bg-white shadow-card">
+        <div className="flex flex-col gap-3 border-b border-zera-line px-4 py-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">SaaS packages</p>
-            <h2 className="mt-1 text-xl font-bold text-zera-ink">Plans and limits</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">
-              Define the limits and default modules for each package. Organizations assigned to a package inherit its module availability.
-            </p>
+            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Package management</p>
+            <h2 className="mt-1 text-xl font-bold text-zera-ink">Plans, limits, and included modules</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">Create fixed packages for normal customers and custom packages for customers that need special limits.</p>
           </div>
-          <div className="rounded-md border border-zera-line bg-[#f7faf8] px-3 py-2 text-sm text-zera-muted">
-            <span className="font-bold text-zera-ink">{packageOptions.length}</span> plans configured
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="rounded-md border border-zera-line bg-[#f7faf8] px-3 py-2 text-sm text-zera-muted">
+              <span className="font-bold text-zera-ink">{selectedBusiness?.name || "No organization selected"}</span>
+              <span className="mx-2 text-zera-muted/70">uses</span>
+              <span className="font-semibold text-zera-green">{selectedBusinessPackage?.name || "No package"}</span>
+            </div>
+            <Button type="button" className="h-10 rounded-xl px-3.5" onClick={handleCreatePackage} disabled={packageCreating}>
+              <Plus className="h-4 w-4" />
+              {packageCreating ? "Creating..." : "Create custom package"}
+            </Button>
           </div>
+        </div>
+
+        <div className="grid divide-y divide-zera-line md:grid-cols-4 md:divide-x md:divide-y-0">
+          <PackageMetric label="Total packages" value={packageOptions.length} />
+          <PackageMetric label="Active packages" value={activePackageCount} />
+          <PackageMetric label="Custom packages" value={customPackageCount} />
+          <PackageMetric label="Assigned organizations" value={assignedPackageCount} />
         </div>
       </article>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_430px]">
         <section className="overflow-hidden rounded-xl border border-zera-line bg-white shadow-card">
           <div className="border-b border-zera-line bg-[#fbfdfb] px-4 py-3">
-            <SectionTitle icon={CreditCard} title="Package directory" subtitle="Select a plan to edit its limits and included modules." />
+            <SectionTitle icon={CreditCard} title="Package directory" subtitle="Select one plan, then edit its price, limits, modules, and availability." />
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[900px] border-collapse text-left text-sm">
               <thead className="bg-[#f7faf8] text-xs uppercase text-zera-muted">
                 <tr>
                   <th className="px-4 py-3 font-bold">Package</th>
+                  <th className="px-4 py-3 font-bold">Price</th>
                   <th className="px-4 py-3 font-bold">Limits</th>
                   <th className="px-4 py-3 font-bold">Modules</th>
                   <th className="px-4 py-3 font-bold">Organizations</th>
@@ -1495,6 +2144,7 @@ function PackageSettingsSection({ businesses, onSave, packageOptions, packageSav
                         <p className="font-bold text-zera-ink">{packageItem.name}</p>
                         <p className="mt-1 max-w-[320px] truncate text-xs text-zera-muted">{packageItem.description}</p>
                       </td>
+                      <td className="px-4 py-3 font-semibold text-zera-ink">{formatPackagePrice(packageItem)}</td>
                       <td className="px-4 py-3 text-zera-muted">{formatPackageLimits(packageItem)}</td>
                       <td className="px-4 py-3">
                         <span className="font-semibold text-zera-ink">{packageItem.defaultModuleKeys?.length || 0}</span>
@@ -1525,6 +2175,15 @@ function PackageSettingsSection({ businesses, onSave, packageOptions, packageSav
         ) : null}
       </div>
     </section>
+  );
+}
+
+function PackageMetric({ label, value }) {
+  return (
+    <div className="px-4 py-3">
+      <p className="text-xs font-bold uppercase text-zera-muted">{label}</p>
+      <p className="mt-1 text-2xl font-bold text-zera-ink">{Number(value || 0).toLocaleString()}</p>
+    </div>
   );
 }
 
@@ -1589,7 +2248,10 @@ function PackagePlanCard({ assignedCount, onSave, packageItem, platformProducts,
               required
             />
           </div>
-          <StatusPill label={form.active ? "active" : "inactive"} muted={!form.active} />
+          <div className="flex shrink-0 flex-col items-end gap-2">
+            <StatusPill label={isCustomPackage(packageItem) ? "custom" : "standard"} muted={false} />
+            <StatusPill label={form.active ? "active" : "inactive"} muted={!form.active} />
+          </div>
         </div>
         <p className="mt-2 text-sm text-zera-muted">
           {assignedCount} {assignedCount === 1 ? "organization" : "organizations"} assigned
@@ -1606,9 +2268,21 @@ function PackagePlanCard({ assignedCount, onSave, packageItem, platformProducts,
           />
         </label>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-3 sm:grid-cols-3">
           <Input label="Price" type="number" min="0" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} />
           <Input label="Currency" value={form.currency} onChange={(event) => setForm({ ...form, currency: event.target.value.toUpperCase() })} />
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-semibold text-zera-ink">Billing</span>
+            <select
+              className="min-h-10 w-full rounded-md border border-zera-line bg-white px-3 text-sm font-semibold text-zera-ink outline-none transition hover:border-zera-lineStrong focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+              value={form.billingCycle}
+              onChange={(event) => setForm({ ...form, billingCycle: event.target.value })}
+            >
+              <option value="MONTHLY">Monthly</option>
+              <option value="YEARLY">Yearly</option>
+              <option value="ONE_TIME">One time</option>
+            </select>
+          </label>
         </div>
 
         <div className="grid grid-cols-3 gap-2">
@@ -1616,6 +2290,7 @@ function PackagePlanCard({ assignedCount, onSave, packageItem, platformProducts,
           <PackageNumberField label="Users" value={form.maxUsers} onChange={(value) => setForm({ ...form, maxUsers: value })} />
           <PackageNumberField label="Products" value={form.maxProducts} onChange={(value) => setForm({ ...form, maxProducts: value })} />
         </div>
+        <p className="-mt-2 text-xs leading-5 text-zera-muted">Leave a limit empty for a negotiated custom limit.</p>
 
         <div>
           <p className="text-sm font-semibold text-zera-ink">Modules included</p>
@@ -1643,7 +2318,7 @@ function PackagePlanCard({ assignedCount, onSave, packageItem, platformProducts,
         <label className="flex items-center justify-between gap-3 rounded-md border border-zera-line bg-[#f7faf8] px-3 py-2">
           <span>
             <span className="block text-sm font-semibold text-zera-ink">Available for new customers</span>
-            <span className="block text-xs text-zera-muted">Inactive plans stay hidden from setup choices later.</span>
+            <span className="block text-xs text-zera-muted">Inactive packages can be edited here but cannot be assigned to an organization.</span>
           </span>
           <input
             type="checkbox"
@@ -1678,81 +2353,468 @@ function PackageNumberField({ label, onChange, value }) {
   );
 }
 
-function PlatformSettingsSection({ businessTypeOptions, packageOptions, platformProducts }) {
+function PlatformSettingsSection({
+  businessTypeCreating,
+  businessTypeSavingKey,
+  businessTypeOptions,
+  onBusinessTypeCreate,
+  onBusinessTypeSave,
+  packageOptions,
+  platformProducts,
+  selectedBusiness
+}) {
+  const selectedType = selectedBusiness ? getBusinessTypeOption(selectedBusiness.type, businessTypeOptions) : null;
+  const [activeSettingsTab, setActiveSettingsTab] = useState("business-types");
+  const [selectedBusinessTypeKey, setSelectedBusinessTypeKey] = useState(selectedType?.key || businessTypeOptions[0]?.key || "");
+  const selectedBusinessType = businessTypeOptions.find((type) => type.key === selectedBusinessTypeKey) || selectedType || businessTypeOptions[0];
+
+  useEffect(() => {
+    if (selectedType?.key) {
+      setSelectedBusinessTypeKey(selectedType.key);
+      return;
+    }
+
+    if (!businessTypeOptions.some((type) => type.key === selectedBusinessTypeKey)) {
+      setSelectedBusinessTypeKey(businessTypeOptions[0]?.key || "");
+    }
+  }, [businessTypeOptions, selectedBusinessTypeKey, selectedType?.key]);
+
+  const tabs = [
+    {
+      id: "business-types",
+      label: "Business types",
+      icon: Building2,
+      description: "Onboarding templates, POS workflow, default roles, and default modules."
+    },
+    {
+      id: "modules",
+      label: "Modules",
+      icon: Boxes,
+      description: "The product capabilities that packages and organizations can enable."
+    },
+    {
+      id: "rules",
+      label: "Rules",
+      icon: ShieldCheck,
+      description: "The setup order admins should follow when configuring a workspace."
+    }
+  ];
+  const activeTab = tabs.find((tab) => tab.id === activeSettingsTab) || tabs[0];
+
+  async function handleCreateBusinessType() {
+    setActiveSettingsTab("business-types");
+    const createdBusinessType = await onBusinessTypeCreate();
+
+    if (createdBusinessType?.key) {
+      setSelectedBusinessTypeKey(createdBusinessType.key);
+    }
+  }
+
   return (
     <section className="space-y-4">
       <article className="rounded-xl border border-zera-line bg-white px-4 py-3 shadow-card">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Platform settings</p>
-            <h2 className="mt-1 text-xl font-bold text-zera-ink">Provisioning catalog</h2>
+            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">System settings</p>
+            <h2 className="mt-1 text-xl font-bold text-zera-ink">Platform configuration templates</h2>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">
-              These settings describe how Zera creates customer workspaces. Keep this area compact and predictable because it controls the rest of the system.
+              Control the templates System Admin uses to create and configure customer workspaces. Nothing here belongs to one customer only.
             </p>
           </div>
-          <StatusPill label="catalog ready" />
+          <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-zera-line bg-[#f7faf8] text-center text-sm">
+            <div className="px-3 py-2">
+              <span className="block font-bold text-zera-ink">{businessTypeOptions.length}</span>
+              <span className="text-xs font-semibold text-zera-muted">Types</span>
+            </div>
+            <div className="border-x border-zera-line px-3 py-2">
+              <span className="block font-bold text-zera-ink">{platformProducts.length}</span>
+              <span className="text-xs font-semibold text-zera-muted">Modules</span>
+            </div>
+            <div className="px-3 py-2">
+              <span className="block font-bold text-zera-ink">{packageOptions.length}</span>
+              <span className="text-xs font-semibold text-zera-muted">Packages</span>
+            </div>
+          </div>
         </div>
       </article>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <section className="overflow-hidden rounded-xl border border-zera-line bg-white shadow-card">
-          <div className="border-b border-zera-line bg-[#fbfdfb] px-4 py-3">
-            <SectionTitle icon={SlidersHorizontal} title="Business types" subtitle="Each type determines the default POS workflow and staff roles." />
+      <div className="grid overflow-hidden rounded-xl border border-zera-line bg-white shadow-card lg:grid-cols-[280px_minmax(0,1fr)]">
+        <aside className="border-b border-zera-line bg-[#fbfdfb] lg:border-b-0 lg:border-r">
+          <div className="border-b border-zera-line p-4">
+            <SectionTitle icon={Settings} title="Configuration areas" subtitle="Choose one area to manage." />
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] border-collapse text-left text-sm">
-              <thead className="bg-[#f7faf8] text-xs uppercase text-zera-muted">
-                <tr>
-                  <th className="px-4 py-3 font-bold">Type</th>
-                  <th className="px-4 py-3 font-bold">POS workflow</th>
-                  <th className="px-4 py-3 font-bold">Default roles</th>
-                  <th className="px-4 py-3 font-bold">Modules</th>
-                  <th className="px-4 py-3 text-right font-bold">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zera-line">
-                {businessTypeOptions.map((type) => (
-                  <tr key={type.key || type.value} className="hover:bg-[#f7faf8]">
-                    <td className="px-4 py-3">
-                      <p className="font-bold text-zera-ink">{type.label}</p>
-                      <p className="mt-1 max-w-[320px] truncate text-xs text-zera-muted">{type.helper}</p>
-                    </td>
-                    <td className="px-4 py-3 font-semibold text-zera-green">{formatPOSMode(type.posMode, type.value)}</td>
-                    <td className="px-4 py-3 text-zera-muted">{["Owner", "Manager", ...(type.roles || []).map((role) => role.name)].join(", ")}</td>
-                    <td className="px-4 py-3 text-zera-muted">{(type.defaultModuleKeys || ["POS"]).join(", ")}</td>
-                    <td className="px-4 py-3 text-right">
-                      <StatusPill label={type.active === false ? "inactive" : "active"} muted={type.active === false} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+          <nav className="space-y-1 p-2">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition ${
+                  activeSettingsTab === tab.id ? "bg-zera-green text-white shadow-sm" : "text-zera-muted hover:bg-white hover:text-zera-ink"
+                }`}
+                onClick={() => setActiveSettingsTab(tab.id)}
+              >
+                <tab.icon className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  <span className="block text-sm font-bold">{tab.label}</span>
+                  <span className={`mt-0.5 block text-xs leading-5 ${activeSettingsTab === tab.id ? "text-white/80" : "text-zera-muted"}`}>
+                    {tab.description}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </nav>
+        </aside>
 
-        <section className="space-y-4">
-          <CompactCatalogPanel
-            icon={Boxes}
-            title="Modules"
-            subtitle={`${platformProducts.length} product foundations`}
-            rows={platformProducts.map((product) => ({
-              label: product.title,
-              value: product.key,
-              helper: product.summary
-            }))}
-          />
-          <CompactCatalogPanel
-            icon={CreditCard}
-            title="Packages"
-            subtitle={`${packageOptions.filter((packageItem) => packageItem.active !== false).length} active plans`}
-            rows={packageOptions.map((packageItem) => ({
-              label: packageItem.name,
-              value: packageItem.active === false ? "Inactive" : "Active",
-              helper: formatPackageLimits(packageItem)
-            }))}
-          />
+        <section className="min-w-0">
+          <div className="flex flex-col gap-3 border-b border-zera-line bg-white px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase text-zera-green">{activeTab.label}</p>
+              <p className="mt-1 text-sm leading-5 text-zera-muted">{activeTab.description}</p>
+            </div>
+            {activeSettingsTab === "business-types" ? (
+              <Button type="button" className="h-9 rounded-xl px-3" onClick={handleCreateBusinessType} disabled={businessTypeCreating}>
+                <Plus className="h-4 w-4" />
+                {businessTypeCreating ? "Creating..." : "New business type"}
+              </Button>
+            ) : null}
+          </div>
+
+          {activeSettingsTab === "business-types" ? (
+            <BusinessTypeSettingsPanel
+              businessTypeOptions={businessTypeOptions}
+              businessTypeSavingKey={businessTypeSavingKey}
+              onSave={onBusinessTypeSave}
+              platformProducts={platformProducts}
+              selectedBusinessType={selectedBusinessType}
+              selectedBusinessTypeKey={selectedBusinessTypeKey}
+              onSelectBusinessType={setSelectedBusinessTypeKey}
+            />
+          ) : null}
+
+          {activeSettingsTab === "modules" ? <ModuleCatalogPanel packageOptions={packageOptions} platformProducts={platformProducts} selectedBusiness={selectedBusiness} /> : null}
+
+          {activeSettingsTab === "rules" ? (
+            <PlatformRulesPanel
+              businessTypeOptions={businessTypeOptions}
+              packageOptions={packageOptions}
+              platformProducts={platformProducts}
+              selectedBusiness={selectedBusiness}
+            />
+          ) : null}
         </section>
       </div>
+    </section>
+  );
+}
+
+function BusinessTypeSettingsPanel({
+  businessTypeOptions,
+  businessTypeSavingKey,
+  onSave,
+  onSelectBusinessType,
+  platformProducts,
+  selectedBusinessType,
+  selectedBusinessTypeKey
+}) {
+  return (
+    <div className="grid min-h-[520px] gap-0 xl:grid-cols-[minmax(0,1fr)_430px]">
+      <section className="overflow-x-auto border-b border-zera-line xl:border-b-0 xl:border-r">
+        <table className="w-full min-w-[920px] border-collapse text-left text-sm">
+          <thead className="bg-[#f7faf8] text-xs uppercase text-zera-muted">
+            <tr>
+              <th className="px-4 py-3 font-bold">Business type</th>
+              <th className="px-4 py-3 font-bold">Workflow</th>
+              <th className="px-4 py-3 font-bold">Default roles</th>
+              <th className="px-4 py-3 font-bold">Default modules</th>
+              <th className="px-4 py-3 text-right font-bold">Status</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zera-line">
+            {businessTypeOptions.map((type) => (
+              <tr
+                key={type.key || type.value}
+                className={`cursor-pointer transition hover:bg-[#f7faf8] ${selectedBusinessTypeKey === type.key ? "bg-zera-mint/70" : "bg-white"}`}
+                onClick={() => onSelectBusinessType(type.key)}
+              >
+                <td className="px-4 py-3">
+                  <p className="font-bold text-zera-ink">{type.label}</p>
+                  <p className="mt-1 max-w-[360px] truncate text-xs text-zera-muted">{type.helper}</p>
+                </td>
+                <td className="px-4 py-3 font-semibold text-zera-green">{formatPOSMode(type.posMode, type.value)}</td>
+                <td className="px-4 py-3 text-zera-muted">{["Owner", "Manager", ...(type.roles || []).map((role) => role.name)].join(", ")}</td>
+                <td className="px-4 py-3 text-zera-muted">{(type.defaultModuleKeys || ["POS"]).join(", ")}</td>
+                <td className="px-4 py-3 text-right">
+                  <StatusPill label={type.active === false ? "inactive" : "active"} muted={type.active === false} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      {selectedBusinessType ? (
+        <BusinessTypeEditor
+          businessType={selectedBusinessType}
+          onSave={onSave}
+          platformProducts={platformProducts}
+          saving={businessTypeSavingKey === selectedBusinessType.key}
+        />
+      ) : (
+        <div className="p-4">
+          <EmptyState text="Select a business type to configure its onboarding defaults." />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BusinessTypeEditor({ businessType, onSave, platformProducts, saving }) {
+  const [form, setForm] = useState(() => getBusinessTypeForm(businessType));
+
+  useEffect(() => {
+    setForm(getBusinessTypeForm(businessType));
+  }, [
+    businessType.id,
+    businessType.key,
+    businessType.label,
+    businessType.helper,
+    businessType.posMode,
+    businessType.defaultTableCount,
+    businessType.active,
+    businessType.defaultModuleKeys?.join("|"),
+    (businessType.roles || []).map((role) => `${role.name}:${role.description}`).join("|")
+  ]);
+
+  function toggleDefaultModule(moduleKey) {
+    setForm((current) => {
+      const activeKeys = new Set(current.defaultModuleKeys);
+
+      if (activeKeys.has(moduleKey)) {
+        activeKeys.delete(moduleKey);
+      } else {
+        activeKeys.add(moduleKey);
+      }
+
+      return {
+        ...current,
+        defaultModuleKeys: [...activeKeys]
+      };
+    });
+  }
+
+  function handleSubmit(event) {
+    event.preventDefault();
+    const roles = form.rolesText
+      .split("\n")
+      .map((line) => {
+        const [name, ...descriptionParts] = line.split("-");
+        return {
+          name: name.trim(),
+          description: descriptionParts.join("-").trim()
+        };
+      })
+      .filter((role) => role.name);
+
+    onSave(businessType, {
+      ...form,
+      defaultTableCount: form.defaultTableCount === "" ? null : Number(form.defaultTableCount),
+      roles
+    });
+  }
+
+  return (
+    <form className="flex min-h-full flex-col bg-white" onSubmit={handleSubmit}>
+      <div className="border-b border-zera-line bg-[#fbfdfb] p-4">
+        <p className="text-xs font-bold uppercase text-zera-muted">{businessType.key}</p>
+        <h3 className="mt-1 text-xl font-bold text-zera-ink">Configure business type</h3>
+      </div>
+
+      <div className="flex-1 space-y-4 p-4">
+        <Input label="Display name" value={form.label} onChange={(event) => setForm({ ...form, label: event.target.value })} required />
+
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-semibold text-zera-ink">Admin guidance</span>
+          <textarea
+            className="min-h-20 w-full resize-none rounded-md border border-zera-line bg-white px-3 py-2 text-sm leading-6 text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+            value={form.helper}
+            onChange={(event) => setForm({ ...form, helper: event.target.value })}
+          />
+        </label>
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-semibold text-zera-ink">POS workflow</span>
+            <select
+              className="min-h-10 w-full rounded-md border border-zera-line bg-white px-3 text-sm font-semibold text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+              value={form.posMode}
+              onChange={(event) => setForm({ ...form, posMode: event.target.value })}
+            >
+              <option value="RETAIL_CHECKOUT">Checkout POS</option>
+              <option value="TABLE_SERVICE">Table-service POS</option>
+            </select>
+          </label>
+          <Input
+            label="Default tables"
+            min="0"
+            type="number"
+            value={form.defaultTableCount}
+            onChange={(event) => setForm({ ...form, defaultTableCount: event.target.value })}
+          />
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold text-zera-ink">Default modules</p>
+          <div className="mt-2 grid gap-2">
+            {platformProducts.map((product) => {
+              const active = form.defaultModuleKeys.includes(product.key);
+
+              return (
+                <button
+                  key={product.key}
+                  type="button"
+                  className={`flex min-h-10 items-center justify-between rounded-md border px-3 text-sm font-semibold transition ${
+                    active ? "border-zera-green bg-zera-mint text-zera-green" : "border-zera-line bg-white text-zera-muted hover:border-zera-green"
+                  }`}
+                  onClick={() => toggleDefaultModule(product.key)}
+                >
+                  <span>{product.title}</span>
+                  <span className={`h-3 w-3 rounded-full ${active ? "bg-zera-green" : "bg-zera-line"}`} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-semibold text-zera-ink">Default staff roles</span>
+          <textarea
+            className="min-h-24 w-full resize-none rounded-md border border-zera-line bg-white px-3 py-2 text-sm leading-6 text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+            value={form.rolesText}
+            onChange={(event) => setForm({ ...form, rolesText: event.target.value })}
+            placeholder="Role name - Role responsibility"
+          />
+          <p className="mt-1 text-xs text-zera-muted">One role per line. Owner and Manager are always included by Zera.</p>
+        </label>
+
+        <label className="flex items-center justify-between gap-3 rounded-md border border-zera-line bg-[#f7faf8] px-3 py-2">
+          <span>
+            <span className="block text-sm font-semibold text-zera-ink">Available for new organizations</span>
+            <span className="block text-xs text-zera-muted">Inactive types are hidden during onboarding.</span>
+          </span>
+          <input
+            type="checkbox"
+            className="h-5 w-5 accent-zera-green"
+            checked={form.active}
+            onChange={(event) => setForm({ ...form, active: event.target.checked })}
+          />
+        </label>
+      </div>
+
+      <div className="border-t border-zera-line bg-[#fbfdfb] p-4">
+        <Button className="w-full" disabled={saving}>
+          {saving ? "Saving setup..." : "Save business type"}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function ModuleCatalogPanel({ packageOptions, platformProducts, selectedBusiness }) {
+  const selectedModuleKeys = new Set((selectedBusiness?.modules || []).filter((module) => module.active).map((module) => module.key));
+
+  return (
+    <section className="overflow-x-auto">
+      <table className="w-full min-w-[920px] border-collapse text-left text-sm">
+        <thead className="bg-[#f7faf8] text-xs uppercase text-zera-muted">
+          <tr>
+            <th className="px-4 py-3 font-bold">Module</th>
+            <th className="px-4 py-3 font-bold">Purpose</th>
+            <th className="px-4 py-3 font-bold">Used in packages</th>
+            <th className="px-4 py-3 text-right font-bold">Selected org</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-zera-line">
+          {platformProducts.map((product) => {
+            const includedPackages = packageOptions.filter((packageItem) => packageItem.defaultModuleKeys?.includes(product.key));
+
+            return (
+              <tr key={product.key} className="hover:bg-[#f7faf8]">
+                <td className="px-4 py-3">
+                  <p className="font-bold text-zera-ink">{product.title}</p>
+                  <p className="mt-1 text-xs font-semibold uppercase text-zera-muted">{product.key}</p>
+                </td>
+                <td className="max-w-[460px] px-4 py-3 text-zera-muted">{product.summary || product.detail}</td>
+                <td className="px-4 py-3 text-zera-muted">{includedPackages.map((packageItem) => packageItem.name).join(", ") || "No package"}</td>
+                <td className="px-4 py-3 text-right">
+                  <StatusPill label={selectedModuleKeys.has(product.key) ? "enabled" : "disabled"} muted={!selectedModuleKeys.has(product.key)} />
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function PlatformRulesPanel({ businessTypeOptions, packageOptions, platformProducts, selectedBusiness }) {
+  const selectedType = selectedBusiness ? getBusinessTypeOption(selectedBusiness.type, businessTypeOptions) : null;
+  const selectedPackage = selectedBusiness ? getPackageOption(getBusinessPackageKey(selectedBusiness), packageOptions) : null;
+  const rules = [
+    {
+      label: "Business type",
+      value: selectedType?.label || "No organization selected",
+      helper: "Sets the default POS workflow, onboarding guidance, table count, and staff role template."
+    },
+    {
+      label: "Package",
+      value: selectedPackage?.name || "No package selected",
+      helper: "Controls plan limits and the module set that can be activated for the organization."
+    },
+    {
+      label: "Organization configuration",
+      value: selectedBusiness?.name || "No organization selected",
+      helper: "Final workspace settings live in the Organizations tab: profile, modules, branches, and users."
+    }
+  ];
+
+  return (
+    <section className="grid gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="overflow-hidden rounded-xl border border-zera-line">
+        <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+          <thead className="bg-[#f7faf8] text-xs uppercase text-zera-muted">
+            <tr>
+              <th className="px-4 py-3 font-bold">Rule</th>
+              <th className="px-4 py-3 font-bold">Current context</th>
+              <th className="px-4 py-3 font-bold">Meaning</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zera-line">
+            {rules.map((rule) => (
+              <tr key={rule.label} className="hover:bg-[#f7faf8]">
+                <td className="px-4 py-3 font-bold text-zera-ink">{rule.label}</td>
+                <td className="px-4 py-3 font-semibold text-zera-green">{rule.value}</td>
+                <td className="px-4 py-3 text-zera-muted">{rule.helper}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <aside className="rounded-xl border border-zera-line bg-[#fbfdfb] p-4">
+        <SectionTitle icon={ShieldCheck} title="Setup order" subtitle="The clean admin flow Zera should follow." />
+        <ol className="mt-4 space-y-3 text-sm">
+          {["Choose the organization", "Confirm business type", "Assign package", "Enable modules", "Create branches and users"].map((item, index) => (
+            <li key={item} className="flex gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-zera-green text-xs font-bold text-white">{index + 1}</span>
+              <span className="pt-0.5 font-semibold text-zera-ink">{item}</span>
+            </li>
+          ))}
+        </ol>
+        <div className="mt-4 rounded-md border border-zera-line bg-white p-3 text-sm text-zera-muted">
+          {platformProducts.length} modules and {packageOptions.length} packages are available for workspace setup.
+        </div>
+      </aside>
     </section>
   );
 }
@@ -1790,160 +2852,211 @@ function CompactCatalogPanel({ icon: Icon, rows, subtitle, title }) {
 }
 
 function SettingsSection({
-  businessTypeOptions,
   branchSavingId,
-  business,
-  businesses,
-  filteredBusinesses,
-  loading,
+  branchCreating,
+  businessTypeOptions,
+  deploymentDownloading,
+  installerBuilding,
+  installerDownloading,
+  selectedBusiness,
   moduleSavingKey,
   onBranchStatusChange,
   onBusinessSave,
+  onBuildInstaller,
+  onCreateBranch,
   onCreateUser,
-  onCreate,
+  onDownloadInstaller,
+  onExportDeployment,
   onModuleToggle,
   onUserStatusChange,
-  onSearch,
-  onSelect,
-  search,
+  packageOptions,
+  platformProducts,
   settingsSaving,
   userSaving,
   userSavingId,
-  packageOptions,
-  platformProducts
 }) {
   return (
-    <section className="grid gap-4 2xl:grid-cols-[minmax(560px,0.82fr)_minmax(0,1.18fr)]">
-      <div className="min-w-0">
-        <OrganizationTableCard
-          businessTypeOptions={businessTypeOptions}
-          businesses={businesses}
-          compact
-          filteredBusinesses={filteredBusinesses}
-          loading={loading}
-          maxHeightClass="max-h-[calc(100vh-260px)] min-h-[520px]"
-          onCreate={onCreate}
-          onSearch={onSearch}
-          onSelect={onSelect}
-          search={search}
-          selectedBusiness={business}
-          showCreateAction
-          subtitle="Find a customer workspace, then manage its setup."
-          title="Organizations"
-        />
-      </div>
-      <div className="min-w-0">
-        <BusinessWorkspace
-          branchSavingId={branchSavingId}
-          business={business}
-          moduleSavingKey={moduleSavingKey}
-          onBranchStatusChange={onBranchStatusChange}
-          onBusinessSave={onBusinessSave}
-          onCreate={onCreate}
-          onCreateUser={onCreateUser}
-          onModuleToggle={onModuleToggle}
-          onUserStatusChange={onUserStatusChange}
-          settingsSaving={settingsSaving}
-          userSaving={userSaving}
-          userSavingId={userSavingId}
-          packageOptions={packageOptions}
-          platformProducts={platformProducts}
-          businessTypeOptions={businessTypeOptions}
-        />
-      </div>
+    <section className="min-w-0">
+      <BusinessWorkspace
+        business={selectedBusiness}
+        branchSavingId={branchSavingId}
+        branchCreating={branchCreating}
+        businessTypeOptions={businessTypeOptions}
+        deploymentDownloading={deploymentDownloading}
+        installerBuilding={installerBuilding}
+        installerDownloading={installerDownloading}
+        moduleSavingKey={moduleSavingKey}
+        onBranchStatusChange={onBranchStatusChange}
+        onBusinessSave={onBusinessSave}
+        onBuildInstaller={onBuildInstaller}
+        onCreateBranch={onCreateBranch}
+        onCreateUser={onCreateUser}
+        onDownloadInstaller={onDownloadInstaller}
+        onExportDeployment={onExportDeployment}
+        onModuleToggle={onModuleToggle}
+        onUserStatusChange={onUserStatusChange}
+        packageOptions={packageOptions}
+        platformProducts={platformProducts}
+        settingsSaving={settingsSaving}
+        userSaving={userSaving}
+        userSavingId={userSavingId}
+      />
     </section>
   );
 }
 
 function BusinessWorkspace({
-  businessTypeOptions,
-  branchSavingId,
   business,
+  branchSavingId,
+  branchCreating,
+  businessTypeOptions,
+  deploymentDownloading,
+  installerBuilding,
+  installerDownloading,
   moduleSavingKey,
   onBranchStatusChange,
   onBusinessSave,
-  onCreate,
+  onBuildInstaller,
+  onCreateBranch,
   onCreateUser,
+  onDownloadInstaller,
+  onExportDeployment,
   onModuleToggle,
   onUserStatusChange,
+  packageOptions,
+  platformProducts,
   settingsSaving,
   userSaving,
   userSavingId,
-  packageOptions,
-  platformProducts
 }) {
-  const [workspaceSection, setWorkspaceSection] = useState("identity");
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState("setup");
+
+  useEffect(() => {
+    setActiveWorkspaceTab("setup");
+  }, [business?.id]);
 
   if (!business) {
     return (
-      <section className="flex min-h-[320px] flex-col items-center justify-center rounded-xl border border-zera-line bg-white p-6 text-center shadow-card">
-        <Building2 size={34} className="text-zera-green" />
-        <h3 className="mt-4 text-xl font-bold">Select an organization</h3>
-        <p className="mt-2 max-w-md text-sm leading-6 text-zera-muted">
-          Choose a customer workspace from the directory or create a new organization.
-        </p>
-        <Button type="button" className="mt-5 gap-2" onClick={onCreate}>
-          <Plus size={16} />
-          New organization
-        </Button>
+      <section className="rounded-2xl border border-dashed border-zera-line bg-white p-6 text-center text-zera-muted">
+        Select an organization to configure its business type, modules, branches, and access.
       </section>
     );
   }
 
+  const summary = getBusinessSetupSummary(business);
   const owner = getOwner(business);
-  const sections = [
-    { key: "identity", label: "Identity", helper: "Business type, country, currency, and status." },
-    { key: "modules", label: "Modules", helper: "Enable only the Zera products this company should use now." },
-    { key: "branches", label: "Branches", helper: "Manage operating locations and branch availability." },
-    { key: "access", label: "Access", helper: "Review the owner and staff accounts connected to this company." }
+  const posMode = getBusinessPosMode(business, businessTypeOptions);
+  const packageSummary = getPackageSummary(getBusinessPackageKey(business), packageOptions);
+  const products = business?._count?.products || 0;
+  const workspaceTabs = [
+    {
+      id: "identity",
+      label: "Business profile",
+      helper: "Identity, package, status, branding, receipts, and tax.",
+      complete: Boolean(business.name && business.type && business.platformPackage && business.currency)
+    },
+    {
+      id: "modules",
+      label: "Modules",
+      helper: "Choose which Zera products this customer can use.",
+      complete: summary.activeModules > 0
+    },
+    {
+      id: "branches",
+      label: "Branches",
+      helper: "Set up operating locations and branch status.",
+      complete: summary.activeBranches > 0
+    },
+    {
+      id: "access",
+      label: "Users and roles",
+      helper: "Create staff accounts and control access.",
+      complete: summary.activeUsers > 0
+    },
+    {
+      id: "deployment",
+      label: "Desktop app",
+      helper: "Build the configured Mac or Windows installer for this customer.",
+      complete: getBusinessDeploymentReadiness(business).ready
+    },
   ];
-  const activePanel = sections.find((section) => section.key === workspaceSection) || sections[0];
-  const activeModules = (business.modules || []).filter((module) => module.active).length;
-  const activeBranches = (business.branches || []).filter((branch) => branch.status === "ACTIVE").length;
-  const activeUsers = (business.memberships || []).filter((membership) => membership.user?.status === "ACTIVE").length;
+  const setupProgress = Math.round((workspaceTabs.filter((tab) => tab.complete).length / workspaceTabs.length) * 100);
 
   return (
-    <section className="overflow-hidden rounded-xl border border-zera-line bg-white shadow-card">
-      <div className="border-b border-zera-line bg-[#fbfdfb] px-4 py-3">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+    <section className="overflow-hidden rounded-2xl border border-zera-line bg-white shadow-[0_10px_26px_rgba(20,31,27,0.045)]">
+      <div className="border-b border-zera-line px-4 py-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="truncate text-xl font-bold text-zera-ink">{business.name}</p>
-              <StatusPill label={business.status?.toLowerCase() || "active"} muted={business.status !== "ACTIVE"} />
+            <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-zera-green">Workspace configuration</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <h2 className="truncate text-xl font-bold text-zera-ink">{business.name}</h2>
+              <StatusPill active={business.status === "ACTIVE"} label={business.status === "ACTIVE" ? "Active" : "Inactive"} />
             </div>
-            <p className="mt-1 truncate text-sm leading-5 text-zera-muted">
-              {business.type || "Business type not set"} · {business.platformPackage?.name || "Starter"} · {formatPOSMode(business.posMode, business.type)}
+            <p className="mt-1 text-sm text-zera-muted">
+              {business.type || "Business"} / {formatPosLabel(posMode)} / {packageSummary?.name || "No package"}
             </p>
           </div>
-
-          <div className="grid grid-cols-3 gap-px overflow-hidden rounded-lg border border-zera-line bg-zera-line text-sm sm:w-[330px]">
-            <CompactFact compact label="Branches" value={`${activeBranches}/${business.branches?.length || 0}`} />
-            <CompactFact compact label="Modules" value={`${activeModules}/${business.modules?.length || 0}`} />
-            <CompactFact compact label="Users" value={`${activeUsers}/${business.memberships?.length || 0}`} />
+          <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="grid min-w-[320px] grid-cols-4 overflow-hidden rounded-xl border border-zera-line bg-[#f7faf8] text-center text-sm">
+              <span className="px-3 py-2"><strong className="block text-zera-ink">{summary.activeBranches}/{summary.totalBranches}</strong><span className="text-xs text-zera-muted">Branches</span></span>
+              <span className="border-x border-zera-line px-3 py-2"><strong className="block text-zera-ink">{summary.activeUsers}/{summary.totalUsers}</strong><span className="text-xs text-zera-muted">Users</span></span>
+              <span className="border-r border-zera-line px-3 py-2"><strong className="block text-zera-ink">{summary.activeModules}/{summary.totalModules}</strong><span className="text-xs text-zera-muted">Modules</span></span>
+              <span className="px-3 py-2"><strong className="block text-zera-ink">{products}</strong><span className="text-xs text-zera-muted">Products</span></span>
+            </div>
           </div>
         </div>
 
-        <div className="mt-3 flex flex-col gap-3 border-t border-zera-line pt-3 lg:flex-row lg:items-center lg:justify-between">
-          <p className="text-sm text-zera-muted">{activePanel.helper}</p>
-          <div className="flex shrink-0 flex-wrap gap-1 rounded-lg border border-zera-line bg-white p-1">
-            {sections.map((section) => (
+        <div className="mt-3 grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-center">
+          <div className="rounded-xl border border-zera-line bg-[#fbfdfb] px-3 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs font-bold uppercase tracking-[0.1em] text-zera-muted">Setup progress</span>
+              <span className="text-sm font-bold text-zera-ink">{setupProgress}%</span>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-zera-mint">
+              <div className="h-full rounded-full bg-zera-green" style={{ width: `${setupProgress}%` }} />
+            </div>
+          </div>
+          <div className="flex gap-1 overflow-x-auto rounded-xl bg-[#f3f6f4] p-1">
+            <button
+              type="button"
+              onClick={() => setActiveWorkspaceTab("setup")}
+              className={`h-9 shrink-0 rounded-lg px-3.5 text-sm font-bold transition ${
+                activeWorkspaceTab === "setup" ? "bg-white text-zera-ink shadow-[0_8px_18px_rgba(20,31,27,0.08)]" : "text-zera-muted hover:text-zera-ink"
+              }`}
+            >
+              Setup
+            </button>
+            {workspaceTabs.map((tab, index) => (
               <button
-                key={section.key}
+                key={tab.id}
                 type="button"
-                className={`min-h-9 rounded-md px-3 text-sm font-semibold transition ${
-                  workspaceSection === section.key ? "bg-zera-ink text-white shadow-sm" : "text-zera-muted hover:bg-[#f7faf8] hover:text-zera-ink"
+                onClick={() => setActiveWorkspaceTab(tab.id)}
+                className={`h-9 shrink-0 rounded-lg px-3.5 text-sm font-bold transition ${
+                  activeWorkspaceTab === tab.id
+                    ? "bg-white text-zera-ink shadow-[0_8px_18px_rgba(20,31,27,0.08)]"
+                    : "text-zera-muted hover:text-zera-ink"
                 }`}
-                onClick={() => setWorkspaceSection(section.key)}
               >
-                {section.label}
+                {index + 1}. {tab.label}
               </button>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="bg-white p-4">
-        {workspaceSection === "identity" ? (
+      <div className="p-4">
+        {activeWorkspaceTab === "setup" ? (
+          <WorkspaceSetupOverview
+            business={business}
+            onOpenStep={setActiveWorkspaceTab}
+            owner={owner}
+            packageSummary={packageSummary}
+            setupProgress={setupProgress}
+            steps={workspaceTabs}
+            summary={summary}
+          />
+        ) : null}
+        {activeWorkspaceTab === "identity" ? (
           <BusinessSettingsCard
             business={business}
             businessTypeOptions={businessTypeOptions}
@@ -1952,25 +3065,129 @@ function BusinessWorkspace({
             saving={settingsSaving}
           />
         ) : null}
-        {workspaceSection === "branches" ? (
-          <BranchesCard branchSavingId={branchSavingId} business={business} onBranchStatusChange={onBranchStatusChange} />
+        {activeWorkspaceTab === "modules" ? (
+          <ModulesCard
+            business={business}
+            moduleSavingKey={moduleSavingKey}
+            onModuleToggle={onModuleToggle}
+            platformProducts={platformProducts}
+          />
         ) : null}
-        {workspaceSection === "modules" ? (
-          <ModulesCard business={business} moduleSavingKey={moduleSavingKey} onModuleToggle={onModuleToggle} platformProducts={platformProducts} />
+        {activeWorkspaceTab === "branches" ? (
+          <BranchesCard
+            branchCreating={branchCreating}
+            branchSavingId={branchSavingId}
+            business={business}
+            onBranchCreate={onCreateBranch}
+            onBranchStatusChange={onBranchStatusChange}
+          />
         ) : null}
-        {workspaceSection === "access" ? (
+        {activeWorkspaceTab === "access" ? (
           <TeamCard
             business={business}
+            businessTypeOptions={businessTypeOptions}
             onCreateUser={onCreateUser}
             onUserStatusChange={onUserStatusChange}
             owner={owner}
             userSaving={userSaving}
             userSavingId={userSavingId}
-            businessTypeOptions={businessTypeOptions}
+          />
+        ) : null}
+        {activeWorkspaceTab === "deployment" ? (
+          <DeploymentPackagePanel
+            business={business}
+            deploymentDownloading={deploymentDownloading}
+            installerBuilding={installerBuilding}
+            installerDownloading={installerDownloading}
+            onBuildInstaller={onBuildInstaller}
+            onDownload={onExportDeployment}
+            onDownloadInstaller={onDownloadInstaller}
+            packageSummary={packageSummary}
+            summary={summary}
           />
         ) : null}
       </div>
     </section>
+  );
+}
+
+function WorkspaceSetupOverview({ business, onOpenStep, owner, packageSummary, setupProgress, steps, summary }) {
+  const readinessRows = [
+    { label: "Owner login", value: owner?.user?.email || "Missing", ready: Boolean(owner) },
+    { label: "Active branch", value: `${summary.activeBranches}/${summary.totalBranches}`, ready: summary.activeBranches > 0 },
+    { label: "Enabled modules", value: `${summary.activeModules}/${summary.totalModules}`, ready: summary.activeModules > 0 },
+    { label: "Package", value: packageSummary?.name || "Missing", ready: Boolean(packageSummary) },
+    { label: "Tax", value: business.taxEnabled ? `${business.taxName || "Tax"} ${Number(business.taxRate || 0)}%` : "Not applied", ready: true }
+  ];
+  const nextStep = steps.find((step) => !step.complete) || steps[0];
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="space-y-4">
+        <section className="rounded-xl border border-zera-line bg-[#fbfdfb] p-4">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-zera-green">Setup</p>
+              <h3 className="mt-1 text-lg font-bold text-zera-ink">Organization setup</h3>
+            </div>
+            <Button type="button" className="h-10 shrink-0 px-4" onClick={() => onOpenStep(nextStep.id)}>
+              Continue setup
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </section>
+
+        <div className="grid gap-3 md:grid-cols-2">
+          {steps.map((step, index) => (
+            <SetupStepButton key={step.id} index={index} step={step} onOpen={() => onOpenStep(step.id)} />
+          ))}
+        </div>
+      </div>
+
+      <aside className="space-y-4">
+        <section className="rounded-xl border border-zera-line bg-white">
+          <div className="border-b border-zera-line px-4 py-3">
+            <p className="text-xs font-bold uppercase tracking-[0.12em] text-zera-muted">Configuration health</p>
+            <div className="mt-1 flex items-center justify-between gap-3">
+              <h3 className="text-base font-bold text-zera-ink">Workspace readiness</h3>
+              <span className="text-sm font-bold text-zera-green">{setupProgress}%</span>
+            </div>
+          </div>
+          <div className="divide-y divide-zera-line">
+            {readinessRows.map((row) => (
+              <div key={row.label} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-sm">
+                <div className="min-w-0">
+                  <p className="font-bold text-zera-ink">{row.label}</p>
+                  <p className="mt-0.5 truncate text-xs text-zera-muted">{row.value}</p>
+                </div>
+                <StatusPill active={row.ready} label={row.ready ? "Ready" : "Needs setup"} muted={!row.ready} />
+              </div>
+            ))}
+          </div>
+        </section>
+
+      </aside>
+    </section>
+  );
+}
+
+function SetupStepButton({ index, onOpen, step }) {
+  return (
+    <button
+      type="button"
+      className="grid min-h-[118px] grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-3 rounded-xl border border-zera-line bg-white p-4 text-left transition hover:border-zera-green/40 hover:bg-[#fbfdfb]"
+      onClick={onOpen}
+    >
+      <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold ${step.complete ? "bg-zera-green text-white" : "bg-[#eef7f1] text-zera-green"}`}>
+        {index + 1}
+      </span>
+      <span className="min-w-0">
+        <span className="block text-base font-bold text-zera-ink">{step.label}</span>
+      </span>
+      <span className="shrink-0">
+        <StatusPill active={step.complete} label={step.complete ? "Done" : "Open"} muted={!step.complete} />
+      </span>
+    </button>
   );
 }
 
@@ -2011,7 +3228,7 @@ function CreateBusinessPanel({ businessTypeOptions, form, onCancel, onChange, on
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
               <Input
                 label="Business name"
-                placeholder="Bamboo Bar and Restaurant"
+                placeholder="Business name"
                 value={form.businessName}
                 onChange={(event) => onChange({ ...form, businessName: event.target.value })}
                 required
@@ -2035,7 +3252,7 @@ function CreateBusinessPanel({ businessTypeOptions, form, onCancel, onChange, on
               <Input label="Branch name" value={form.branchName} onChange={(event) => onChange({ ...form, branchName: event.target.value })} />
               <Input
                 label="Branch location"
-                placeholder="Kampala, Lubaga..."
+                placeholder="Branch location"
                 value={form.branchLocation}
                 onChange={(event) => onChange({ ...form, branchLocation: event.target.value })}
               />
@@ -2096,16 +3313,30 @@ function CreateBusinessPanel({ businessTypeOptions, form, onCancel, onChange, on
 
 function BusinessSettingsCard({ business, businessTypeOptions, onSave, packageOptions, saving }) {
   const [settingsForm, setSettingsForm] = useState(() => getBusinessSettingsForm(business, businessTypeOptions));
+  const [activeSettingsGroup, setActiveSettingsGroup] = useState("business");
 
   useEffect(() => {
     setSettingsForm(getBusinessSettingsForm(business, businessTypeOptions));
+    setActiveSettingsGroup("business");
   }, [
     business?.id,
     business?.name,
     business?.type,
     business?.country,
     business?.currency,
+    business?.logoUrl,
+    business?.brandPrimaryColor,
+    business?.brandSecondaryColor,
+    business?.contactPhone,
+    business?.contactEmail,
+    business?.address,
+    business?.receiptHeader,
+    business?.receiptFooter,
+    business?.taxName,
+    business?.taxRate,
+    business?.taxEnabled,
     business?.status,
+    business?.packageStatus,
     business?.posMode,
     business?.platformPackage?.key,
     businessTypeOptions
@@ -2114,6 +3345,11 @@ function BusinessSettingsCard({ business, businessTypeOptions, onSave, packageOp
   const selectedType = getBusinessTypeOption(settingsForm.type, businessTypeOptions);
   const selectedPackage = getPackageOption(settingsForm.packageKey, packageOptions);
   const packageUsage = getBusinessPackageUsage(business);
+  const settingsGroups = [
+    { id: "business", label: "Business setup", helper: "Type, package, country, currency, and status.", icon: Building2 },
+    { id: "brand", label: "Branding", helper: "Logo, colors, phone, email, and address.", icon: Palette },
+    { id: "receipt", label: "Receipt and tax", helper: "Receipt text and optional tax calculation.", icon: ReceiptText }
+  ];
 
   function handleSubmit(event) {
     event.preventDefault();
@@ -2126,14 +3362,42 @@ function BusinessSettingsCard({ business, businessTypeOptions, onSave, packageOp
   return (
     <form className="space-y-4" onSubmit={handleSubmit}>
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <SectionTitle icon={Settings} title="Organization controls" subtitle="Platform-owned settings that shape this customer's workspace." />
+        <SectionTitle icon={Settings} title="Business configuration" subtitle="Control how this customer workspace behaves." />
         <Button className="w-full md:w-auto" disabled={saving}>
           {saving ? "Saving..." : "Save configuration"}
         </Button>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <section className="rounded-md border border-zera-line bg-white">
+      <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)_340px]">
+        <nav className="space-y-2 rounded-md border border-zera-line bg-[#f7faf8] p-2">
+          {settingsGroups.map((group) => {
+            const Icon = group.icon;
+            const active = activeSettingsGroup === group.id;
+
+            return (
+              <button
+                key={group.id}
+                type="button"
+                className={`grid w-full grid-cols-[auto_minmax(0,1fr)] gap-3 rounded-md px-3 py-3 text-left transition ${
+                  active ? "bg-white text-zera-ink shadow-[0_8px_18px_rgba(20,31,27,0.08)]" : "text-zera-muted hover:bg-white hover:text-zera-ink"
+                }`}
+                onClick={() => setActiveSettingsGroup(group.id)}
+              >
+                <span className={`flex h-8 w-8 items-center justify-center rounded-md ${active ? "bg-zera-green text-white" : "bg-white text-zera-green"}`}>
+                  <Icon size={16} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block font-bold">{group.label}</span>
+                  <span className="mt-0.5 block text-xs leading-5 text-zera-muted">{group.helper}</span>
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="space-y-4">
+          {activeSettingsGroup === "business" ? (
+          <section className="rounded-md border border-zera-line bg-white">
           <div className="border-b border-zera-line px-4 py-3">
             <p className="font-bold text-zera-ink">Identity</p>
             <p className="mt-1 text-sm text-zera-muted">Name, type, country, currency, and account state.</p>
@@ -2158,6 +3422,7 @@ function BusinessSettingsCard({ business, businessTypeOptions, onSave, packageOp
             </label>
             <BusinessTypeSelect businessTypeOptions={businessTypeOptions} value={settingsForm.type} onChange={(type) => setSettingsForm({ ...settingsForm, type })} />
             <PackageSelect packageOptions={packageOptions} value={settingsForm.packageKey} onChange={(packageKey) => setSettingsForm({ ...settingsForm, packageKey })} />
+            <PackageStatusSelect value={settingsForm.packageStatus} onChange={(packageStatus) => setSettingsForm({ ...settingsForm, packageStatus })} />
             <Input
               label="Country"
               value={settingsForm.country}
@@ -2169,7 +3434,129 @@ function BusinessSettingsCard({ business, businessTypeOptions, onSave, packageOp
               onChange={(event) => setSettingsForm({ ...settingsForm, currency: event.target.value.toUpperCase() })}
             />
           </div>
-        </section>
+          </section>
+          ) : null}
+
+          {activeSettingsGroup === "brand" ? (
+          <section className="rounded-md border border-zera-line bg-white">
+          <div className="border-b border-zera-line px-4 py-3">
+            <SectionTitle icon={Palette} title="Branding" subtitle="Light customer branding used by the workspace and desktop build." />
+          </div>
+          <div className="grid gap-4 p-4 md:grid-cols-2">
+            <Input
+              label="Logo URL"
+              placeholder="Logo URL"
+              value={settingsForm.logoUrl}
+              onChange={(event) => setSettingsForm({ ...settingsForm, logoUrl: event.target.value })}
+            />
+            <Input
+              label="Contact email"
+              type="email"
+              value={settingsForm.contactEmail}
+              onChange={(event) => setSettingsForm({ ...settingsForm, contactEmail: event.target.value })}
+            />
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-zera-ink">Primary color</span>
+              <div className="flex min-h-11 overflow-hidden rounded-md border border-zera-line bg-white focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
+                <input
+                  className="h-11 w-12 shrink-0 border-0 bg-transparent p-1"
+                  type="color"
+                  value={settingsForm.brandPrimaryColor || "#16823A"}
+                  onChange={(event) => setSettingsForm({ ...settingsForm, brandPrimaryColor: event.target.value.toUpperCase() })}
+                  aria-label="Primary color"
+                />
+                <input
+                  className="min-w-0 flex-1 border-0 px-3 text-sm font-semibold uppercase outline-none"
+                  value={settingsForm.brandPrimaryColor}
+                  onChange={(event) => setSettingsForm({ ...settingsForm, brandPrimaryColor: event.target.value.toUpperCase() })}
+                />
+              </div>
+            </label>
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-zera-ink">Secondary color</span>
+              <div className="flex min-h-11 overflow-hidden rounded-md border border-zera-line bg-white focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
+                <input
+                  className="h-11 w-12 shrink-0 border-0 bg-transparent p-1"
+                  type="color"
+                  value={settingsForm.brandSecondaryColor || "#EEF7F1"}
+                  onChange={(event) => setSettingsForm({ ...settingsForm, brandSecondaryColor: event.target.value.toUpperCase() })}
+                  aria-label="Secondary color"
+                />
+                <input
+                  className="min-w-0 flex-1 border-0 px-3 text-sm font-semibold uppercase outline-none"
+                  value={settingsForm.brandSecondaryColor}
+                  onChange={(event) => setSettingsForm({ ...settingsForm, brandSecondaryColor: event.target.value.toUpperCase() })}
+                />
+              </div>
+            </label>
+            <Input
+              label="Phone"
+              value={settingsForm.contactPhone}
+              onChange={(event) => setSettingsForm({ ...settingsForm, contactPhone: event.target.value })}
+            />
+            <Input
+              label="Address"
+              value={settingsForm.address}
+              onChange={(event) => setSettingsForm({ ...settingsForm, address: event.target.value })}
+            />
+          </div>
+          </section>
+          ) : null}
+
+          {activeSettingsGroup === "receipt" ? (
+          <section className="rounded-md border border-zera-line bg-white">
+          <div className="border-b border-zera-line px-4 py-3">
+            <SectionTitle icon={ReceiptText} title="Receipt & tax" subtitle="Receipt details and optional tax calculation for this organization." />
+          </div>
+          <div className="grid gap-4 p-4 md:grid-cols-2">
+            <label className="block md:col-span-2">
+              <span className="mb-2 block text-sm font-semibold text-zera-ink">Receipt header</span>
+              <textarea
+                className="min-h-20 w-full rounded-md border border-zera-line bg-white px-3 py-2 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                placeholder="Optional short message shown below the store name."
+                value={settingsForm.receiptHeader}
+                onChange={(event) => setSettingsForm({ ...settingsForm, receiptHeader: event.target.value })}
+              />
+            </label>
+            <label className="block md:col-span-2">
+              <span className="mb-2 block text-sm font-semibold text-zera-ink">Receipt footer</span>
+              <textarea
+                className="min-h-20 w-full rounded-md border border-zera-line bg-white px-3 py-2 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                value={settingsForm.receiptFooter}
+                onChange={(event) => setSettingsForm({ ...settingsForm, receiptFooter: event.target.value })}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-zera-ink">Tax collection</span>
+              <select
+                className="min-h-11 w-full rounded-md border border-zera-line bg-white px-3 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+                value={settingsForm.taxEnabled ? "enabled" : "disabled"}
+                onChange={(event) => setSettingsForm({ ...settingsForm, taxEnabled: event.target.value === "enabled" })}
+              >
+                <option value="disabled">Do not calculate tax</option>
+                <option value="enabled">Calculate tax on sales</option>
+              </select>
+            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input
+                label="Tax name"
+                value={settingsForm.taxName}
+                onChange={(event) => setSettingsForm({ ...settingsForm, taxName: event.target.value.toUpperCase() })}
+              />
+              <Input
+                label="Tax rate %"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
+                value={settingsForm.taxRate}
+                onChange={(event) => setSettingsForm({ ...settingsForm, taxRate: event.target.value })}
+              />
+            </div>
+          </div>
+          </section>
+          ) : null}
+        </div>
 
         <aside className="space-y-4 rounded-md border border-zera-line bg-[#f7faf8] p-4">
           <SectionTitle icon={SlidersHorizontal} title="Current setup" subtitle="What this organization can use." />
@@ -2177,6 +3564,9 @@ function BusinessSettingsCard({ business, businessTypeOptions, onSave, packageOp
             <SummaryRow label="POS experience" value={formatPOSMode(selectedType.posMode, selectedType.value)} />
             <SummaryRow label="Business type" value={selectedType.label} />
             <SummaryRow label="Package" value={selectedPackage.name} />
+            <SummaryRow label="Package status" value={getPackageStatusLabel(settingsForm.packageStatus)} />
+            <SummaryRow label="Brand color" value={settingsForm.brandPrimaryColor || "Zera default"} />
+            <SummaryRow label="Tax" value={settingsForm.taxEnabled ? `${settingsForm.taxName || "VAT"} ${Number(settingsForm.taxRate || 0)}%` : "Not applied"} />
             <SummaryRow label="Status" value={settingsForm.status === "ACTIVE" ? "Active" : "Inactive"} />
           </dl>
           <PackageUsagePanel selectedPackage={selectedPackage} usage={packageUsage} />
@@ -2186,8 +3576,219 @@ function BusinessSettingsCard({ business, businessTypeOptions, onSave, packageOp
   );
 }
 
+function DeploymentPackagePanel({
+  business,
+  deploymentDownloading,
+  installerBuilding,
+  installerDownloading,
+  onBuildInstaller,
+  onDownload,
+  onDownloadInstaller,
+  packageSummary,
+  summary
+}) {
+  const readiness = getBusinessDeploymentReadiness(business);
+  const enabledModules = (business.modules || []).filter((module) => module.active);
+  const installerFiles = [
+    {
+      id: "mac",
+      label: "Mac desktop app",
+      extension: ".dmg",
+      helper: "Configuration embedded. Requires Apple signing for direct customer opening.",
+      icon: Database
+    },
+    {
+      id: "windows",
+      label: "Windows desktop app",
+      extension: ".exe",
+      helper: "Company configuration embedded.",
+      icon: Database
+    }
+  ];
+  const supportFiles = [
+    {
+      id: "manifest",
+      label: "Deployment manifest",
+      helper: "Configuration JSON.",
+      icon: FileText
+    },
+    {
+      id: "readme",
+      label: "Setup notes",
+      helper: "Installation notes.",
+      icon: FileText
+    }
+  ];
+
+  return (
+    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="space-y-4">
+        <div className="flex flex-col gap-3 rounded-md border border-zera-line bg-[#fbfdfb] p-4 md:flex-row md:items-start md:justify-between">
+          <SectionTitle icon={Database} title="Desktop app generator" subtitle="Build the installer from the selected organization configuration." />
+          <StatusPill active={readiness.ready} label={readiness.ready ? "Ready to build" : "Needs review"} muted={!readiness.ready} />
+        </div>
+
+        <div className="overflow-hidden rounded-md border border-zera-line bg-white">
+          <table className="w-full min-w-[860px] border-collapse text-left text-sm">
+            <thead className="border-b border-zera-line bg-[#f7faf8] text-xs font-bold uppercase text-zera-muted">
+              <tr>
+                <th className="px-4 py-3">Installer</th>
+                <th className="px-4 py-3">Configuration included</th>
+                <th className="px-4 py-3 text-right">Build</th>
+                <th className="px-4 py-3 text-right">Download</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zera-line">
+              {installerFiles.map((file) => {
+                const Icon = file.icon;
+                const building = installerBuilding === file.id;
+                const downloading = installerDownloading === file.id;
+                const disabled = !readiness.ready || Boolean(installerBuilding) || Boolean(installerDownloading);
+
+                return (
+                  <tr key={file.id} className="hover:bg-[#f7faf8]">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#eef7f1] text-zera-green">
+                          <Icon size={17} />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="font-bold text-zera-ink">{file.label}</p>
+                          <p className="mt-0.5 text-xs font-semibold uppercase text-zera-muted">
+                            {business.name} {file.extension}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="max-w-[520px] px-4 py-3 text-zera-muted">{file.helper}</td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        type="button"
+                        variant="primary"
+                        className="h-9 justify-center px-3"
+                        disabled={disabled}
+                        onClick={() => onBuildInstaller(file.id)}
+                      >
+                        {building ? "Building..." : "Build"}
+                      </Button>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="h-9 justify-center px-3"
+                        disabled={!readiness.ready || Boolean(installerBuilding) || Boolean(installerDownloading)}
+                        onClick={() => onDownloadInstaller(file.id)}
+                      >
+                        {downloading ? "Downloading..." : "Download"}
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="overflow-hidden rounded-md border border-zera-line bg-white">
+          <div className="border-b border-zera-line bg-[#fbfdfb] px-4 py-3">
+            <p className="font-bold text-zera-ink">Support files</p>
+          </div>
+          <table className="w-full min-w-[680px] border-collapse text-left text-sm">
+            <tbody className="divide-y divide-zera-line">
+              {supportFiles.map((file) => {
+                const Icon = file.icon;
+                const downloading = deploymentDownloading === file.id;
+
+                return (
+                  <tr key={file.id} className="hover:bg-[#f7faf8]">
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#eef7f1] text-zera-green">
+                          <Icon size={17} />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="font-bold text-zera-ink">{file.label}</p>
+                          <p className="mt-0.5 text-xs font-semibold uppercase text-zera-muted">{business.name}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="max-w-[520px] px-4 py-3 text-zera-muted">{file.helper}</td>
+                    <td className="px-4 py-3 text-right">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="h-9 justify-center px-3"
+                        disabled={Boolean(deploymentDownloading)}
+                        onClick={() => onDownload(file.id)}
+                      >
+                        {downloading ? "Preparing..." : "Download"}
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {!readiness.ready ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
+            <p className="font-bold text-amber-900">Finish these before customer installation</p>
+            <ul className="mt-2 space-y-1 text-sm leading-6 text-amber-800">
+              {readiness.missing.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </div>
+
+      <aside className="space-y-4">
+        <section className="rounded-md border border-zera-line bg-white">
+          <div className="border-b border-zera-line px-4 py-3">
+            <SectionTitle icon={ShieldCheck} title="Package summary" subtitle="What will be installed for this customer." />
+          </div>
+          <dl className="divide-y divide-zera-line text-sm">
+            <SummaryRow label="Business" value={business.name} />
+            <SummaryRow label="Type" value={business.type || "Not set"} />
+            <SummaryRow label="POS mode" value={formatPOSMode(business.posMode, business.type)} />
+            <SummaryRow label="Package" value={packageSummary?.name || "Not assigned"} />
+            <SummaryRow label="Branches" value={`${summary.activeBranches}/${summary.totalBranches}`} />
+            <SummaryRow label="Users" value={`${summary.activeUsers}/${summary.totalUsers}`} />
+            <SummaryRow label="Tax" value={business.taxEnabled ? `${business.taxName || "Tax"} ${Number(business.taxRate || 0)}%` : "Not applied"} />
+          </dl>
+        </section>
+
+        <section className="rounded-md border border-zera-line bg-white">
+          <div className="border-b border-zera-line px-4 py-3">
+            <SectionTitle icon={Boxes} title="Enabled modules" subtitle="Controlled by package and module setup." />
+          </div>
+          <div className="divide-y divide-zera-line">
+            {enabledModules.length ? (
+              enabledModules.map((module) => (
+                <div key={module.id || module.key} className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                  <span className="font-bold text-zera-ink">{module.name || module.key}</span>
+                  <span className="rounded-md bg-zera-mint px-2 py-1 text-xs font-bold text-zera-green">Enabled</span>
+                </div>
+              ))
+            ) : (
+              <div className="p-4">
+                <EmptyState text="No modules enabled yet." />
+              </div>
+            )}
+          </div>
+        </section>
+      </aside>
+    </section>
+  );
+}
+
 function BusinessTypeSelect({ businessTypeOptions = fallbackBusinessTypeOptions, onChange, value }) {
   const selectedType = getBusinessTypeOption(value, businessTypeOptions);
+  const visibleBusinessTypes = businessTypeOptions.filter(
+    (option) => option.active !== false || option.value === selectedType.value || option.key === selectedType.key
+  );
 
   return (
     <label className="block">
@@ -2197,9 +3798,10 @@ function BusinessTypeSelect({ businessTypeOptions = fallbackBusinessTypeOptions,
         value={value}
         onChange={(event) => onChange(event.target.value)}
       >
-        {businessTypeOptions.map((option) => (
+        {visibleBusinessTypes.map((option) => (
           <option key={option.value} value={option.value}>
             {option.label}
+            {option.active === false ? " (inactive)" : ""}
           </option>
         ))}
       </select>
@@ -2212,7 +3814,7 @@ function BusinessTypeSelect({ businessTypeOptions = fallbackBusinessTypeOptions,
 
 function PackageSelect({ onChange, packageOptions = fallbackPackageOptions, value }) {
   const selectedPackage = getPackageOption(value, packageOptions);
-  const visiblePackageOptions = packageOptions.filter((packageItem) => packageItem.active !== false || packageItem.key === selectedPackage.key);
+  const visiblePackageOptions = packageOptions;
 
   return (
     <label className="block">
@@ -2223,15 +3825,38 @@ function PackageSelect({ onChange, packageOptions = fallbackPackageOptions, valu
         onChange={(event) => onChange(event.target.value)}
       >
         {visiblePackageOptions.map((packageItem) => (
-          <option key={packageItem.key} value={packageItem.key}>
+          <option key={packageItem.key} value={packageItem.key} disabled={packageItem.active === false && packageItem.key !== selectedPackage.key}>
             {packageItem.name}
-            {packageItem.active === false ? " (inactive)" : ""}
+            {packageItem.active === false ? " (inactive - activate in Packages)" : ""}
           </option>
         ))}
       </select>
-      <p className="mt-1.5 text-xs leading-5 text-zera-muted">
-        {selectedPackage.description} {formatPackageLimits(selectedPackage)}
-      </p>
+      <div className="mt-1.5 space-y-1 text-xs leading-5 text-zera-muted">
+        <p>{selectedPackage.description} {formatPackageLimits(selectedPackage)}</p>
+        <p>Custom packages are created and activated in Packages, then assigned here.</p>
+      </div>
+    </label>
+  );
+}
+
+function PackageStatusSelect({ onChange, value }) {
+  const selectedStatus = packageStatusOptions.find((status) => status.value === value) || packageStatusOptions[1];
+
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-semibold text-zera-ink">Package status</span>
+      <select
+        className="min-h-11 w-full rounded-md border border-zera-line bg-white px-3 text-sm text-zera-ink outline-none transition focus:border-zera-green focus:ring-4 focus:ring-zera-green/10"
+        value={selectedStatus.value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        {packageStatusOptions.map((status) => (
+          <option key={status.value} value={status.value}>
+            {status.label}
+          </option>
+        ))}
+      </select>
+      <p className="mt-1.5 text-xs leading-5 text-zera-muted">{selectedStatus.helper}</p>
     </label>
   );
 }
@@ -2349,10 +3974,86 @@ function ModuleToggleRow({ module, onToggle, saving, platformProducts }) {
   );
 }
 
-function BranchesCard({ branchSavingId, business, onBranchStatusChange }) {
+function BranchesCard({ branchCreating, branchSavingId, business, onBranchCreate, onBranchStatusChange }) {
+  const [form, setForm] = useState(defaultBranchForm);
+  const [showCreatePanel, setShowCreatePanel] = useState(false);
+  const selectedPackage = business.platformPackage || getPackageOption(getBusinessPackageKey(business));
+  const usage = getBusinessPackageUsage(business);
+  const branchLimit = selectedPackage.maxBranches;
+  const branchLimitReached = branchLimit !== null && branchLimit !== undefined && usage.branches >= branchLimit;
+
+  useEffect(() => {
+    setForm(defaultBranchForm);
+    setShowCreatePanel(false);
+  }, [business.id]);
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+
+    await onBranchCreate(form);
+    setForm(defaultBranchForm);
+    setShowCreatePanel(false);
+  }
+
   return (
     <section>
-      <SectionTitle icon={MapPin} title="Branches" subtitle="Locations connected to this business" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <SectionTitle icon={MapPin} title="Branches" subtitle="Locations connected to this business" />
+        <Button
+          type="button"
+          variant="secondary"
+          className="h-9 justify-center px-3"
+          disabled={branchLimitReached}
+          onClick={() => setShowCreatePanel((current) => !current)}
+        >
+          <Plus size={15} />
+          Add branch
+        </Button>
+      </div>
+
+      {branchLimitReached ? (
+        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-800">
+          This package allows {branchLimit} active {branchLimit === 1 ? "branch" : "branches"}. Upgrade the package or deactivate a branch before adding another one.
+        </p>
+      ) : null}
+
+      {showCreatePanel ? (
+        <form className="mt-4 rounded-md border border-zera-line bg-[#fbfdfb] p-4" onSubmit={handleSubmit}>
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
+            <Input
+              label="Branch name"
+              value={form.name}
+              onChange={(event) => setForm({ ...form, name: event.target.value })}
+              placeholder="Branch name"
+              required
+            />
+            <Input
+              label="Location"
+              value={form.location}
+              onChange={(event) => setForm({ ...form, location: event.target.value })}
+              placeholder="Area, street, or town"
+            />
+            <div className="flex gap-2">
+              <Button className="h-10 px-4" disabled={branchCreating}>
+                {branchCreating ? "Creating..." : "Create"}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                className="h-10 px-4"
+                disabled={branchCreating}
+                onClick={() => {
+                  setForm(defaultBranchForm);
+                  setShowCreatePanel(false);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        </form>
+      ) : null}
+
       <div className="mt-4 overflow-x-auto rounded-md border border-zera-line">
         {business.branches?.length ? (
           <table className="w-full min-w-[680px] border-collapse text-left text-sm">
@@ -2405,7 +4106,7 @@ function TeamCard({ business, businessTypeOptions, onCreateUser, onUserStatusCha
   const [showCreatePanel, setShowCreatePanel] = useState(false);
   const [search, setSearch] = useState("");
   const roleOptions = useMemo(() => buildRoleOptions(business, businessTypeOptions), [business, businessTypeOptions]);
-  const activeUsers = business.memberships?.filter((membership) => membership.user.status === "ACTIVE").length || 0;
+  const activeUsers = business.memberships?.filter((membership) => membership.user?.status === "ACTIVE").length || 0;
   const filteredMemberships = (business.memberships || []).filter((membership) => {
     const searchTerm = search.trim().toLowerCase();
 
@@ -2413,7 +4114,7 @@ function TeamCard({ business, businessTypeOptions, onCreateUser, onUserStatusCha
       return true;
     }
 
-    return [membership.user.name, membership.user.email, membership.role?.name, membership.user.status]
+    return [membership.user?.name, membership.user?.email, membership.role?.name, membership.user?.status]
       .filter(Boolean)
       .some((value) => value.toLowerCase().includes(searchTerm));
   });
@@ -2475,14 +4176,14 @@ function TeamCard({ business, businessTypeOptions, onCreateUser, onUserStatusCha
           <tbody className="divide-y divide-zera-line">
             {filteredMemberships.length ? (
               filteredMemberships.map((membership) => {
-                const isActive = membership.user.status === "ACTIVE";
+                const isActive = membership.user?.status === "ACTIVE";
                 const isOwner = membership.role?.name === "Owner";
 
                 return (
                   <tr key={membership.id} className="hover:bg-[#f7faf8]">
                     <td className="px-4 py-3">
-                      <p className="truncate font-bold">{membership.user.name}</p>
-                      <p className="mt-0.5 truncate text-xs text-zera-muted">{membership.user.email}</p>
+                      <p className="truncate font-bold">{membership.user?.name || "User not found"}</p>
+                      <p className="mt-0.5 truncate text-xs text-zera-muted">{membership.user?.email || "Account record missing"}</p>
                     </td>
                     <td className="px-4 py-3">
                       <span className="rounded-md bg-[#f7faf8] px-2 py-1 text-xs font-bold text-zera-muted">{membership.role?.name || "No role"}</span>
@@ -2497,11 +4198,11 @@ function TeamCard({ business, businessTypeOptions, onCreateUser, onUserStatusCha
                         type="button"
                         variant={isActive ? "secondary" : "primary"}
                         className="h-9 gap-2 px-3"
-                        disabled={isOwner || userSavingId === membership.id}
+                        disabled={isOwner || !membership.user || userSavingId === membership.id}
                         onClick={() => onUserStatusChange(membership)}
                       >
                         {isActive ? <UserX size={15} /> : <UserCheck size={15} />}
-                        {isOwner ? "Protected" : isActive ? "Disable" : "Reactivate"}
+                        {isOwner ? "Protected" : !membership.user ? "Unavailable" : isActive ? "Disable" : "Reactivate"}
                       </Button>
                     </td>
                   </tr>
@@ -2572,9 +4273,7 @@ function TeamCard({ business, businessTypeOptions, onCreateUser, onUserStatusCha
                 ) : null}
               </label>
 
-              <div className="rounded-md bg-[#f7faf8] p-3 text-sm leading-6 text-zera-muted">
-                System Admin creates the account here. The business owner can later manage daily staff from their own workspace.
-              </div>
+              <div className="rounded-md bg-[#f7faf8] p-3 text-sm leading-6 text-zera-muted">This account will be available in the selected organization.</div>
             </div>
 
             <div className="sticky bottom-0 border-t border-zera-line bg-white p-5">
@@ -2612,7 +4311,7 @@ function EmptyState({ text }) {
   return <div className="rounded-lg border border-dashed border-zera-line bg-[#f7faf8] p-5 text-sm text-zera-muted">{text}</div>;
 }
 
-function SectionTitle({ icon: Icon, subtitle, title }) {
+function SectionTitle({ icon: Icon, title }) {
   return (
     <div className="flex min-w-0 items-center gap-3">
       <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#eef7f1] text-zera-green">
@@ -2620,17 +4319,18 @@ function SectionTitle({ icon: Icon, subtitle, title }) {
       </div>
       <div className="min-w-0">
         <h3 className="text-[15px] font-bold text-zera-ink">{title}</h3>
-        <p className="text-sm leading-5 text-zera-muted">{subtitle}</p>
       </div>
     </div>
   );
 }
 
-function StatusPill({ label, muted = false }) {
+function StatusPill({ active = true, label, muted = false }) {
+  const inactive = muted || active === false;
+
   return (
     <span
       className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold capitalize ${
-        muted ? "border-zera-line bg-white text-zera-muted" : "border-green-100 bg-zera-mint text-zera-green"
+        inactive ? "border-zera-line bg-white text-zera-muted" : "border-green-100 bg-zera-mint text-zera-green"
       }`}
     >
       {label}
@@ -2686,6 +4386,17 @@ function formatPOSMode(posMode = "RETAIL_CHECKOUT", businessType = "") {
   return "Retail checkout POS";
 }
 
+function formatDeploymentPlatform(platform = "manifest") {
+  const labels = {
+    mac: "Mac desktop app",
+    windows: "Windows desktop app",
+    manifest: "deployment manifest",
+    readme: "setup notes"
+  };
+
+  return labels[platform] || "deployment";
+}
+
 function buildRoleOptions(business, businessTypeOptions = fallbackBusinessTypeOptions) {
   const roles = business?.roles || [];
   const visibleRoles = roles.filter((role) => role.name !== "Owner");
@@ -2718,16 +4429,82 @@ function getPackageForm(packageItem = fallbackPackageOptions[0]) {
   };
 }
 
+function getNextPackageName(packageOptions = []) {
+  const baseName = "Custom package";
+  const existingNames = new Set(packageOptions.map((packageItem) => packageItem.name));
+
+  if (!existingNames.has(baseName)) {
+    return baseName;
+  }
+
+  let suffix = 2;
+
+  while (existingNames.has(`${baseName} ${suffix}`)) {
+    suffix += 1;
+  }
+
+  return `${baseName} ${suffix}`;
+}
+
+function getNextBusinessTypeName(businessTypeOptions = []) {
+  const baseName = "Custom business";
+  const existingNames = new Set(businessTypeOptions.map((businessType) => businessType.label || businessType.value));
+
+  if (!existingNames.has(baseName)) {
+    return baseName;
+  }
+
+  let suffix = 2;
+
+  while (existingNames.has(`${baseName} ${suffix}`)) {
+    suffix += 1;
+  }
+
+  return `${baseName} ${suffix}`;
+}
+
+function getBusinessTypeForm(businessType = fallbackBusinessTypeOptions[1]) {
+  return {
+    label: businessType.label || businessType.value || "",
+    helper: businessType.helper || "",
+    posMode: businessType.posMode || "RETAIL_CHECKOUT",
+    defaultTableCount: businessType.defaultTableCount ?? "",
+    defaultModuleKeys: businessType.defaultModuleKeys?.length ? businessType.defaultModuleKeys : ["POS"],
+    rolesText: (businessType.roles || []).map((role) => `${role.name}${role.description ? ` - ${role.description}` : ""}`).join("\n"),
+    active: businessType.active !== false
+  };
+}
+
 function getBusinessSettingsForm(business, businessTypeOptions = fallbackBusinessTypeOptions) {
   return {
     name: business?.name || "",
     type: business?.type || "Retail shop",
     packageKey: business?.platformPackage?.key || "STARTER",
+    packageStatus: business?.packageStatus || "ACTIVE",
     country: business?.country || "Uganda",
     currency: business?.currency || "UGX",
+    logoUrl: business?.logoUrl || "",
+    brandPrimaryColor: business?.brandPrimaryColor || "#16823A",
+    brandSecondaryColor: business?.brandSecondaryColor || "#EEF7F1",
+    contactPhone: business?.contactPhone || "",
+    contactEmail: business?.contactEmail || "",
+    address: business?.address || "",
+    receiptHeader: business?.receiptHeader || "",
+    receiptFooter: business?.receiptFooter || "Thank you for your purchase.",
+    taxName: business?.taxName || "VAT",
+    taxRate: business?.taxRate ?? 0,
+    taxEnabled: Boolean(business?.taxEnabled),
     status: business?.status || "ACTIVE",
     posMode: business?.posMode || getBusinessTypeOption(business?.type, businessTypeOptions).posMode
   };
+}
+
+function getPackageStatusLabel(value = "ACTIVE") {
+  return packageStatusOptions.find((status) => status.value === value)?.label || "Active";
+}
+
+function isPackageStatusHealthy(value = "ACTIVE") {
+  return ["ACTIVE", "TRIAL"].includes(value || "ACTIVE");
 }
 
 function getBusinessPackageUsage(business) {
@@ -2742,6 +4519,7 @@ function getPlatformHealth({ businesses, packageOptions, platformProducts }) {
   const organizationCount = Math.max(businesses.length, 1);
   const activePackages = packageOptions.filter((packageItem) => packageItem.active !== false).length;
   const packageCount = Math.max(packageOptions.length, 1);
+  const attention = getAttentionItems(businesses);
   const readyOrganizations = businesses.filter((business) => {
     const hasOwner = Boolean(getOwner(business));
     const hasActiveBranch = (business.branches || []).some((branch) => branch.status === "ACTIVE");
@@ -2775,6 +4553,8 @@ function getPlatformHealth({ businesses, packageOptions, platformProducts }) {
   ];
 
   return {
+    attention,
+    readyToOperate: readyOrganizations,
     rows,
     score: Math.round(rows.reduce((total, row) => total + row.percent, 0) / rows.length)
   };
@@ -2801,6 +4581,14 @@ function getAttentionItems(businesses) {
 
     if (business.platformPackage?.active === false) {
       items.push({ businessId: business.id, businessName: business.name, label: "Assigned package is inactive", severity: "review" });
+    }
+
+    if (business.packageStatus === "PAST_DUE") {
+      items.push({ businessId: business.id, businessName: business.name, label: "Payment due", severity: "review" });
+    }
+
+    if (["SUSPENDED", "CANCELLED"].includes(business.packageStatus)) {
+      items.push({ businessId: business.id, businessName: business.name, label: `Package ${getPackageStatusLabel(business.packageStatus).toLowerCase()}`, severity: "critical" });
     }
 
     if (business.status !== "ACTIVE") {
@@ -2831,6 +4619,21 @@ function getModuleDescription(key, platformProducts = fallbackPlatformProducts) 
   return moduleProduct?.description || moduleProduct?.detail || "Business capability controlled by System Admin.";
 }
 
+function isCustomPackage(packageItem) {
+  return packageItem?.key === "CUSTOM" || packageItem?.name?.toLowerCase().includes("custom") || [packageItem?.maxBranches, packageItem?.maxUsers, packageItem?.maxProducts].some((limit) => limit === null || limit === undefined);
+}
+
+function formatPackagePrice(packageItem = fallbackPackageOptions[0]) {
+  if (packageItem.price === null || packageItem.price === undefined || packageItem.price === "") {
+    return "Custom";
+  }
+
+  const amount = Number(packageItem.price || 0).toLocaleString();
+  const cycle = packageItem.billingCycle ? ` / ${packageItem.billingCycle.toLowerCase().replace("_", " ")}` : "";
+
+  return `${packageItem.currency || "UGX"} ${amount}${cycle}`;
+}
+
 function formatPackageLimits(packageItem = fallbackPackageOptions[0]) {
   const limits = [
     packageItem.maxBranches !== null && packageItem.maxBranches !== undefined
@@ -2841,4 +4644,12 @@ function formatPackageLimits(packageItem = fallbackPackageOptions[0]) {
   ];
 
   return limits.join(" / ");
+}
+
+function slugifyFileName(value = "zera-business") {
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "zera-business";
 }

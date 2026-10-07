@@ -22,6 +22,8 @@ const defaultForm = {
   type: "PHYSICAL",
   category: "",
   unit: "",
+  minimumPrice: "0",
+  costPrice: "",
   price: ""
 };
 
@@ -32,7 +34,7 @@ const productTypes = [
 ];
 
 export default function ProductsPage() {
-  const { activeBusiness, activeBusinessId } = useWorkspace();
+  const { activeBusiness, activeBusinessId, activeRoleName } = useWorkspace();
   const [products, setProducts] = useState([]);
   const [form, setForm] = useState(defaultForm);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -125,6 +127,7 @@ export default function ProductsPage() {
         category: form.category.trim(),
         unit: form.unit.trim()
       };
+      if (activeRoleName !== "Owner") delete payload.costPrice;
       const product = editingProductId
         ? await updateProduct(activeBusinessId, editingProductId, payload)
         : await createProduct(activeBusinessId, payload);
@@ -188,7 +191,7 @@ export default function ProductsPage() {
 
   function openCreateDrawer() {
     setEditingProductId("");
-    setForm(defaultForm);
+    setForm(activeRoleName === "Owner" ? defaultForm : {...defaultForm,price:"0"});
     setDrawerOpen(true);
     setMessage("");
     setError("");
@@ -203,6 +206,8 @@ export default function ProductsPage() {
       type: product.type || "PHYSICAL",
       category: product.category || "",
       unit: product.unit || "",
+      minimumPrice: product.minimumPrice || "0",
+      costPrice: product.costPrice ?? "",
       price: product.price
     });
     setDrawerOpen(true);
@@ -237,7 +242,7 @@ export default function ProductsPage() {
     <div className="mx-auto max-w-[1500px] space-y-4">
       <header className="flex flex-col gap-3 border-b border-zera-line pb-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <p className="text-xs font-bold uppercase text-zera-green">{guide.eyebrow}</p>
+
           <h2 className="mt-1 text-xl font-bold tracking-tight text-zera-ink">Products</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -305,6 +310,7 @@ export default function ProductsPage() {
 
       {drawerOpen ? (
         <ProductDrawer
+          isOwner={activeRoleName === "Owner"}
           business={activeBusiness}
           form={form}
           isEditing={isEditing}
@@ -460,7 +466,7 @@ function ProductTable({ business, hiddenCount, loading, onEdit, onLoadMore, onSt
   if (!loading && totalCount === 0) {
     return (
       <div className="m-4 rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-6 text-sm text-zera-muted">
-        No products match this view. Create a product or clear filters.
+        No matching products.
       </div>
     );
   }
@@ -476,7 +482,7 @@ function ProductTable({ business, hiddenCount, loading, onEdit, onLoadMore, onSt
                 <th className="w-[12%] px-3 py-2.5">Type</th>
                 <th className="w-[14%] px-3 py-2.5">Category</th>
                 <th className="w-[17%] px-3 py-2.5">Code</th>
-                <th className="w-[13%] px-3 py-2.5 text-right">Price</th>
+                <th className="w-[13%] px-3 py-2.5 text-right">Suggested / Min</th>
                 <th className="w-[7%] px-3 py-2.5">Status</th>
                 <th className="w-[7%] px-3 py-2.5 text-right">Actions</th>
               </tr>
@@ -553,6 +559,7 @@ function ProductRow({ business, onEdit, onStatusToggle, product, updating }) {
       </td>
       <td className="whitespace-nowrap px-3 py-3 text-right font-bold">
         {formatMoney(product.price, business.currency)}
+        <span className="block text-xs font-normal text-zera-muted">Min {formatMoney(product.minimumPrice || 0,business.currency)}</span>
         {product.unit ? <span className="block text-xs font-semibold text-zera-muted">per {product.unit}</span> : null}
       </td>
       <td className="px-4 py-3">
@@ -586,7 +593,7 @@ function ProductRow({ business, onEdit, onStatusToggle, product, updating }) {
   );
 }
 
-function ProductDrawer({ business, form, isEditing, onChange, onClose, onSubmit, saving }) {
+function ProductDrawer({ isOwner, business, form, isEditing, onChange, onClose, onSubmit, saving }) {
   const selectedType = productTypes.find((type) => type.key === form.type) || productTypes[0];
   const hints = getProductFormHints(business, form.type);
 
@@ -598,7 +605,7 @@ function ProductDrawer({ business, form, isEditing, onChange, onClose, onSubmit,
           <div>
             <p className="text-xs font-bold uppercase text-zera-green">{business.name}</p>
             <h3 className="mt-1 text-xl font-bold">{isEditing ? "Edit product" : "New product"}</h3>
-            <p className="mt-1 text-sm text-zera-muted">Keep the record clear enough for checkout, stock, and receipts.</p>
+
           </div>
           <button className="flex h-9 w-9 items-center justify-center rounded-md text-zera-muted hover:bg-zera-surface" type="button" onClick={onClose}>
             <X size={18} />
@@ -638,7 +645,7 @@ function ProductDrawer({ business, form, isEditing, onChange, onClose, onSubmit,
             </section>
 
             <section className="rounded-md border border-zera-line p-4">
-              <SectionLabel title="Product details" helper="Use names and categories staff can recognize quickly at checkout." />
+              <SectionLabel title="Product details" />
               <div className="mt-3 space-y-3">
               <Field label="Product name" required value={form.name} onChange={(value) => onChange({ ...form, name: value })} />
               <div className="grid gap-3 sm:grid-cols-2">
@@ -659,26 +666,17 @@ function ProductDrawer({ business, form, isEditing, onChange, onClose, onSubmit,
             </section>
 
             <section className="rounded-md border border-zera-line p-4">
-              <SectionLabel title="Selling and codes" helper={form.type === "PHYSICAL" ? "Codes help scanning and inventory accuracy." : "Codes are optional for non-stock items."} />
+              <SectionLabel title="Prices and codes" />
               <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                <Field label="Price" min="0" required step="0.01" type="number" value={form.price} onChange={(value) => onChange({ ...form, price: value })} />
+                <Field label="Suggested price" disabled={!isOwner} min="0" required step="0.01" type="number" value={form.price} onChange={(value) => onChange({ ...form, price: value })} />
+                <Field label="Minimum price" disabled={!isOwner} min="0" step="0.01" type="number" value={form.minimumPrice} onChange={value => onChange({...form,minimumPrice:value})}/>
+                {isOwner && <Field label="Cost price · private" min="0" step="0.01" type="number" value={form.costPrice} onChange={value => onChange({...form,costPrice:value})}/>}
                 <Field label="SKU" placeholder={hints.sku} value={form.sku} onChange={(value) => onChange({ ...form, sku: value })} />
                 <Field label="Barcode" placeholder={hints.barcode} value={form.barcode} onChange={(value) => onChange({ ...form, barcode: value })} />
               </div>
             </section>
 
-            <section className="rounded-md border border-zera-line bg-zera-mintSoft p-4">
-              <p className="text-xs font-bold uppercase text-zera-green">Checkout preview</p>
-              <div className="mt-3 flex items-center justify-between gap-3 rounded-md bg-white p-3">
-                <div className="min-w-0">
-                  <p className="truncate font-bold">{form.name || "Product name"}</p>
-                  <p className="mt-1 truncate text-xs text-zera-muted">
-                    {selectedType.label} · {form.category || "No category"}
-                  </p>
-                </div>
-                <p className="shrink-0 text-sm font-bold">{formatMoney(form.price || 0, business.currency)}</p>
-              </div>
-            </section>
+
           </div>
 
           <div className="sticky bottom-0 mt-6 flex flex-col-reverse gap-2 border-t border-zera-line bg-white py-4 sm:flex-row sm:justify-end">
@@ -710,9 +708,9 @@ function ProductImportDialog({ importText, onChange, onClose, onSubmit, saving }
       <section className="flex max-h-[calc(100vh-2rem)] w-full max-w-3xl flex-col overflow-hidden rounded-md border border-zera-line bg-white shadow-panel">
         <div className="flex items-start justify-between gap-3 border-b border-zera-line bg-zera-mintSoft/40 px-5 py-4">
           <div>
-            <p className="text-xs font-bold uppercase text-zera-green">Bulk catalog setup</p>
+
             <h3 className="mt-1 text-xl font-bold">Import products</h3>
-            <p className="mt-1 text-sm text-zera-muted">Paste up to 500 rows. Columns: name, price, category, unit, sku, barcode, type.</p>
+            <p className="mt-1 text-sm text-zera-muted">Paste CSV data (up to 500 rows).</p>
           </div>
           <button className="flex h-9 w-9 items-center justify-center rounded-md text-zera-muted hover:bg-zera-surface" type="button" onClick={onClose}>
             <X size={18} />
@@ -878,7 +876,7 @@ function SectionLabel({ helper, title }) {
   return (
     <div>
       <h4 className="text-sm font-bold">{title}</h4>
-      <p className="mt-1 text-xs leading-5 text-zera-muted">{helper}</p>
+      {helper ? <p className="mt-1 text-xs leading-5 text-zera-muted">{helper}</p> : null}
     </div>
   );
 }

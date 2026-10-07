@@ -1,0 +1,52 @@
+name: zera-hosted
+services:
+  database:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: zera
+      POSTGRES_USER: zera
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a strong database password}
+    volumes:
+      - database:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U zera -d zera]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set the database URL with a URL-encoded password}
+      JWT_SECRET: ${JWT_SECRET:?Set a unique random secret of at least 32 characters}
+      FRONTEND_URLS: ${PUBLIC_ORIGIN:?Set the public HTTPS origin}
+      ZERA_PUBLIC_API_URL: ${PUBLIC_ORIGIN}/api
+      ZERA_SYNC_ENABLED: 'false'
+      ZERA_TRUST_PROXY_HOPS: '1'
+    depends_on:
+      database:
+        condition: service_healthy
+    volumes:
+      - installers:/app/desktop/.installer-artifacts
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:5050/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:8080:80'
+    depends_on:
+      api:
+        condition: service_healthy
+volumes:
+  database:
+  installers:

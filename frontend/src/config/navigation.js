@@ -39,6 +39,7 @@ export const businessNavigation = [
   {
     label: "Operations",
     items: [
+      { label: "Purchasing", path: "/purchasing", icon: Package, roles: ["Owner", "Manager", "Store Keeper", "Pharmacist"], modules: ["INVENTORY"] },
       { label: "Inventory", path: "/inventory", icon: Boxes, roles: ["Owner", "Manager", "Store Keeper", "Pharmacist"], modules: ["INVENTORY"] },
       { label: "Operations", path: "/operations", icon: ClipboardList, roles: ["Owner", "Manager"], modules: ["OPERATIONS"] }
     ]
@@ -78,6 +79,7 @@ export const systemAdminNavigation = [
 ];
 
 const routeMetadata = {
+  "/purchasing": { title: "Suppliers & Purchases", section: "Inventory" },
   "/account": { title: "Account", section: "Personal settings" },
   "/dashboard": { title: "Dashboard", section: "Workspace" },
   "/pos": { title: "Point of Sale", section: "Work" },

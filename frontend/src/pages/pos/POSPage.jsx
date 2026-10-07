@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Hotel, Minus, Pill, Plus, Printer, ReceiptText, Search, ShoppingBasket, ShoppingCart, Smartphone, Store, Table2, Trash2, UserRound, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import Button from "../../components/Button.jsx";
 import PrintableBill from "../../components/PrintableBill.jsx";
 import PrintableReceipt from "../../components/PrintableReceipt.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
+import { useAuth } from '../../context/AuthContext.jsx';
+import { checkoutStorageKey, saveCheckoutAttempt, readCheckoutAttempt, clearCheckoutAttempt } from '../../utils/checkoutRecovery.js';
 import {
   createPOSOrder,
   createPOSTable,
@@ -19,13 +21,23 @@ import { getCustomers } from "../../services/customerService.js";
 import { getProducts } from "../../services/productService.js";
 
 export default function POSPage() {
+  const {user} = useAuth();
   const { activeBranch, activeBranchId, activeBusiness, activeBusinessId, activeRoleName } = useWorkspace();
   const [readiness, setReadiness] = useState(null);
+  const checkoutAttempt = useRef(null);
+  const checkoutBusy = useRef(false);
+  const recoveryKey = checkoutStorageKey(user?.id,activeBusinessId,activeBranchId);
+  const currentRecoveryKey = useRef(recoveryKey);
+  currentRecoveryKey.current = recoveryKey;
+  const [recoveryMessage,setRecoveryMessage] = useState('');
+  const [recoveryBlocked,setRecoveryBlocked] = useState(false);
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [tables, setTables] = useState([]);
   const [cartItems, setCartItems] = useState([]);
   const [productSearch, setProductSearch] = useState("");
+  const [productPage, setProductPage] = useState(1);
+  const [productColumns, setProductColumns] = useState(() => window.matchMedia('(min-width: 1536px)').matches ? 3 : window.matchMedia('(min-width: 768px)').matches ? 2 : 1);
   const [customerSearch, setCustomerSearch] = useState("");
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [selectedTableId, setSelectedTableId] = useState("");
@@ -52,18 +64,57 @@ export default function POSPage() {
   const [saleError, setSaleError] = useState("");
   const [saleMessage, setSaleMessage] = useState("");
   const [readinessError, setReadinessError] = useState("");
+  useEffect(() => {
+    checkoutAttempt.current = null;
+    setCartItems([]);
+    setSelectedCustomerId('');
+    setDiscountAmount('');
+    setReviewOpen(false);
+    setLastSale(null);
+    setRecoveryMessage('');
+    setRecoveryBlocked(false);
+    try {
+      const saved = readCheckoutAttempt(sessionStorage,recoveryKey);
+      if (!saved) return;
+      if (saved.payload.businessId !== activeBusinessId || saved.payload.branchId !== activeBranchId) throw new Error('Saved checkout belongs to another workspace. Check Sales before continuing.');
+      checkoutAttempt.current = saved;
+      setCartItems(saved.cart.map(item=>({...item,enteredPrice:item.enteredPrice || (Number(item.product.price)>0 ? String(item.product.price) : "")})));
+      setSelectedCustomerId(saved.payload.customerId || '');
+      setDiscountAmount(String(saved.payload.discountAmount || ''));
+      setPaymentMethod(saved.payload.paymentMethod);
+      setRecoveryMessage('Unconfirmed checkout restored. Retry it unchanged to recover the receipt without charging stock twice. Check Sales before changing or clearing this cart.');
+    } catch(error) { setRecoveryMessage(error.message); setRecoveryBlocked(true); }
+  },[recoveryKey,activeBusinessId,activeBranchId]);
   const branchReady = readiness?.checks?.branchActive ?? activeBranch?.status === "ACTIVE";
   const posReady = readiness?.checks?.posActive ?? true;
   const roleReady = readiness?.checks?.roleAllowed ?? Boolean(activeRoleName);
   const workspaceReady = Boolean(activeBusiness && activeBranch && branchReady && posReady && roleReady);
   const posMode = getEffectivePOSMode(activeBusiness);
   const isTableService = posMode === "TABLE_SERVICE";
+  const productsPerPage = productColumns * 4;
+  const productPageCount = Math.max(1, Math.ceil(products.length / productsPerPage));
+  const currentProductPage = Math.min(productPage, productPageCount);
+  const productPageStart = (currentProductPage - 1) * productsPerPage;
+  const visibleProducts = isTableService ? products : products.slice(productPageStart, productPageStart + productsPerPage);
+
+  useEffect(() => {
+    const medium = window.matchMedia('(min-width: 768px)');
+    const wide = window.matchMedia('(min-width: 1536px)');
+    const updateColumns = () => setProductColumns(wide.matches ? 3 : medium.matches ? 2 : 1);
+    medium.addEventListener('change', updateColumns);
+    wide.addEventListener('change', updateColumns);
+    return () => { medium.removeEventListener('change', updateColumns); wide.removeEventListener('change', updateColumns); };
+  }, []);
+
+  useEffect(() => {
+    setProductPage(1);
+  }, [activeBusinessId, activeBranchId, productSearch, productCategoryFilter, productColumns]);
   const modeInfo = getPOSModeInfo(posMode, activeRoleName, activeBusiness?.type);
   const ModeIcon = modeInfo.icon;
   const workflowSteps = modeInfo.workflowSteps || [];
   const canManageTables = ["Owner", "Manager"].includes(activeRoleName);
   const canPayTableBills = ["Owner", "Manager", "Cashier"].includes(activeRoleName);
-  const subtotal = cartItems.reduce((total, item) => total + Number(item.product.price) * item.quantity, 0);
+  const subtotal = cartItems.reduce((total, item) => total + getCartUnitPrice(item) * item.quantity, 0);
   const normalizedDiscountAmount = getValidDiscountAmount(discountAmount, subtotal);
   const cartTaxableSubtotal = roundMoney(Math.max(subtotal - normalizedDiscountAmount, 0));
   const taxAmount = getBusinessTaxAmount(cartTaxableSubtotal, activeBusiness);
@@ -73,7 +124,8 @@ export default function POSPage() {
   const activeOrderTotal = Number(activeTableOrder?.total || activeOrderSubtotal);
   const canPaySelectedTableBill = isTableService && canPayTableBills && activeTableOrder && !cartItems.length;
   const canPrintSelectedTableBill = isTableService && !canPayTableBills && activeTableOrder && !cartItems.length;
-  const reviewDisabledReason = getReviewDisabledReason({
+  const minimumCartTotal = cartItems.reduce((total,item)=>total + Number(item.product.minimumPrice || 0) * item.quantity,0);
+  const reviewDisabledReason = recoveryBlocked ? 'Check Sales and clear the saved checkout before continuing.' : !isTableService && normalizedDiscountAmount > 0 && Math.round(cartTaxableSubtotal*100) < Math.round(minimumCartTotal*100) ? 'Reduce the discount to keep this sale above its minimum total.' : getReviewDisabledReason({
     cartItems,
     isTableService,
     selectedTableId,
@@ -108,8 +160,8 @@ export default function POSPage() {
       : cartItems.map((item) => ({
           product: item.product,
           quantity: item.quantity,
-          unitPrice: item.product.price,
-          lineTotal: Number(item.product.price) * item.quantity
+          unitPrice: getCartUnitPrice(item),
+          lineTotal: getCartUnitPrice(item) * item.quantity
         }));
   const reviewSubtotal = orderForReview?.items?.reduce((total, item) => total + Number(item.lineTotal), 0) || (reviewMode === "PAY_ORDER" ? activeOrderSubtotal : subtotal);
   const reviewDiscountAmount = reviewMode === "PAY_ORDER" || !isTableOrderReview ? getValidDiscountAmount(discountAmount, reviewSubtotal) : 0;
@@ -146,8 +198,12 @@ export default function POSPage() {
   useEffect(() => {
     if (!activeBusinessId) {
       setProducts([]);
+      setLoadingProducts(false);
       return;
     }
+
+    let cancelled = false;
+    setLoadingProducts(true);
 
     async function loadProducts() {
       try {
@@ -159,16 +215,19 @@ export default function POSPage() {
           ...(productCategoryFilter ? { category: productCategoryFilter } : {})
         };
         const data = await getProducts(activeBusinessId, params);
-        setProducts(data);
+        if (!cancelled) setProducts(data);
       } catch (apiError) {
-        setProductError(apiError.response?.data?.message || "Unable to load products.");
+        if (!cancelled) {
+          setProducts([]);
+          setProductError(apiError.response?.data?.message || "Unable to load products.");
+        }
       } finally {
-        setLoadingProducts(false);
+        if (!cancelled) setLoadingProducts(false);
       }
     }
 
     const timeout = window.setTimeout(loadProducts, 250);
-    return () => window.clearTimeout(timeout);
+    return () => { cancelled = true; window.clearTimeout(timeout); };
   }, [activeBusinessId, productSearch, productCategoryFilter]);
 
   useEffect(() => {
@@ -252,7 +311,7 @@ export default function POSPage() {
         return current.map((item) => (item.product.id === product.id ? { ...item, quantity: item.quantity + 1 } : item));
       }
 
-      return [...current, { product, quantity: 1 }];
+      return [...current, { product, quantity: 1, enteredPrice: Number(product.price)>0 ? String(product.price) : "" }];
     });
   }
 
@@ -294,6 +353,9 @@ export default function POSPage() {
   }
 
   async function handleRecordSale() {
+    if (checkoutBusy.current) return;
+    if (recoveryBlocked) return;
+    if (cartItems.some(needsCartPrice)) { setSaleError("Enter a selling price at or above the minimum for each product."); return; }
     if (!activeBusinessId || !activeBranchId || !cartItems.length) {
       return;
     }
@@ -303,12 +365,14 @@ export default function POSPage() {
       return;
     }
 
+    checkoutBusy.current = true;
     setSavingSale(true);
     setSaleError("");
     setSaleMessage("");
 
+    let submitted = false;
     try {
-      const sale = await createSale({
+      const payload = {
         businessId: activeBusinessId,
         branchId: activeBranchId,
         customerId: selectedCustomerId || undefined,
@@ -317,22 +381,38 @@ export default function POSPage() {
         paymentMethod,
         items: cartItems.map((item) => ({
           productId: item.product.id,
-          quantity: item.quantity
+          quantity: item.quantity,
+          unitPrice: item.enteredPrice
         }))
-      });
+      };
+      const fingerprint = JSON.stringify(payload);
+      if (checkoutAttempt.current && checkoutAttempt.current.fingerprint !== fingerprint) throw new Error('Checkout details changed. Check Sales and clear recovery before starting a different sale.');
+      if (!checkoutAttempt.current) checkoutAttempt.current = {fingerprint,key:crypto.randomUUID()};
+      const attempt = {...checkoutAttempt.current,payload,cart:cartItems.map(item=>({quantity:item.quantity,enteredPrice:item.enteredPrice ?? '',product:{id:item.product.id,name:item.product.name,price:item.product.price,minimumPrice:item.product.minimumPrice,unit:item.product.unit,type:item.product.type}}))};
+      saveCheckoutAttempt(sessionStorage,recoveryKey,attempt);
+      submitted = true;
+      const sale = await createSale({...payload,requestKey:attempt.key});
+      clearCheckoutAttempt(sessionStorage,recoveryKey,attempt.key);
+      if (currentRecoveryKey.current !== recoveryKey) return;
+      checkoutAttempt.current = null;
+      setRecoveryMessage('');
       setCartItems([]);
       setDiscountAmount("");
       setReviewOpen(false);
       setLastSale(sale);
       setSaleMessage(`Sale recorded: ${sale.receiptNumber}`);
     } catch (apiError) {
-      setSaleError(apiError.response?.data?.detail || apiError.response?.data?.message || "Unable to record sale.");
+      if (currentRecoveryKey.current !== recoveryKey) return;
+      if (submitted || checkoutAttempt.current) setRecoveryMessage('Checkout has not been confirmed. Retry it unchanged, or check Sales before clearing recovery.');
+      setSaleError(apiError.response?.data?.detail || apiError.response?.data?.message || apiError.message || "Unable to record sale.");
     } finally {
+      checkoutBusy.current = false;
       setSavingSale(false);
     }
   }
 
   async function handleSendTableOrder() {
+    if (cartItems.some(needsCartPrice)) { setSaleError("Enter a selling price at or above the minimum for each product."); return; }
     if (!activeBusinessId || !activeBranchId || !selectedTableId || !cartItems.length) {
       return;
     }
@@ -349,7 +429,8 @@ export default function POSPage() {
         tableId: selectedTableId,
         items: cartItems.map((item) => ({
           productId: item.product.id,
-          quantity: item.quantity
+          quantity: item.quantity,
+          unitPrice: item.enteredPrice
         }))
       });
       setCartItems([]);
@@ -449,18 +530,13 @@ export default function POSPage() {
       <header className="rounded-md border border-zera-line bg-white shadow-xs">
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-3 py-2.5">
           <div className="mr-auto min-w-[220px]">
-            <p className="text-[11px] font-bold uppercase tracking-wide text-zera-green">{modeInfo.kicker}</p>
+
             <h2 className="mt-0.5 truncate text-lg font-bold text-zera-ink">
-              {activeBranch ? `${activeBranch.name} ${modeInfo.shortTitle}` : modeInfo.title}
+              {isTableService ? "Table POS" : "Retail POS"}
             </h2>
           </div>
-          <POSInlineContext label="Business" ready={Boolean(activeBusiness)} value={activeBusiness?.name || "No business"} />
           <POSInlineContext label="Branch" ready={branchReady} value={activeBranch?.name || "No branch"} />
-          <POSInlineContext label="Mode" ready={Boolean(activeBusiness)} value={modeInfo.title} />
-          <POSInlineContext label="Access" ready={roleReady} value={activeRoleName || "No role"} />
-          <span className={`inline-flex min-h-8 shrink-0 items-center rounded-md px-2.5 text-xs font-bold ${workspaceReady ? "bg-zera-mintSoft text-zera-green" : "bg-red-50 text-red-700"}`}>
-            {workspaceReady ? "Ready" : "Setup needed"}
-          </span>
+          {!workspaceReady && <span role="status" className="inline-flex min-h-8 shrink-0 items-center rounded-md bg-red-50 px-2.5 text-xs font-bold text-red-700">Setup needed</span>}
         </div>
         {saleMessage || readinessError ? (
           <div className="border-t border-zera-line px-3 py-2">
@@ -470,6 +546,17 @@ export default function POSPage() {
         ) : null}
       </header>
 
+      {recoveryMessage && <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+        <p role="status">{recoveryMessage}</p>
+        <Button variant="secondary" className="mt-2" disabled={savingSale} onClick={() => {
+          try {
+            sessionStorage.removeItem(recoveryKey);
+            checkoutAttempt.current = null;
+            setCartItems([]); setDiscountAmount(''); setReviewOpen(false);
+            setRecoveryMessage(''); setRecoveryBlocked(false); setSaleError('');
+          } catch { setRecoveryMessage('Browser storage is unavailable. Recovery could not be cleared.'); }
+        }}>I checked Sales — clear recovery and cart</Button>
+      </div>}
       <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_390px]">
         <main className="min-w-0 space-y-3">
 
@@ -584,10 +671,10 @@ export default function POSPage() {
             </section>
           ) : null}
 
-          <section className={`flex flex-col overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs ${isTableService ? "min-h-[320px]" : "min-h-[calc(100vh-150px)]"}`}>
+          <section className="flex min-h-[320px] flex-col overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
               <div>
-                <p className="text-xs font-bold uppercase text-zera-green">{modeInfo.requirement}</p>
+
                 <h3 className="mt-1 text-xl font-bold">{modeInfo.productSectionTitle}</h3>
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
@@ -650,7 +737,7 @@ export default function POSPage() {
                 </div>
               ) : null}
 
-              {products.map((product) => (
+              {!loadingProducts && visibleProducts.map((product) => (
                 <button
                   key={product.id}
                   type="button"
@@ -665,12 +752,24 @@ export default function POSPage() {
                     </span>
                   </span>
                   <span className="shrink-0 text-right">
-                    <span className="block text-sm font-bold text-zera-green">{formatMoney(product.price, activeBusiness?.currency)}</span>
+                    <span className="block text-sm font-bold text-zera-green">{Number(product.price) === 0 ? "Enter price" : formatMoney(product.price, activeBusiness?.currency)}</span>
                     {product.unit ? <span className="mt-1 block text-xs text-zera-muted">/{product.unit}</span> : null}
                   </span>
                 </button>
               ))}
             </div>
+            {!isTableService && !loadingProducts && products.length > 0 ? (
+              <nav aria-label="Product pages" className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zera-line pt-3">
+                <p className="text-sm text-zera-muted" aria-live="polite">
+                  {productPageStart + 1}–{Math.min(productPageStart + productsPerPage, products.length)} of {products.length}
+                </p>
+                <div className="flex items-center gap-3">
+                  <Button variant="secondary" disabled={currentProductPage === 1} onClick={() => setProductPage(currentProductPage - 1)}>Previous</Button>
+                  <span className="text-sm font-semibold" aria-live="polite">Page {currentProductPage} of {productPageCount}</span>
+                  <Button variant="secondary" disabled={currentProductPage === productPageCount} onClick={() => setProductPage(currentProductPage + 1)}>Next</Button>
+                </div>
+              </nav>
+            ) : null}
           </section>
 
         </main>
@@ -716,11 +815,7 @@ export default function POSPage() {
                     <ReceiptText size={18} />
                     Receive payment
                   </Button>
-                ) : (
-                  <p className="rounded-md bg-zera-mintSoft px-3 py-2 text-sm text-zera-muted">
-                    Add new items from the cart, then print the customer bill from the review modal when the guest asks to pay.
-                  </p>
-                )}
+                ) : null}
               </div>
             </section>
           ) : null}
@@ -789,12 +884,18 @@ export default function POSPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <h4 className="truncate text-sm font-bold">{item.product.name}</h4>
-                        <p className="mt-1 text-xs text-zera-muted">
-                          {formatMoney(item.product.price, activeBusiness?.currency)} {item.product.unit ? `per ${item.product.unit}` : "each"}
-                        </p>
                       </div>
-                      <p className="shrink-0 text-sm font-bold">{formatMoney(Number(item.product.price) * item.quantity, activeBusiness?.currency)}</p>
+                      <p className="shrink-0 text-sm font-bold">{formatMoney(getCartUnitPrice(item) * item.quantity, activeBusiness?.currency)}</p>
                     </div>
+                    <label className="mt-2 block text-xs font-semibold">
+                      Selling price ({activeBusiness?.currency})
+                      <span className="block font-normal text-zera-muted">Suggested {formatMoney(item.product.price,activeBusiness?.currency)} · Min {formatMoney(item.product.minimumPrice || 0,activeBusiness?.currency)}</span>
+                      <input type="number" min={Math.max(0.01,Number(item.product.minimumPrice || 0))} max="9999999999.99" step="0.01" inputMode="decimal" required
+                        aria-label={`Selling price for ${item.product.name}`} value={item.enteredPrice ?? ''}
+                        className="mt-1 block w-full rounded-md border border-zera-line px-3 py-2 text-sm"
+                        placeholder="Enter unit price"
+                        onChange={event => { const value = event.target.value; setCartItems(current => current.map(row => row.product.id === item.product.id ? {...row,enteredPrice:value} : row)); }}/>
+                    </label>
                     <div className="mt-2 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <button
@@ -1040,7 +1141,7 @@ export default function POSPage() {
             {saleError ? <p className="mt-4 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{saleError}</p> : null}
             {orderSentInModal ? (
               <p className="mt-4 rounded-md bg-zera-mintSoft px-3 py-2 text-sm font-semibold text-zera-green">
-                Order sent. Print the customer bill when the guest asks to pay, then cashier will close the table.
+                Order sent. Awaiting payment.
               </p>
             ) : null}
 
@@ -1227,6 +1328,7 @@ function filterTablesForPOS(tables, tableFilter) {
 }
 
 function getReviewDisabledReason({ cartItems, isTableService, selectedTableId, activeTableOrder, canPayTableBills }) {
+  if (cartItems.some(needsCartPrice)) return "Enter a selling price at or above the minimum for each product.";
   if (!isTableService) {
     return cartItems.length ? "" : "Add products to the cart first.";
   }
@@ -1501,4 +1603,12 @@ function POSContextCell({ helper, label, ready }) {
       </div>
     </div>
   );
+}
+
+function getCartUnitPrice(item) {
+  return Number(item.enteredPrice ?? item.product.price) || 0;
+}
+function needsCartPrice(item) {
+  const value = String(item.enteredPrice ?? item.product.price ?? '').trim();
+  return !/^\d+(\.\d{1,2})?$/.test(value) || Number(value) <= 0 || Number(value) < Number(item.product.minimumPrice || 0) || Number(value) > 9999999999.99;
 }

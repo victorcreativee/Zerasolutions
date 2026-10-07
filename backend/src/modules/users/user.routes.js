@@ -2,9 +2,11 @@ import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { prisma } from "../../config/prisma.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
+import { getBusinessAccess } from "../../utils/businessAccess.js";
 import { HttpError } from "../../utils/httpError.js";
 import { getDefaultStaffRoleName, getMissingDefaultRoles } from "../../utils/businessRoles.js";
 import { assertCanCreateBusinessUser } from "../../utils/packageLimits.js";
+import { enqueueSyncOperation } from "../../utils/syncQueue.js";
 
 export const userRouter = Router();
 
@@ -17,19 +19,7 @@ userRouter.get("/me", (req, res) => {
 userRouter.get("/business/:businessId", async (req, res, next) => {
   try {
     const { businessId } = req.params;
-
-    const membership = await prisma.businessUser.findUnique({
-      where: {
-        userId_businessId: {
-          userId: req.user.id,
-          businessId
-        }
-      }
-    });
-
-    if (!membership && req.user.systemRole !== "SYSTEM_ADMIN") {
-      throw new HttpError(403, "You do not have access to this business.");
-    }
+    await getBusinessAccess(req.user, businessId);
 
     const users = await prisma.businessUser.findMany({
       where: { businessId },
@@ -67,15 +57,7 @@ userRouter.post("/business/:businessId", async (req, res, next) => {
       throw new HttpError(400, "Password must be at least 8 characters.");
     }
 
-    const requesterMembership = await prisma.businessUser.findUnique({
-      where: {
-        userId_businessId: {
-          userId: req.user.id,
-          businessId
-        }
-      },
-      include: { role: true }
-    });
+    const { membership: requesterMembership } = await getBusinessAccess(req.user, businessId);
 
     const canManageUsers = req.user.systemRole === "SYSTEM_ADMIN" || requesterMembership?.role?.name === "Owner";
 
@@ -160,6 +142,22 @@ userRouter.post("/business/:businessId", async (req, res, next) => {
       }
     });
 
+    await enqueueSyncOperation({
+      businessId,
+      entityType: "business_user",
+      entityId: businessUser.id,
+      operation: "create",
+      method: "POST",
+      endpoint: `/api/users/business/${businessId}`,
+      payload: {
+        localMembershipId: businessUser.id,
+        email: businessUser.user.email,
+        name: businessUser.user.name,
+        roleName: businessUser.role?.name || roleName
+      },
+      userId: req.user.id
+    });
+
     res.status(201).json({ businessUser });
   } catch (error) {
     next(error);
@@ -175,15 +173,7 @@ userRouter.patch("/business/:businessId/:membershipId/status", async (req, res, 
       throw new HttpError(400, "User status must be ACTIVE or INACTIVE.");
     }
 
-    const requesterMembership = await prisma.businessUser.findUnique({
-      where: {
-        userId_businessId: {
-          userId: req.user.id,
-          businessId
-        }
-      },
-      include: { role: true }
-    });
+    const { membership: requesterMembership } = await getBusinessAccess(req.user, businessId);
 
     const canManageUsers = req.user.systemRole === "SYSTEM_ADMIN" || requesterMembership?.role?.name === "Owner";
 
@@ -214,6 +204,10 @@ userRouter.patch("/business/:businessId/:membershipId/status", async (req, res, 
       throw new HttpError(400, "The business owner account cannot be deactivated here.");
     }
 
+    if (status === "ACTIVE" && targetMembership.user.status !== "ACTIVE") {
+      await assertCanCreateBusinessUser(businessId);
+    }
+
     const updatedUser = await prisma.user.update({
       where: { id: targetMembership.userId },
       data: { status },
@@ -224,6 +218,20 @@ userRouter.patch("/business/:businessId/:membershipId/status", async (req, res, 
         status: true,
         createdAt: true
       }
+    });
+
+    await enqueueSyncOperation({
+      businessId,
+      entityType: "business_user",
+      entityId: targetMembership.id,
+      operation: "status",
+      method: "PATCH",
+      endpoint: `/api/users/business/${businessId}/${membershipId}/status`,
+      payload: {
+        localMembershipId: targetMembership.id,
+        status
+      },
+      userId: req.user.id
     });
 
     res.json({

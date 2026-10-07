@@ -1,3 +1,6 @@
+import PurchasingPage from "./pages/purchasing/PurchasingPage.jsx";
+import { lazy, Suspense } from "react";
+const HomePage = lazy(() => import("./pages/public/HomePage.jsx"));
 import { Navigate, Route, Routes } from "react-router-dom";
 import LoginPage from "./pages/auth/LoginPage.jsx";
 import RegisterPage from "./pages/auth/RegisterPage.jsx";
@@ -28,7 +31,7 @@ const reportRoles = ["Owner", "Manager", "Cashier"];
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="/" element={window.zeraDesktop ? <Navigate to="/dashboard" replace /> : <Suspense fallback={<div className="min-h-screen bg-[#fbfaf6]" role="status" aria-label="Loading Zera" />}><HomePage /></Suspense>} />
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
       <Route element={<ProtectedRoute />}>
@@ -52,6 +55,7 @@ export default function App() {
           </Route>
           <Route element={<BusinessModuleRoute moduleKey="INVENTORY" allowedRoles={["Owner", "Manager", "Store Keeper", "Pharmacist"]} />}>
             <Route path="/inventory" element={<InventoryPage />} />
+            <Route path="/purchasing" element={<PurchasingPage />} />
           </Route>
           <Route element={<BusinessModuleRoute moduleKey="FINANCE" allowedRoles={["Owner"]} />}>
             <Route path="/finance" element={<FinancePage />} />

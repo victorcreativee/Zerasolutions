@@ -57,10 +57,8 @@ export default function DashboardPage() {
   const completedSales = useMemo(() => recentSales.filter((sale) => sale.status === "COMPLETED"), [recentSales]);
   const posIsActive = activeModuleKeys.includes("POS");
   const inventoryIsActive = activeModuleKeys.includes("INVENTORY");
-  const posWorkflow = getPOSWorkflowInfo(activeBusiness);
   const isTableService = activeBusiness?.posMode === "TABLE_SERVICE";
   const cashierCanCloseBills = ["Owner", "Manager", "Cashier"].includes(activeRoleName);
-  const POSWorkflowIcon = posWorkflow.icon;
   const isOperationalRole = operationalRoles.includes(activeRoleName);
   const dashboardSales = useMemo(() => getRoleScopedSales(completedSales, activeRoleName, user?.id), [activeRoleName, completedSales, user?.id]);
   const salesTotal = dashboardSales.reduce((total, sale) => total + Number(sale.total), 0);
@@ -296,9 +294,9 @@ export default function DashboardPage() {
       <section className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
         <div className="grid gap-4 border-b border-zera-line px-4 py-4 lg:grid-cols-[1fr_auto] lg:items-center">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">{activeRoleName || "Business"} workspace</p>
-            <h2 className="mt-1 text-xl font-bold">{activeBusiness.name}</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">{dashboardDescription(activeRoleName, activeBranch?.name)}</p>
+
+            <h2 className="mt-1 text-xl font-bold">Dashboard</h2>
+
           </div>
           {posIsActive ? (
             <Link
@@ -318,25 +316,6 @@ export default function DashboardPage() {
         </div>
       </section>
 
-      {posIsActive ? (
-        <section className="grid gap-3 rounded-md border border-zera-line bg-white p-4 md:grid-cols-[1fr_auto] md:items-center">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
-              <POSWorkflowIcon size={22} />
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs font-bold uppercase text-zera-muted">Sales workflow</p>
-              <h3 className="mt-1 text-lg font-bold">{posWorkflow.title}</h3>
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">{posWorkflow.description}</p>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2 md:justify-end">
-            <span className="rounded-md bg-zera-mintSoft px-3 py-2 text-xs font-bold text-zera-green">{posWorkflow.primaryRule}</span>
-            <span className="rounded-md bg-zera-mintSoft px-3 py-2 text-xs font-bold text-zera-muted">{activeBusiness.type || "Business type not set"}</span>
-          </div>
-        </section>
-      ) : null}
-
       {isTableService && cashierCanCloseBills ? (
         <CashierOpenBillsPanel
           currency={activeBusiness.currency}
@@ -354,7 +333,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between border-b border-zera-line px-4 py-3">
             <div>
               <h3 className="font-bold">Today at a glance</h3>
-              <p className="mt-1 text-xs text-zera-muted">Recent completed receipts for this workspace.</p>
+
             </div>
             {posIsActive ? (
               <Link className="text-sm font-semibold text-zera-green hover:underline" to="/sales">
@@ -394,7 +373,7 @@ export default function DashboardPage() {
             <div className="flex min-h-44 flex-col items-center justify-center px-5 text-center">
               <ReceiptText className="text-zera-green" size={26} />
               <p className="mt-3 text-sm font-bold">No completed sales today</p>
-              <p className="mt-1 text-sm text-zera-muted">New transactions will appear here.</p>
+
             </div>
           )}
         </article>
@@ -402,7 +381,7 @@ export default function DashboardPage() {
         <article className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
           <div className="border-b border-zera-line px-4 py-3">
             <h3 className="font-bold">Action queue</h3>
-            <p className="mt-1 text-xs text-zera-muted">Setup and operating checks that need attention.</p>
+
           </div>
           <div className="divide-y divide-zera-line">
             {isTableService && cashierCanCloseBills ? (
@@ -461,7 +440,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-bold">{action.label}</p>
-                  <p className="mt-1 truncate text-xs text-zera-muted">{action.helper}</p>
+
                 </div>
               </Link>
             );
@@ -503,14 +482,11 @@ function RoleDashboard({
   roleName,
   salesTotal
 }) {
-  const PrimaryIcon = roleDashboard.icon;
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-4">
       <PageHeader
-        eyebrow={roleDashboard.eyebrow}
-        title={roleDashboard.title}
-        description={roleDashboard.description}
+        title="Dashboard"
         action={
           posIsActive ? (
             <Link
@@ -526,49 +502,17 @@ function RoleDashboard({
 
       <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         {roleDashboard.stats.map((stat) => (
-          <StatCard icon={stat.icon} key={stat.label} label={stat.label} value={stat.value} helper={stat.helper} />
+          <StatCard icon={stat.icon} key={stat.label} label={stat.label} value={stat.value} />
         ))}
       </section>
 
-      {inventoryIsActive && ["Store Keeper", "Pharmacist"].includes(roleName) && lowStockItems.length ? (
-        <InventoryAttentionPanel currency={currency} loading={loadingStock} lowStockItems={lowStockItems} />
-      ) : null}
-
       <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
         <article className="rounded-md border border-zera-line bg-white">
-          <div className="flex items-center gap-3 border-b border-zera-line px-4 py-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
-              <PrimaryIcon size={20} />
-            </div>
-            <div>
-              <h3 className="font-bold">{roleDashboard.workTitle}</h3>
-              <p className="mt-1 text-xs text-zera-muted">{roleDashboard.workSubtitle}</p>
-            </div>
-          </div>
-
-          <div className="grid gap-3 p-4 md:grid-cols-3">
-            {roleDashboard.steps.map((step, index) => {
-              const StepIcon = step.icon;
-              return (
-                <div className="rounded-md border border-zera-line bg-zera-mintSoft p-3" key={step.title}>
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-md bg-white text-zera-green">
-                      <StepIcon size={18} />
-                    </div>
-                    <span className="rounded-md bg-white px-2 py-1 text-xs font-bold text-zera-green">Step {index + 1}</span>
-                  </div>
-                  <h4 className="text-sm font-bold">{step.title}</h4>
-                  <p className="mt-2 text-sm leading-6 text-zera-muted">{step.description}</p>
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="border-t border-zera-line p-4">
+          <div className="p-4">
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h4 className="font-bold">{roleDashboard.focusTitle}</h4>
-                <p className="mt-1 text-xs text-zera-muted">{roleDashboard.focusSubtitle}</p>
+
               </div>
               <Link className="text-sm font-semibold text-zera-green hover:underline" to={roleDashboard.focusPath}>
                 {roleDashboard.focusAction}
@@ -582,7 +526,7 @@ function RoleDashboard({
           <article className="rounded-md border border-zera-line bg-white">
             <div className="border-b border-zera-line px-4 py-3">
               <h3 className="font-bold">{roleDashboard.todayTitle}</h3>
-              <p className="mt-1 text-xs text-zera-muted">{roleDashboard.todaySubtitle}</p>
+
             </div>
 
             {completedSales.length ? (
@@ -604,20 +548,18 @@ function RoleDashboard({
               <div className="flex min-h-36 flex-col items-center justify-center px-5 text-center">
                 <ReceiptText className="text-zera-green" size={24} />
                 <p className="mt-3 text-sm font-bold">No sales yet today</p>
-                <p className="mt-1 text-sm text-zera-muted">Recorded transactions will show here.</p>
+
               </div>
             )}
           </article>
 
           <article className="rounded-md border border-zera-line bg-white p-4">
-            <p className="text-xs font-bold uppercase text-zera-green">{roleName} summary</p>
+            <p className="text-xs font-bold uppercase text-zera-green">Today’s sales</p>
             <h3 className="mt-2 text-xl font-bold">{formatMoney(salesTotal, currency)}</h3>
             <p className="mt-1 text-sm text-zera-muted">
-              {completedSales.length} completed transaction{completedSales.length === 1 ? "" : "s"} today at {activeBranch?.name || "the selected branch"}.
+              {completedSales.length} sale{completedSales.length === 1 ? "" : "s"} · {activeBranch?.name || "Current branch"}
             </p>
-            <div className="mt-4 rounded-md bg-zera-mintSoft px-3 py-3 text-sm text-zera-muted">
-              {roleDashboard.guidance}
-            </div>
+
           </article>
         </aside>
       </section>
@@ -625,7 +567,7 @@ function RoleDashboard({
       <section>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="font-bold">Quick actions</h3>
-          <p className="text-xs text-zera-muted">{activeBusiness.type || "Business"} · {roleName}</p>
+
         </div>
         <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
           {quickActions.map((action) => {
@@ -641,7 +583,7 @@ function RoleDashboard({
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-bold">{action.label}</p>
-                  <p className="mt-1 truncate text-xs text-zera-muted">{action.helper}</p>
+
                 </div>
               </Link>
             );
@@ -665,9 +607,7 @@ function CashierOpenBillsPanel({ currency, loading, openBills }) {
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase text-zera-green">Cashier handoff</p>
             <h3 className="mt-1 text-lg font-bold">Open table bills</h3>
-            <p className="mt-1 text-sm leading-6 text-zera-muted">
-              Customer bills sent by waiters appear here. Receive payment, close the table, and print the final receipt from one queue.
-            </p>
+
           </div>
         </div>
         <div className="grid gap-2 sm:grid-cols-[auto_auto_auto] sm:items-center">
@@ -721,9 +661,7 @@ function InventoryAttentionPanel({ currency, loading, lowStockItems }) {
           <div className="min-w-0">
             <p className="text-xs font-bold uppercase text-amber-700">Inventory attention</p>
             <h3 className="mt-1 text-lg font-bold">Low-stock items need follow-up</h3>
-            <p className="mt-1 text-sm leading-6 text-zera-muted">
-              Review items that reached their low stock alert before the next busy sales period.
-            </p>
+
           </div>
         </div>
         <Link
@@ -882,7 +820,7 @@ function buildRoleDashboard({
       eyebrow: "Store keeper workspace",
       title: `${activeBusiness?.name || "Business"} catalog readiness`,
       description: "Keep products ready for checkout, receive deliveries, and follow up low-stock alerts before sales are affected.",
-      primaryAction: inventoryIsActive ? "Open Inventory" : "Manage Products",
+      primaryAction: inventoryIsActive ? "Inventory" : "Products",
       primaryPath: inventoryIsActive ? "/inventory" : "/products",
       loading: loadingWorkData || loadingStock,
       stats: [
@@ -900,15 +838,15 @@ function buildRoleDashboard({
         { icon: PackageCheck, title: "Receive stock", description: "Add delivered quantity to current stock without overwriting the balance." },
         { icon: ListChecks, title: "Correct counts", description: "Use Set count only after a physical count or stock correction." }
       ],
-      focusTitle: inventoryIsActive ? "Low-stock attention" : "Active products",
+      focusTitle: inventoryIsActive ? "Low stock" : "Active products",
       focusSubtitle: inventoryIsActive ? "Products that need receiving or review." : "Products currently visible to POS.",
       focusAction: inventoryIsActive ? "Open inventory" : "Manage products",
       focusPath: inventoryIsActive ? "/inventory" : "/products",
       focusItems: inventoryIsActive ? stockAttentionItems : productItems,
       emptyFocusText: inventoryIsActive
-        ? "No low-stock items right now. Keep receiving stock when deliveries arrive."
-        : "No active products yet. Add products before the shop can sell confidently.",
-      todayTitle: "Today’s product movement",
+        ? "No low-stock items."
+        : "No active products.",
+      todayTitle: "Recent sales",
       todaySubtitle: "Sales activity that may affect stock follow-up.",
       guidance: "Use Receive stock for new deliveries. Use Set count only when you are correcting the actual shelf count."
     };

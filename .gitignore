@@ -1,5 +1,27 @@
 node_modules/
 dist/
+desktop/.desktop-build/
+desktop/.system-admin-manifests/
+desktop/.installer-artifacts/
+desktop/release/
 .env
 .DS_Store
 *.log
+# Environment configuration
+.env.*
+!.env.example
+!**/.env.example
+
+# Certificates and private keys
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+
+# Local system files
+Thumbs.db

@@ -184,11 +184,9 @@ export default function CustomersPage() {
     <div className="mx-auto max-w-[1500px] space-y-4">
       <header className="flex flex-col gap-3 border-b border-zera-line pb-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
-          <p className="text-xs font-bold uppercase text-zera-green">Customer directory</p>
+
           <h2 className="mt-1 text-xl font-bold tracking-tight text-zera-ink">Customers</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">
-            Save repeat customers for phone lookup, account notes, and cleaner receipt history. Walk-in sales can still continue without a saved customer.
-          </p>
+
         </div>
         <button
           className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-zera-green px-4 text-sm font-bold text-white shadow-xs hover:bg-zera-greenDark"
@@ -425,9 +423,9 @@ function CustomerDrawer({ customer, form, isEditing, onChange, onClose, onSubmit
       <aside className="flex h-full w-full max-w-lg flex-col border-l border-zera-line bg-white shadow-panel">
         <div className="flex items-start justify-between gap-3 border-b border-zera-line bg-zera-mintSoft/40 px-5 py-4">
           <div>
-            <p className="text-xs font-bold uppercase text-zera-green">Customer record</p>
+
             <h3 className="mt-1 text-xl font-bold">{isEditing ? "Edit customer" : "New customer"}</h3>
-            <p className="mt-1 text-sm text-zera-muted">{customer ? `Editing ${customer.name}` : "Save details only when they help the business serve the customer better."}</p>
+
           </div>
           <button className="flex h-9 w-9 items-center justify-center rounded-md text-zera-muted hover:bg-zera-surface" type="button" onClick={onClose}>
             <X size={18} />
@@ -497,7 +495,7 @@ function CustomerProfileDrawer({ currency, customer, onClose, onEdit }) {
       <aside className="flex h-full w-full max-w-xl flex-col border-l border-zera-line bg-white shadow-panel">
         <div className="flex items-start justify-between gap-3 border-b border-zera-line bg-zera-mintSoft/40 px-5 py-4">
           <div className="min-w-0">
-            <p className="text-xs font-bold uppercase text-zera-green">Customer profile</p>
+
             <h3 className="mt-1 truncate text-xl font-bold">{customer.name}</h3>
             <p className="mt-1 truncate text-sm text-zera-muted">{customer.phone || "No phone"} · {customer.email || "No email"}</p>
           </div>
@@ -516,7 +514,7 @@ function CustomerProfileDrawer({ currency, customer, onClose, onEdit }) {
           <section className="mt-4 rounded-md border border-zera-line">
             <div className="border-b border-zera-line px-4 py-3">
               <h4 className="font-bold text-zera-ink">Recent receipts</h4>
-              <p className="mt-0.5 text-sm text-zera-muted">Latest sales connected to this customer.</p>
+
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-[620px] w-full text-left text-sm">

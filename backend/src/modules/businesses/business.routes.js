@@ -1,8 +1,11 @@
+import { withBusinessFeatures } from "../../config/businessFeatures.js";
 import { Router } from "express";
 import { prisma } from "../../config/prisma.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { HttpError } from "../../utils/httpError.js";
+import { getBusinessAccess, getOperationalBusinessWhereForUser } from "../../utils/businessAccess.js";
 import { getMissingDefaultRoles } from "../../utils/businessRoles.js";
+import { enqueueSyncOperation } from "../../utils/syncQueue.js";
 
 export const businessRouter = Router();
 
@@ -25,15 +28,7 @@ businessRouter.patch("/:businessId", async (req, res, next) => {
       throw new HttpError(400, "Business name is required.");
     }
 
-    const membership = await prisma.businessUser.findUnique({
-      where: {
-        userId_businessId: {
-          userId: req.user.id,
-          businessId
-        }
-      },
-      include: { role: true }
-    });
+    const { membership } = await getBusinessAccess(req.user, businessId);
 
     const canManageBusiness = req.user.systemRole === "SYSTEM_ADMIN" || membership?.role?.name === "Owner";
 
@@ -49,13 +44,30 @@ businessRouter.patch("/:businessId", async (req, res, next) => {
         currency: currency || "UGX"
       },
       include: {
+        platformBusinessType: true,
         branches: true,
         modules: true,
         roles: true
       }
     });
 
-    res.json({ business });
+    await enqueueSyncOperation({
+      businessId,
+      entityType: "business",
+      entityId: business.id,
+      operation: "profile",
+      method: "PATCH",
+      endpoint: `/api/businesses/${businessId}`,
+      payload: {
+        localId: business.id,
+        country,
+        currency,
+        name
+      },
+      userId: req.user.id
+    });
+
+    res.json({ business: withBusinessFeatures(business) });
   } catch (error) {
     next(error);
   }
@@ -64,14 +76,9 @@ businessRouter.patch("/:businessId", async (req, res, next) => {
 businessRouter.get("/", async (req, res, next) => {
   try {
     let businesses = await prisma.business.findMany({
-      where: {
-        memberships: {
-          some: {
-            userId: req.user.id
-          }
-        }
-      },
+      where: getOperationalBusinessWhereForUser(req.user.id),
       include: {
+        platformBusinessType: true,
         branches: true,
         modules: true,
         roles: true
@@ -98,15 +105,10 @@ businessRouter.get("/", async (req, res, next) => {
       }
 
       businesses = await prisma.business.findMany({
-        where: {
-          memberships: {
-            some: {
-              userId: req.user.id
-            }
-          }
-        },
+        where: getOperationalBusinessWhereForUser(req.user.id),
         include: {
-          branches: true,
+          platformBusinessType: true,
+        branches: true,
           modules: true,
           roles: true
         },
@@ -114,7 +116,7 @@ businessRouter.get("/", async (req, res, next) => {
       });
     }
 
-    res.json({ businesses });
+    res.json({ businesses: businesses.map(withBusinessFeatures) });
   } catch (error) {
     next(error);
   }

@@ -1,0 +1,1 @@
+ALTER TABLE "Business" ADD COLUMN "useBrandTheme" BOOLEAN NOT NULL DEFAULT false;

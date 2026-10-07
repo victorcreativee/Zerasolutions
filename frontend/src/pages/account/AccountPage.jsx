@@ -48,11 +48,9 @@ export default function AccountPage() {
     <div className="mx-auto max-w-[1500px] space-y-4">
       <header className="flex flex-col gap-3 border-b border-zera-line pb-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Account</p>
+
           <h2 className="mt-1 text-2xl font-bold">Login and security</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">
-            Keep your account secure after receiving a temporary password from Zera or your business owner.
-          </p>
+
         </div>
       </header>
 
@@ -87,7 +85,7 @@ export default function AccountPage() {
             </div>
             <div>
               <h3 className="font-bold">Change password</h3>
-              <p className="text-sm text-zera-muted">Use a private password only you know.</p>
+
             </div>
           </div>
 

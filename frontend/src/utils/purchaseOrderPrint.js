@@ -1,0 +1,23 @@
+const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+const amount = value => Number(value || 0).toLocaleString('en', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const labels = { DRAFT: 'DRAFT — NOT APPROVED', ORDERED: 'Approved', PARTIALLY_RECEIVED: 'Partially received', RECEIVED: 'Received', CANCELLED: 'CANCELLED' };
+export function purchaseOrderHtml(order, business) {
+  const date = value => value ? escape(new Date(value).toLocaleDateString('en', { year: 'numeric', month: 'short', day: 'numeric' })) : '';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escape(order.number)} — Purchase order</title><style>
+    *{box-sizing:border-box}body{margin:0;background:#f3f5f4;color:#17251d;font:14px/1.5 system-ui,sans-serif}.toolbar{padding:16px;text-align:center}button{padding:12px 20px;background:#16813b;color:white;border:0;border-radius:6px;font:inherit;cursor:pointer}main{max-width:900px;margin:0 auto 32px;background:white;padding:40px}header{display:flex;justify-content:space-between;gap:24px;border-bottom:2px solid #16813b;padding-bottom:20px}h1{font-size:26px;margin:0}h2{font-size:15px;margin:0 0 8px}p{margin:4px 0;overflow-wrap:anywhere}.status{font-weight:700}.parties{display:grid;grid-template-columns:1fr 1fr;gap:32px;margin:24px 0}.muted{color:#52645a}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;table-layout:fixed}th,td{text-align:right;padding:10px 6px;border-bottom:1px solid #dce4de;overflow-wrap:anywhere}th:first-child,td:first-child{text-align:left;width:43%}thead{background:#eef7f0}tfoot td{font-weight:700}.note{white-space:pre-wrap;margin-top:24px}footer{margin-top:30px;font-size:12px;color:#52645a}@media(max-width:600px){main{padding:20px}header{display:block}.parties{grid-template-columns:1fr;gap:16px}}@page{size:A4;margin:15mm}@media print{body{background:white}.toolbar{display:none}main{padding:0;margin:0;max-width:none}thead{display:table-header-group}tfoot{display:table-row-group}tr{break-inside:avoid}header,.parties,footer{break-inside:avoid}.table-wrap{overflow:visible}}
+  </style></head><body><div class="toolbar"><button id="print-order" type="button">Print / Save PDF</button><p class="muted">Use your browser’s print destination to save a PDF.</p></div><main>
+  <header><div><h1>Purchase order</h1><p>${escape(order.number)}</p><p class="status">${escape(labels[order.status] || order.status)}</p></div><div><h2>${escape(business.name)}</h2><p>${escape(business.address)}</p><p>Created ${date(order.createdAt)}</p><p>Currency: ${escape(order.currency)}</p></div></header>
+  <section class="parties"><div><h2>Supplier</h2><p><strong>${escape(order.supplier.name)}</strong></p><p>${escape(order.supplier.address)}</p><p>${escape(order.supplier.email)}</p><p>${escape(order.supplier.phone)}</p></div><div><h2>Deliver to branch</h2><p>${escape(order.branch.name)}</p><p class="muted">Prepared by ${escape(order.createdBy?.name)}</p>${order.approvedBy ? `<p class="muted">Approved by ${escape(order.approvedBy.name)} · ${date(order.approvedAt)}</p>` : ''}</div></section>
+  <div class="table-wrap"><table><thead><tr><th scope="col">Product</th><th scope="col">Quantity</th><th scope="col">Unit cost</th><th scope="col">Line total</th></tr></thead><tbody>${order.items.map(item => `<tr><td>${escape(item.productName)}</td><td>${escape(item.quantity)}</td><td>${escape(amount(item.unitCost))}</td><td>${escape(amount(item.lineTotal))}</td></tr>`).join('')}</tbody><tfoot><tr><td colspan="3">Order total (${escape(order.currency)})</td><td>${escape(amount(order.total))}</td></tr></tfoot></table></div>
+  ${order.note ? `<section class="note"><h2>Order note</h2><p>${escape(order.note)}</p></section>` : ''}
+  <footer>${order.status === 'DRAFT' ? '<p>This draft has not been approved.</p>' : ''}${order.status === 'CANCELLED' ? '<p>This order is cancelled. Do not deliver unreceived quantities.</p>' : ''}<p>Original ordered quantities and costs. This document is not proof of payment.</p></footer></main></body></html>`;
+}
+export function printPurchaseOrder(order, business) {
+  const preview = window.open('', '_blank');
+  if (!preview) throw new Error('Allow pop-ups for Zera to open the print preview.');
+  preview.opener = null;
+  preview.document.open();
+  preview.document.write(purchaseOrderHtml(order,business));
+  preview.document.close();
+  preview.document.getElementById('print-order').addEventListener('click', () => preview.print());
+}

@@ -1,0 +1,11 @@
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+.git
+**/dist
+desktop/.desktop-build
+desktop/.system-admin-manifests
+desktop/.installer-artifacts
+desktop/release
+**/*.log

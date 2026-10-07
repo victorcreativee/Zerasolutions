@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { BarChart3, Banknote, Boxes, CreditCard, Download, MapPin, ReceiptText, RefreshCcw, Smartphone } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
-import { getReportSummary } from "../../services/reportsService.js";
+import { downloadReportCsv, getReportSummary } from "../../services/reportsService.js";
 
 const periodOptions = [
   { label: "Today", value: "today" },
@@ -17,6 +17,7 @@ export default function ReportsPage() {
   const [filters, setFilters] = useState(() => createDefaultFilters());
   const [activePeriod, setActivePeriod] = useState("today");
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [error, setError] = useState("");
 
   const completedSales = useMemo(() => sales.filter((sale) => sale.status === "COMPLETED"), [sales]);
@@ -67,6 +68,32 @@ export default function ReportsPage() {
     }
   }
 
+  async function handleExport() {
+    setExporting(true);
+    setError("");
+    try {
+      const params = Object.fromEntries(Object.entries(filters).filter(([, value]) => value));
+      const blob = await downloadReportCsv(activeBusinessId, params);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${slugify(activeBusiness.name)}-sales-report.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (error) {
+      const data = error.response?.data;
+      let message = data?.message;
+      if (data instanceof Blob) {
+        try { message = JSON.parse(await data.text()).message; } catch { /* Use the fallback message. */ }
+      }
+      setError(message || "Unable to export the report. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
   function updateFilter(key, value) {
     setActivePeriod("custom");
     setFilters((current) => ({
@@ -99,16 +126,14 @@ export default function ReportsPage() {
       <section className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
         <div className="grid gap-4 border-b border-zera-line px-4 py-4 lg:grid-cols-[1fr_auto] lg:items-center">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Reports</p>
-            <h2 className="mt-1 text-xl font-bold">Business performance</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">
-              A clear view of sales, payment methods, branches, products, and staff activity from POS receipts.
-            </p>
+
+            <h2 className="mt-1 text-xl font-bold">Reports</h2>
+
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button type="button" variant="secondary" className="h-10 gap-2 px-3 shadow-xs" onClick={() => exportReportCsv({ business: activeBusiness, filters, rows: sales })}>
+            <Button type="button" variant="secondary" className="h-10 gap-2 px-3 shadow-xs" onClick={handleExport} disabled={exporting || loading}>
               <Download size={16} />
-              Export CSV
+              {exporting ? "Exporting..." : "Export CSV"}
             </Button>
             <Button type="button" variant="secondary" className="h-10 gap-2 px-3 shadow-xs" onClick={loadReport}>
               <RefreshCcw size={16} />
@@ -120,7 +145,7 @@ export default function ReportsPage() {
         <div className="grid divide-y divide-zera-line md:grid-cols-4 md:divide-x md:divide-y-0">
           <ReportMetricCell icon={Banknote} label="Net sales" value={loading ? "..." : formatMoney(totalSales, activeBusiness.currency)} helper="Completed receipts" />
           <ReportMetricCell icon={ReceiptText} label="Receipts" value={loading ? "..." : receiptCount} helper={`${voidedCount} voided`} />
-          <ReportMetricCell icon={Boxes} label="Discounts" value={loading ? "..." : formatMoney(discountTotal, activeBusiness.currency)} helper="Approved at checkout" />
+          <ReportMetricCell icon={Boxes} label="Discounts" value={loading ? "..." : formatMoney(discountTotal, activeBusiness.currency)} />
           <ReportMetricCell icon={BarChart3} label="Tax collected" value={loading ? "..." : formatMoney(taxCollected, activeBusiness.currency)} helper={`Average ${formatMoney(averageSale, activeBusiness.currency)}`} />
         </div>
       </section>
@@ -222,7 +247,7 @@ function SalesTable({ currency, loading, rows }) {
       <div className="flex items-center justify-between border-b border-zera-line p-4">
         <div>
           <h3 className="font-bold">Recent receipts</h3>
-          <p className="mt-0.5 text-sm text-zera-muted">Completed sales for the selected period.</p>
+
         </div>
         <span className="rounded-md bg-zera-mintSoft px-2.5 py-1 text-xs font-bold text-zera-muted">{rows.length} receipts</span>
       </div>
@@ -269,7 +294,7 @@ function StaffPerformanceTable({ currency, rows }) {
     <section className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
       <div className="border-b border-zera-line p-4">
         <h3 className="font-bold">Staff performance</h3>
-        <p className="mt-0.5 text-sm text-zera-muted">Waiter service and cashier collections for the selected period.</p>
+
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-[680px] w-full text-left text-sm">
@@ -559,42 +584,6 @@ function formatDateLabel(value) {
     month: "short",
     year: "numeric"
   });
-}
-
-function exportReportCsv({ business, filters, rows }) {
-  const headers = ["Receipt", "Date", "Branch", "Customer", "Payment", "Cashier", "Status", "Subtotal", "Discount", "Tax", "Total"];
-  const body = rows.map((sale) => [
-    sale.receiptNumber,
-    sale.createdAt ? new Date(sale.createdAt).toLocaleString() : "",
-    sale.branch?.name || "",
-    sale.customer?.name || "Walk-in",
-    formatPayment(sale.paymentMethod),
-    sale.cashier?.name || "",
-    sale.status || "",
-    Number(sale.subtotal || 0),
-    Number(sale.discountAmount || 0),
-    Number(sale.taxAmount || 0),
-    Number(sale.total || 0)
-  ]);
-  const csv = [headers, ...body].map((row) => row.map(escapeCsvValue).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  const dateLabel = [filters.dateFrom, filters.dateTo].filter(Boolean).join("_to_") || "all_dates";
-  link.href = url;
-  link.download = `${slugify(business?.name || "zera")}-sales-report-${dateLabel}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
-}
-
-function escapeCsvValue(value) {
-  const text = String(value ?? "");
-
-  if (/[",\n]/.test(text)) {
-    return `"${text.replaceAll('"', '""')}"`;
-  }
-
-  return text;
 }
 
 function slugify(value) {

@@ -1,0 +1,4 @@
+ALTER TABLE "Product" ADD COLUMN "minimumPrice" DECIMAL(12,2) NOT NULL DEFAULT 0;
+CREATE TABLE "ProductCost" ("productId" TEXT PRIMARY KEY REFERENCES "Product"("id") ON DELETE CASCADE, "amount" DECIMAL(12,2));
+ALTER TABLE "SaleItem" ADD COLUMN "suggestedPrice" DECIMAL(12,2), ADD COLUMN "minimumPrice" DECIMAL(12,2);
+ALTER TABLE "POSOrderItem" ADD COLUMN "suggestedPrice" DECIMAL(12,2), ADD COLUMN "minimumPrice" DECIMAL(12,2);

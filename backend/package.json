@@ -9,7 +9,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "seed:system-admin": "node src/utils/seedSystemAdmin.js",
-    "reset:dev-data": "node src/utils/resetDevelopmentData.js"
+    "reset:dev-data": "node src/utils/resetDevelopmentData.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

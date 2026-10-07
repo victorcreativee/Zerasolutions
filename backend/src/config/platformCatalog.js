@@ -11,7 +11,7 @@ export const moduleCatalog = [
     key: "INVENTORY",
     name: "Inventory",
     title: "Inventory",
-    summary: "Products, stock visibility, branches, and warehouse foundations.",
+    summary: "Products, stock visibility, branches, and warehouse control.",
     description: "Products, stock, transfers, and warehouse control.",
     activeByDefault: false
   },
@@ -73,7 +73,7 @@ export const businessTypeCatalog = [
     label: "Electronics shop",
     posMode: "RETAIL_CHECKOUT",
     defaultModuleKeys: ["POS", "INVENTORY", "REPORTS"],
-    helper: "Device, accessory, stock, receipt, and repair-service foundations.",
+    helper: "Device, accessory, stock, receipt, and repair-service tools.",
     roles: [
       { name: "Cashier", description: "Sell devices and accessories and receive payments." },
       { name: "Store Keeper", description: "Receive stock, monitor device quantities, and keep product records clean." },
@@ -98,7 +98,7 @@ export const businessTypeCatalog = [
     label: "Pharmacy",
     posMode: "RETAIL_CHECKOUT",
     defaultModuleKeys: ["POS", "INVENTORY", "REPORTS"],
-    helper: "Pharmacy sales now, batch and medicine controls later.",
+    helper: "Medicine sales, services, stock control, and counter reporting.",
     roles: [
       { name: "Pharmacist", description: "Serve pharmacy customers and record medicine sales." },
       { name: "Cashier", description: "Receive payments and run checkout." }
@@ -110,7 +110,7 @@ export const businessTypeCatalog = [
     label: "Hotel",
     posMode: "RETAIL_CHECKOUT",
     defaultModuleKeys: ["POS", "OPERATIONS", "REPORTS"],
-    helper: "Front-desk service sales now, room and folio workflows later.",
+    helper: "Front-desk service sales, guest charges, and branch reporting.",
     roles: [
       { name: "Front Desk", description: "Serve guest-facing hotel workflows and record service sales." },
       { name: "Cashier", description: "Receive payments and close service bills." }
@@ -146,13 +146,25 @@ export const packageCatalog = [
   {
     key: "BUSINESS",
     name: "Business",
-    description: "For growing businesses that need all current Zera foundations enabled.",
+    description: "For growing businesses that need all active Zera modules enabled.",
     price: 0,
     currency: "UGX",
     billingCycle: "MONTHLY",
     maxBranches: 10,
     maxUsers: 50,
     maxProducts: 10000,
+    defaultModuleKeys: ["POS", "INVENTORY", "FINANCE", "OPERATIONS", "REPORTS"]
+  },
+  {
+    key: "CUSTOM",
+    name: "Custom",
+    description: "For customers that need a tailored package, negotiated limits, or a special module mix.",
+    price: null,
+    currency: "UGX",
+    billingCycle: "MONTHLY",
+    maxBranches: null,
+    maxUsers: null,
+    maxProducts: null,
     defaultModuleKeys: ["POS", "INVENTORY", "FINANCE", "OPERATIONS", "REPORTS"]
   }
 ];

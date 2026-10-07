@@ -35,7 +35,7 @@ export default function LoginPage() {
   }
 
   return (
-    <AuthLayout title="Log in" subtitle="Access your shop workspace and continue from where your team left off.">
+    <AuthLayout title="Log in" >
       <form className="space-y-5" onSubmit={handleSubmit}>
         {error ? <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
         <Input label="Email" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
@@ -45,7 +45,7 @@ export default function LoginPage() {
         </Button>
       </form>
       <p className="mt-6 text-center text-sm text-zera-muted">
-        New to Zera? Ask your Zera system admin or business owner for a login.
+        Need an account? Contact your administrator.
       </p>
     </AuthLayout>
   );

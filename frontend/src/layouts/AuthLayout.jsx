@@ -5,14 +5,9 @@ export default function AuthLayout({ title, subtitle, children }) {
         <div className="min-w-0">
           <div className="text-xl font-bold tracking-wide">Zera Solutions</div>
           <div className="mt-14 max-w-xl">
-            <p className="text-sm font-semibold uppercase text-emerald-200">Business management for African SMEs</p>
-            <h1 className="mt-4 max-w-2xl text-4xl font-bold leading-tight xl:text-5xl">Enterprise power with a simple human experience.</h1>
+
+            <h1 className="mt-4 max-w-2xl text-4xl font-bold leading-tight xl:text-5xl">Your business, in one place.</h1>
           </div>
-        </div>
-        <div className="grid min-w-0 grid-cols-3 gap-3 text-sm text-emerald-50/90 xl:gap-4">
-          <div className="min-w-0 rounded-md border border-white/10 bg-white/5 p-4">Fast retail workflows</div>
-          <div className="min-w-0 rounded-md border border-white/10 bg-white/5 p-4">Secure team access</div>
-          <div className="min-w-0 rounded-md border border-white/10 bg-white/5 p-4">Built for growth</div>
         </div>
       </section>
 
@@ -23,7 +18,7 @@ export default function AuthLayout({ title, subtitle, children }) {
           </div>
           <div className="rounded-lg border border-zera-line bg-white p-6 shadow-soft sm:p-8">
             <h1 className="text-2xl font-bold text-zera-ink">{title}</h1>
-            <p className="mt-2 text-sm leading-6 text-zera-muted">{subtitle}</p>
+            {subtitle ? <p className="mt-2 text-sm leading-6 text-zera-muted">{subtitle}</p> : null}
             <div className="mt-8">{children}</div>
           </div>
         </div>

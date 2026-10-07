@@ -158,7 +158,6 @@ export async function getPlatformSetupConfig() {
 
   const [businessTypes, packages] = await Promise.all([
     prisma.platformBusinessType.findMany({
-      where: { active: true },
       orderBy: { label: "asc" }
     }),
     prisma.platformPackage.findMany({

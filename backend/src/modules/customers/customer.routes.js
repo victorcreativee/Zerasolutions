@@ -1,23 +1,13 @@
 import { Router } from "express";
 import { prisma } from "../../config/prisma.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
+import { getBusinessAccess } from "../../utils/businessAccess.js";
 import { HttpError } from "../../utils/httpError.js";
+import { enqueueSyncOperation } from "../../utils/syncQueue.js";
 
 export const customerRouter = Router();
 
 customerRouter.use(requireAuth);
-
-async function getBusinessMembership(userId, businessId) {
-  return prisma.businessUser.findUnique({
-    where: {
-      userId_businessId: {
-        userId,
-        businessId
-      }
-    },
-    include: { role: true }
-  });
-}
 
 function normalizeOptional(value) {
   const trimmed = value?.trim();
@@ -28,11 +18,7 @@ customerRouter.get("/business/:businessId", async (req, res, next) => {
   try {
     const { businessId } = req.params;
     const { q = "", status } = req.query;
-    const membership = await getBusinessMembership(req.user.id, businessId);
-
-    if (!membership && req.user.systemRole !== "SYSTEM_ADMIN") {
-      throw new HttpError(403, "You do not have access to these customers.");
-    }
+    await getBusinessAccess(req.user, businessId);
 
     if (status && !["ACTIVE", "INACTIVE"].includes(status)) {
       throw new HttpError(400, "Customer status must be ACTIVE or INACTIVE.");
@@ -63,6 +49,92 @@ customerRouter.get("/business/:businessId", async (req, res, next) => {
   }
 });
 
+customerRouter.get("/business/:businessId/:customerId/summary", async (req, res, next) => {
+  try {
+    const { businessId, customerId } = req.params;
+
+    await getBusinessAccess(req.user, businessId);
+
+    const customer = await prisma.customer.findFirst({
+      where: {
+        id: customerId,
+        businessId
+      }
+    });
+
+    if (!customer) {
+      throw new HttpError(404, "Customer was not found.");
+    }
+
+    const [salesAggregate, recentSales] = await Promise.all([
+      prisma.sale.aggregate({
+        where: {
+          businessId,
+          customerId,
+          status: "COMPLETED"
+        },
+        _count: {
+          _all: true
+        },
+        _sum: {
+          total: true
+        }
+      }),
+      prisma.sale.findMany({
+        where: {
+          businessId,
+          customerId
+        },
+        include: {
+          branch: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          cashier: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          items: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  type: true,
+                  category: true,
+                  unit: true
+                }
+              }
+            }
+          }
+        },
+        orderBy: {
+          createdAt: "desc"
+        },
+        take: 12
+      })
+    ]);
+
+    res.json({
+      customer: {
+        ...customer,
+        summary: {
+          receiptCount: salesAggregate._count._all,
+          totalSpent: Number(salesAggregate._sum.total || 0),
+          lastSaleAt: recentSales[0]?.createdAt || null
+        },
+        recentSales
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 customerRouter.post("/business/:businessId", async (req, res, next) => {
   try {
     const { businessId } = req.params;
@@ -72,7 +144,7 @@ customerRouter.post("/business/:businessId", async (req, res, next) => {
       throw new HttpError(400, "Customer name is required.");
     }
 
-    const membership = await getBusinessMembership(req.user.id, businessId);
+    const { membership } = await getBusinessAccess(req.user, businessId);
     const canManageCustomers =
       req.user.systemRole === "SYSTEM_ADMIN" ||
       ["Owner", "Manager", "Cashier", "Waiter", "Store Keeper", "Pharmacist", "Front Desk"].includes(membership?.role?.name);
@@ -89,6 +161,23 @@ customerRouter.post("/business/:businessId", async (req, res, next) => {
         email: normalizeOptional(email),
         notes: normalizeOptional(notes)
       }
+    });
+
+    await enqueueSyncOperation({
+      businessId,
+      entityType: "customer",
+      entityId: customer.id,
+      operation: "create",
+      method: "POST",
+      endpoint: `/api/customers/business/${businessId}`,
+      payload: {
+        localId: customer.id,
+        email,
+        name,
+        notes,
+        phone
+      },
+      userId: req.user.id
     });
 
     res.status(201).json({ customer });
@@ -111,7 +200,7 @@ customerRouter.patch("/business/:businessId/:customerId", async (req, res, next)
       throw new HttpError(400, "Customer name is required.");
     }
 
-    const membership = await getBusinessMembership(req.user.id, businessId);
+    const { membership } = await getBusinessAccess(req.user, businessId);
     const canManageCustomers =
       req.user.systemRole === "SYSTEM_ADMIN" ||
       ["Owner", "Manager", "Cashier", "Waiter", "Store Keeper", "Pharmacist", "Front Desk"].includes(membership?.role?.name);
@@ -141,6 +230,23 @@ customerRouter.patch("/business/:businessId/:customerId", async (req, res, next)
       }
     });
 
+    await enqueueSyncOperation({
+      businessId,
+      entityType: "customer",
+      entityId: customer.id,
+      operation: "update",
+      method: "PATCH",
+      endpoint: `/api/customers/business/${businessId}/${customerId}`,
+      payload: {
+        localId: customer.id,
+        email,
+        name,
+        notes,
+        phone
+      },
+      userId: req.user.id
+    });
+
     res.json({ customer });
   } catch (error) {
     if (error.code === "P2002") {
@@ -161,7 +267,7 @@ customerRouter.patch("/business/:businessId/:customerId/status", async (req, res
       throw new HttpError(400, "Customer status must be ACTIVE or INACTIVE.");
     }
 
-    const membership = await getBusinessMembership(req.user.id, businessId);
+    const { membership } = await getBusinessAccess(req.user, businessId);
     const canManageCustomers = req.user.systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager"].includes(membership?.role?.name);
 
     if (!canManageCustomers) {
@@ -182,6 +288,20 @@ customerRouter.patch("/business/:businessId/:customerId/status", async (req, res
     const customer = await prisma.customer.update({
       where: { id: existingCustomer.id },
       data: { status }
+    });
+
+    await enqueueSyncOperation({
+      businessId,
+      entityType: "customer",
+      entityId: customer.id,
+      operation: "status",
+      method: "PATCH",
+      endpoint: `/api/customers/business/${businessId}/${customerId}/status`,
+      payload: {
+        localId: customer.id,
+        status
+      },
+      userId: req.user.id
     });
 
     res.json({ customer });

@@ -24,6 +24,6 @@ export function getDefaultStaffRoleName(business = {}) {
 }
 
 export function canRecordSale(roleName, business = {}) {
-  const allowedRoles = new Set(["Owner", "Manager", "Cashier", getDefaultStaffRoleName(business)]);
+  const allowedRoles = new Set(["Owner", "Manager", "Cashier", "Store Keeper", getDefaultStaffRoleName(business)]);
   return allowedRoles.has(roleName);
 }

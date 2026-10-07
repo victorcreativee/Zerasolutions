@@ -1,7 +1,11 @@
+import { stockMutation } from "../../utils/stockRetry.js";
+import { ensureInventoryStock } from "../../utils/inventoryStock.js";
 import { Router } from "express";
 import { prisma } from "../../config/prisma.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { HttpError } from "../../utils/httpError.js";
+import { getBusinessAccess } from "../../utils/businessAccess.js";
+import { enqueueSyncOperation } from "../../utils/syncQueue.js";
 
 export const inventoryRouter = Router();
 
@@ -9,39 +13,21 @@ inventoryRouter.use(requireAuth);
 
 const inventoryRoles = new Set(["Owner", "Manager", "Store Keeper", "Pharmacist"]);
 
-async function getInventoryAccess(user, businessId) {
-  if (user.systemRole === "SYSTEM_ADMIN") {
-    return { allowed: true, roleName: "System Admin" };
-  }
-
-  const membership = await prisma.businessUser.findUnique({
-    where: {
-      userId_businessId: {
-        userId: user.id,
-        businessId
-      }
-    },
-    include: { role: true }
-  });
-
-  const roleName = membership?.role?.name || "";
-  return { allowed: inventoryRoles.has(roleName), roleName };
-}
-
 function normalizePositiveInteger(value, fieldName) {
   const parsed = Number(value);
 
-  if (!Number.isInteger(parsed) || parsed < 0) {
+  if (!["string", "number"].includes(typeof value) || String(value).trim() === "" || !Number.isInteger(parsed) || parsed < 0 || parsed > 2147483647) {
     throw new HttpError(400, `${fieldName} must be a whole number of 0 or more.`);
   }
 
   return parsed;
 }
 
-async function assertInventoryWorkspace(user, businessId, branchId) {
-  const access = await getInventoryAccess(user, businessId);
+async function assertInventoryWorkspace(user, businessId, branchId, { write = false } = {}) {
+  const access = await getBusinessAccess(user, businessId);
+  const inventoryAllowed = user.systemRole === "SYSTEM_ADMIN" || inventoryRoles.has(access.roleName);
 
-  if (!access.allowed) {
+  if (!inventoryAllowed) {
     throw new HttpError(403, "You do not have inventory access for this business.");
   }
 
@@ -65,6 +51,8 @@ async function assertInventoryWorkspace(user, businessId, branchId) {
   if (!branch) {
     throw new HttpError(404, "Branch was not found for this business.");
   }
+
+  if (write && branch.status !== "ACTIVE") throw new HttpError(409, "Stock cannot be changed in an inactive branch.");
 
   if (user.systemRole !== "SYSTEM_ADMIN" && !inventoryModule?.active) {
     throw new HttpError(403, "Inventory module is not active for this business.");
@@ -152,8 +140,9 @@ inventoryRouter.patch("/business/:businessId/branch/:branchId/products/:productI
   try {
     const { businessId, branchId, productId } = req.params;
     const { note = "", quantity, reorderLevel = 0 } = req.body;
+    validateStockNote(note);
 
-    await assertInventoryWorkspace(req.user, businessId, branchId);
+    await assertInventoryWorkspace(req.user, businessId, branchId, { write: true });
 
     const nextQuantity = normalizePositiveInteger(quantity, "Stock quantity");
     const nextReorderLevel = normalizePositiveInteger(reorderLevel, "Low stock alert");
@@ -170,24 +159,12 @@ inventoryRouter.patch("/business/:businessId/branch/:branchId/products/:productI
       throw new HttpError(404, "Physical product was not found for this business.");
     }
 
-    const updatedStock = await prisma.$transaction(async (tx) => {
-      const currentStock = await tx.inventoryStock.upsert({
-        where: {
-          productId_branchId: {
-            productId,
-            branchId
-          }
-        },
-        create: {
-          businessId,
-          branchId,
-          productId,
-          quantity: 0,
-          reorderLevel: 0
-        },
-        update: {}
-      });
+    const updatedStock = await stockMutation(prisma, req, async (tx) => {
+      const currentStock = await ensureInventoryStock(tx, { businessId, branchId, productId });
 
+      const [lockedStock] = await tx.$queryRaw`SELECT "quantity" FROM "InventoryStock" WHERE "id" = ${currentStock.id} FOR UPDATE`;
+      currentStock.quantity = lockedStock.quantity;
+      if(req.body.expectedQuantity !== undefined && normalizePositiveInteger(req.body.expectedQuantity,'Expected quantity') !== currentStock.quantity) throw new HttpError(409,'Stock changed since this count was opened. Reload inventory and review the count.');
       const quantityChange = nextQuantity - currentStock.quantity;
 
       const stock = await tx.inventoryStock.update({
@@ -218,6 +195,24 @@ inventoryRouter.patch("/business/:businessId/branch/:branchId/products/:productI
       return stock;
     });
 
+    if (!req.stockReplayed) await enqueueSyncOperation({
+      businessId,
+      branchId,
+      entityType: "inventory_stock",
+      entityId: updatedStock.id,
+      operation: "set",
+      method: "PATCH",
+      endpoint: `/api/inventory/business/${businessId}/branch/${branchId}/products/${productId}/stock`,
+      payload: {
+        ...(req.body.requestKey ? {requestKey:req.body.requestKey} : {}),
+        productId,
+        quantity: nextQuantity,
+        reorderLevel: nextReorderLevel,
+        note
+      },
+      userId: req.user.id
+    });
+
     res.json({ stock: updatedStock });
   } catch (error) {
     next(error);
@@ -228,8 +223,9 @@ inventoryRouter.post("/business/:businessId/branch/:branchId/products/:productId
   try {
     const { businessId, branchId, productId } = req.params;
     const { note = "", quantity } = req.body;
+    validateStockNote(note);
 
-    await assertInventoryWorkspace(req.user, businessId, branchId);
+    await assertInventoryWorkspace(req.user, businessId, branchId, { write: true });
 
     const receivedQuantity = normalizePositiveInteger(quantity, "Received quantity");
 
@@ -249,38 +245,22 @@ inventoryRouter.post("/business/:businessId/branch/:branchId/products/:productId
       throw new HttpError(404, "Physical product was not found for this business.");
     }
 
-    const updatedStock = await prisma.$transaction(async (tx) => {
-      const currentStock = await tx.inventoryStock.upsert({
-        where: {
-          productId_branchId: {
-            productId,
-            branchId
-          }
-        },
-        create: {
-          businessId,
-          branchId,
-          productId,
-          quantity: 0,
-          reorderLevel: 0
-        },
-        update: {}
-      });
-
-      const nextQuantity = currentStock.quantity + receivedQuantity;
+    const updatedStock = await stockMutation(prisma, req, async (tx) => {
+      const currentStock = await ensureInventoryStock(tx, { businessId, branchId, productId });
 
       const stock = await tx.inventoryStock.update({
         where: { id: currentStock.id },
         data: {
-          quantity: nextQuantity
+          quantity: { increment: receivedQuantity }
         },
         include: stockInclude()
       });
+      const nextQuantity = stock.quantity;
 
       await tx.stockAdjustment.create({
         data: {
           type: "INCREASE",
-          quantityBefore: currentStock.quantity,
+          quantityBefore: nextQuantity - receivedQuantity,
           quantityChange: receivedQuantity,
           quantityAfter: nextQuantity,
           note: note.trim() || "Received stock",
@@ -294,8 +274,162 @@ inventoryRouter.post("/business/:businessId/branch/:branchId/products/:productId
       return stock;
     });
 
+    if (!req.stockReplayed) await enqueueSyncOperation({
+      businessId,
+      branchId,
+      entityType: "inventory_stock",
+      entityId: updatedStock.id,
+      operation: "receive",
+      method: "POST",
+      endpoint: `/api/inventory/business/${businessId}/branch/${branchId}/products/${productId}/receive`,
+      payload: {
+        ...(req.body.requestKey ? {requestKey:req.body.requestKey} : {}),
+        productId,
+        quantity: receivedQuantity,
+        note
+      },
+      userId: req.user.id
+    });
+
     res.json({ stock: updatedStock });
   } catch (error) {
     next(error);
   }
 });
+
+inventoryRouter.post("/business/:businessId/transfer", async (req, res, next) => {
+  try {
+    const { businessId } = req.params;
+    const { fromBranchId, note = "", productId, quantity, toBranchId } = req.body;
+    validateStockNote(note);
+
+    if ([fromBranchId, toBranchId, productId].some(value => typeof value !== "string" || !value)) {
+      throw new HttpError(400, "Product, source branch, and receiving branch are required.");
+    }
+
+    if (fromBranchId === toBranchId) {
+      throw new HttpError(400, "Choose a different branch to receive the stock.");
+    }
+
+    await Promise.all([
+      assertInventoryWorkspace(req.user, businessId, fromBranchId, { write: true }),
+      assertInventoryWorkspace(req.user, businessId, toBranchId, { write: true })
+    ]);
+
+    const transferQuantity = normalizePositiveInteger(quantity, "Transfer quantity");
+
+    if (transferQuantity <= 0) {
+      throw new HttpError(400, "Transfer quantity must be at least 1.");
+    }
+
+    const product = await prisma.product.findFirst({
+      where: {
+        id: productId,
+        businessId,
+        type: "PHYSICAL"
+      }
+    });
+
+    if (!product) {
+      throw new HttpError(404, "Physical product was not found for this business.");
+    }
+
+    const [fromBranch, toBranch] = await Promise.all([
+      prisma.branch.findFirst({ where: { id: fromBranchId, businessId } }),
+      prisma.branch.findFirst({ where: { id: toBranchId, businessId } })
+    ]);
+
+    const result = await stockMutation(prisma, req, async (tx) => {
+      // Use the same locking order for transfers in either direction.
+      for (const branchId of [fromBranchId, toBranchId].sort()) {
+        await tx.inventoryStock.createMany({
+          data: [{ businessId, branchId, productId, quantity: 0, reorderLevel: 0 }],
+          skipDuplicates: true
+        });
+      }
+      const locked = await tx.$queryRaw`
+        SELECT "id", "branchId", "quantity" FROM "InventoryStock"
+        WHERE "productId" = ${productId} AND "branchId" IN (${fromBranchId}, ${toBranchId})
+        ORDER BY "branchId" FOR UPDATE
+      `;
+      const fromStock = locked.find(row => row.branchId === fromBranchId);
+      const toStock = locked.find(row => row.branchId === toBranchId);
+      if (toStock.quantity > 2147483647 - transferQuantity) throw new HttpError(400, "Destination stock exceeds the supported quantity.");
+
+      if (fromStock.quantity < transferQuantity) {
+        throw new HttpError(400, `Only ${fromStock.quantity} ${product.name} available in ${fromBranch?.name || "the source branch"}.`);
+      }
+
+      const sourceNextQuantity = fromStock.quantity - transferQuantity;
+      const destinationNextQuantity = toStock.quantity + transferQuantity;
+      const cleanNote = note.trim();
+
+      const sourceStock = await tx.inventoryStock.update({
+        where: { id: fromStock.id },
+        data: { quantity: sourceNextQuantity },
+        include: stockInclude()
+      });
+      const destinationStock = await tx.inventoryStock.update({
+        where: { id: toStock.id },
+        data: { quantity: destinationNextQuantity },
+        include: stockInclude()
+      });
+
+      await tx.stockAdjustment.create({
+        data: {
+          type: "DECREASE",
+          quantityBefore: fromStock.quantity,
+          quantityChange: -transferQuantity,
+          quantityAfter: sourceNextQuantity,
+          note: `Transfer to ${toBranch?.name || "branch"}${cleanNote ? ` - ${cleanNote}` : ""}`,
+          businessId,
+          branchId: fromBranchId,
+          productId,
+          userId: req.user.id
+        }
+      });
+      await tx.stockAdjustment.create({
+        data: {
+          type: "INCREASE",
+          quantityBefore: toStock.quantity,
+          quantityChange: transferQuantity,
+          quantityAfter: destinationNextQuantity,
+          note: `Transfer from ${fromBranch?.name || "branch"}${cleanNote ? ` - ${cleanNote}` : ""}`,
+          businessId,
+          branchId: toBranchId,
+          productId,
+          userId: req.user.id
+        }
+      });
+
+      return { sourceStock, destinationStock };
+    });
+
+    if (!req.stockReplayed) await enqueueSyncOperation({
+      businessId,
+      branchId: fromBranchId,
+      entityType: "inventory_transfer",
+      entityId: productId,
+      operation: "transfer",
+      method: "POST",
+      endpoint: `/api/inventory/business/${businessId}/transfer`,
+      payload: {
+        ...(req.body.requestKey ? {requestKey:req.body.requestKey} : {}),
+        fromBranchId,
+        toBranchId,
+        productId,
+        quantity: transferQuantity,
+        note
+      },
+      userId: req.user.id
+    });
+
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+function validateStockNote(note) {
+  if (typeof note !== "string" || note.length > 2000) throw new HttpError(400, "Stock note must be text of at most 2000 characters.");
+}

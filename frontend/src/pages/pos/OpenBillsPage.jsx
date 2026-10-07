@@ -144,11 +144,9 @@ export default function OpenBillsPage() {
       <header className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
         <div className="flex flex-col gap-4 border-b border-zera-line px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Cashier workspace</p>
+
             <h2 className="mt-1 text-2xl font-bold">Settle table bills</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">
-              Receive payment, close table bills, free tables, and print final receipts from one cashier queue.
-            </p>
+
           </div>
           <Button type="button" variant="secondary" className="h-10 gap-2 px-3" onClick={loadOpenBills}>
             <RefreshCcw size={16} />

@@ -1,21 +1,81 @@
+import {saleRequestIdentity, previousSale} from '../../utils/saleRetry.js';
+import { ensureInventoryStock } from "../../utils/inventoryStock.js";
+import { saleUnitPrice, enforceMinimumTotal } from '../../utils/salePrice.js';
+import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { prisma } from "../../config/prisma.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { HttpError } from "../../utils/httpError.js";
 import { canRecordSale } from "../../utils/businessRoles.js";
+import { getBusinessAccess } from "../../utils/businessAccess.js";
+import { enqueueSyncOperation } from "../../utils/syncQueue.js";
 
 export const posRouter = Router();
 
 posRouter.use(requireAuth);
 
 function getEffectivePOSMode(business) {
-  const type = (business?.type || "").toLowerCase();
-
-  if (business?.posMode === "TABLE_SERVICE" || type.includes("bar") || type.includes("restaurant")) {
+  if (business?.posMode === "TABLE_SERVICE") {
     return "TABLE_SERVICE";
   }
 
   return "RETAIL_CHECKOUT";
+}
+
+function roundMoney(value) {
+  return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
+function getBusinessTaxAmount(subtotal, business) {
+  const taxRate = Number(business?.taxRate || 0);
+
+  if (!business?.taxEnabled || !Number.isFinite(taxRate) || taxRate <= 0) {
+    return 0;
+  }
+
+  return roundMoney((Number(subtotal || 0) * taxRate) / 100);
+}
+
+function getBusinessSaleTotal(subtotal, business) {
+  const normalizedSubtotal = roundMoney(subtotal);
+  return roundMoney(normalizedSubtotal + getBusinessTaxAmount(normalizedSubtotal, business));
+}
+
+function normalizeDiscountAmount(value, subtotal) {
+  if (value === "" || value === null || value === undefined) {
+    return 0;
+  }
+
+  const discountAmount = Number(value);
+
+  if (!Number.isFinite(discountAmount) || discountAmount < 0) {
+    throw new HttpError(400, "Discount must be a valid amount of 0 or more.");
+  }
+
+  if (discountAmount > subtotal) {
+    throw new HttpError(400, "Discount cannot be greater than the sale subtotal.");
+  }
+
+  return roundMoney(discountAmount);
+}
+
+function calculateSaleTotals(subtotal, business, discountAmount = 0) {
+  const normalizedSubtotal = roundMoney(subtotal);
+  const normalizedDiscount = normalizeDiscountAmount(discountAmount, normalizedSubtotal);
+  const taxableSubtotal = roundMoney(normalizedSubtotal - normalizedDiscount);
+  const taxAmount = getBusinessTaxAmount(taxableSubtotal, business);
+
+  return {
+    discountAmount: normalizedDiscount,
+    subtotal: normalizedSubtotal,
+    taxableSubtotal,
+    taxAmount,
+    total: roundMoney(taxableSubtotal + taxAmount)
+  };
+}
+
+function formatMoneyValue(value) {
+  return roundMoney(value).toFixed(2);
 }
 
 const activeOrderStatuses = ["OPEN", "BILL_PRINTED"];
@@ -118,6 +178,10 @@ function canPayTableBill(roleName, systemRole) {
   return systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager", "Cashier"].includes(roleName);
 }
 
+function canCancelTableBill(roleName, systemRole) {
+  return systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager"].includes(roleName);
+}
+
 function canOpenTableBill(roleName, systemRole, business) {
   return systemRole === "SYSTEM_ADMIN" || canRecordSale(roleName, business);
 }
@@ -145,10 +209,26 @@ async function getPhysicalSaleQuantities(transaction, businessId, saleItems) {
     }
   });
 
-  return physicalProducts.map((product) => ({
+  return physicalProducts.sort((a, b) => a.id.localeCompare(b.id)).map((product) => ({
     product,
     quantity: quantitiesByProduct.get(product.id) || 0
   }));
+}
+
+async function isInventoryTrackingActive(transaction, businessId) {
+  const inventoryModule = await transaction.businessModule.findUnique({
+    where: {
+      businessId_key: {
+        businessId,
+        key: "INVENTORY"
+      }
+    },
+    select: {
+      active: true
+    }
+  });
+
+  return Boolean(inventoryModule?.active);
 }
 
 async function deductStockForSale(transaction, { branchId, businessId, receiptNumber, saleItems, userId }) {
@@ -156,36 +236,31 @@ async function deductStockForSale(transaction, { branchId, businessId, receiptNu
     throw new HttpError(503, "Prisma Client is out of date. Restart the backend and run npx prisma generate.");
   }
 
+  const inventoryTrackingActive = await isInventoryTrackingActive(transaction, businessId);
+
+  if (!inventoryTrackingActive) {
+    return;
+  }
+
   const stockItems = await getPhysicalSaleQuantities(transaction, businessId, saleItems);
 
   for (const item of stockItems) {
-    const currentStock = await transaction.inventoryStock.upsert({
-      where: {
-        productId_branchId: {
-          productId: item.product.id,
-          branchId
-        }
-      },
-      create: {
-        businessId,
-        branchId,
-        productId: item.product.id,
-        quantity: 0,
-        reorderLevel: 0
-      },
-      update: {}
-    });
-    const nextQuantity = currentStock.quantity - item.quantity;
+    const currentStock = await ensureInventoryStock(transaction, { businessId, branchId, productId: item.product.id });
 
-    await transaction.inventoryStock.update({
-      where: { id: currentStock.id },
-      data: { quantity: nextQuantity }
+    const deducted = await transaction.inventoryStock.updateMany({
+      where: { id: currentStock.id, quantity: { gte: item.quantity } },
+      data: { quantity: { decrement: item.quantity } }
     });
+    if (!deducted.count) {
+      throw new HttpError(409, `Not enough stock for ${item.product.name}. Refresh stock before trying again.`);
+    }
+    const updatedStock = await transaction.inventoryStock.findUnique({ where: { id: currentStock.id } });
+    const nextQuantity = updatedStock.quantity;
 
     await transaction.stockAdjustment.create({
       data: {
         type: "DECREASE",
-        quantityBefore: currentStock.quantity,
+        quantityBefore: nextQuantity + item.quantity,
         quantityChange: -item.quantity,
         quantityAfter: nextQuantity,
         note: `Sale ${receiptNumber}`,
@@ -212,34 +287,18 @@ async function restoreStockForVoidedSale(transaction, { businessId, receiptNumbe
   });
 
   for (const deduction of saleDeductions) {
-    const currentStock = await transaction.inventoryStock.upsert({
-      where: {
-        productId_branchId: {
-          productId: deduction.productId,
-          branchId: deduction.branchId
-        }
-      },
-      create: {
-        businessId,
-        branchId: deduction.branchId,
-        productId: deduction.productId,
-        quantity: 0,
-        reorderLevel: 0
-      },
-      update: {}
-    });
+    const currentStock = await ensureInventoryStock(transaction, { businessId, branchId: deduction.branchId, productId: deduction.productId });
     const restoredQuantity = Math.abs(deduction.quantityChange);
-    const nextQuantity = currentStock.quantity + restoredQuantity;
-
-    await transaction.inventoryStock.update({
+    const updatedStock = await transaction.inventoryStock.update({
       where: { id: currentStock.id },
-      data: { quantity: nextQuantity }
+      data: { quantity: { increment: restoredQuantity } }
     });
+    const nextQuantity = updatedStock.quantity;
 
     await transaction.stockAdjustment.create({
       data: {
         type: "INCREASE",
-        quantityBefore: currentStock.quantity,
+        quantityBefore: nextQuantity - restoredQuantity,
         quantityChange: restoredQuantity,
         quantityAfter: nextQuantity,
         note: `Voided ${receiptNumber}`,
@@ -253,20 +312,7 @@ async function restoreStockForVoidedSale(transaction, { businessId, receiptNumbe
 }
 
 async function assertBusinessAccess({ businessId, userId, systemRole }) {
-  const membership = await prisma.businessUser.findUnique({
-    where: {
-      userId_businessId: {
-        userId,
-        businessId
-      }
-    },
-    include: { role: true }
-  });
-
-  if (!membership && systemRole !== "SYSTEM_ADMIN") {
-    throw new HttpError(403, "You do not have access to this business.");
-  }
-
+  const { membership } = await getBusinessAccess({ id: userId, systemRole }, businessId);
   return membership;
 }
 
@@ -300,18 +346,7 @@ posRouter.get("/tables/business/:businessId", async (req, res, next) => {
       throw new HttpError(400, "Branch is required.");
     }
 
-    const membership = await prisma.businessUser.findUnique({
-      where: {
-        userId_businessId: {
-          userId: req.user.id,
-          businessId
-        }
-      }
-    });
-
-    if (!membership && req.user.systemRole !== "SYSTEM_ADMIN") {
-      throw new HttpError(403, "You do not have access to this business.");
-    }
+    await getBusinessAccess(req.user, businessId);
 
     const tables = await prisma.pOSTable.findMany({
       where: {
@@ -423,15 +458,7 @@ posRouter.post("/tables", async (req, res, next) => {
       throw new HttpError(400, "Business, branch, and table name are required.");
     }
 
-    const membership = await prisma.businessUser.findUnique({
-      where: {
-        userId_businessId: {
-          userId: req.user.id,
-          businessId
-        }
-      },
-      include: { role: true }
-    });
+    const { membership } = await getBusinessAccess(req.user, businessId);
 
     const roleName = membership?.role?.name || req.user.systemRole;
     const canManageTables = req.user.systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager"].includes(roleName);
@@ -626,6 +653,7 @@ posRouter.post("/orders", async (req, res, next) => {
 
     const normalizedItems = items.map((item) => ({
       productId: item.productId,
+      enteredPrice: item.unitPrice,
       quantity: Number(item.quantity)
     }));
 
@@ -648,18 +676,21 @@ posRouter.post("/orders", async (req, res, next) => {
 
     const orderItems = normalizedItems.map((item) => {
       const product = products.find((productItem) => productItem.id === item.productId);
-      const unitPrice = Number(product.price);
+      const unitPrice = saleUnitPrice(product, item.enteredPrice);
       const lineTotal = unitPrice * item.quantity;
 
       return {
         productId: item.productId,
         quantity: item.quantity,
+        suggestedPrice: product.price,
+        minimumPrice: product.minimumPrice,
         unitPrice: unitPrice.toFixed(2),
         lineTotal: lineTotal.toFixed(2)
       };
     });
 
     const order = await prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT "id" FROM "POSTable" WHERE "id" = ${tableId} FOR UPDATE`;
       const existingOrder = await transaction.pOSOrder.findFirst({
         where: {
           businessId,
@@ -685,6 +716,7 @@ posRouter.post("/orders", async (req, res, next) => {
         const subtotal =
           existingOrder.items.reduce((total, item) => total + Number(item.lineTotal), 0) +
           orderItems.reduce((total, item) => total + Number(item.lineTotal), 0);
+        const orderTotal = getBusinessSaleTotal(subtotal, business);
 
         await transaction.pOSOrderItem.createMany({
           data: orderItems.map((item) => ({
@@ -698,8 +730,8 @@ posRouter.post("/orders", async (req, res, next) => {
             id: existingOrder.id
           },
           data: {
-            subtotal: subtotal.toFixed(2),
-            total: subtotal.toFixed(2),
+            subtotal: formatMoneyValue(subtotal),
+            total: formatMoneyValue(orderTotal),
             customerId: customer?.id || existingOrder.customerId,
             status: "OPEN"
           },
@@ -708,12 +740,13 @@ posRouter.post("/orders", async (req, res, next) => {
       }
 
       const subtotal = orderItems.reduce((total, item) => total + Number(item.lineTotal), 0);
+      const orderTotal = getBusinessSaleTotal(subtotal, business);
 
       const createdOrder = await transaction.pOSOrder.create({
         data: {
-          orderNumber: `ZO-${Date.now()}`,
-          subtotal: subtotal.toFixed(2),
-          total: subtotal.toFixed(2),
+          orderNumber: `ZO-${randomUUID()}`,
+          subtotal: formatMoneyValue(subtotal),
+          total: formatMoneyValue(orderTotal),
           businessId,
           branchId,
           tableId,
@@ -736,6 +769,28 @@ posRouter.post("/orders", async (req, res, next) => {
       });
 
       return createdOrder;
+    });
+
+    await enqueueSyncOperation({
+      businessId,
+      branchId,
+      entityType: "pos_order",
+      entityId: order.id,
+      operation: "upsert_order_items",
+      method: "POST",
+      endpoint: "/api/pos/orders",
+      payload: {
+        localOrderId: order.id,
+        businessId,
+        branchId,
+        customerId: order.customerId,
+        tableId,
+        items: orderItems.map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity
+        }))
+      },
+      userId: req.user.id
     });
 
     res.status(201).json({ order });
@@ -776,11 +831,128 @@ posRouter.patch("/orders/:orderId/bill-printed", async (req, res, next) => {
     }
 
     const order = await prisma.pOSOrder.update({
-      where: { id: orderId },
+      where: { id: orderId, status: { in: activeOrderStatuses }, updatedAt: existingOrder.updatedAt },
       data: {
         status: "BILL_PRINTED"
       },
       include: orderInclude
+    });
+
+    await enqueueSyncOperation({
+      businessId: order.businessId,
+      branchId: order.branchId,
+      entityType: "pos_order",
+      entityId: order.id,
+      operation: "bill_printed",
+      method: "PATCH",
+      endpoint: `/api/pos/orders/${orderId}/bill-printed`,
+      payload: {
+        localOrderId: order.id
+      },
+      userId: req.user.id
+    });
+
+    res.json({ order });
+  } catch (error) {
+    next(error);
+  }
+});
+
+posRouter.patch("/orders/:orderId/cancel", async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+
+    const existingOrder = await prisma.pOSOrder.findUnique({
+      where: { id: orderId },
+      include: {
+        business: true
+      }
+    });
+
+    if (!existingOrder) {
+      throw new HttpError(404, "Table bill was not found.");
+    }
+
+    const membership = await assertBusinessAccess({
+      businessId: existingOrder.businessId,
+      userId: req.user.id,
+      systemRole: req.user.systemRole
+    });
+
+    const roleName = membership?.role?.name || req.user.systemRole;
+
+    if (!canCancelTableBill(roleName, req.user.systemRole)) {
+      throw new HttpError(403, "Only an owner or manager can cancel an open table bill.");
+    }
+
+    if (!activeOrderStatuses.includes(existingOrder.status)) {
+      throw new HttpError(400, "Only open table bills can be cancelled.");
+    }
+
+    const order = await prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT "id" FROM "POSTable" WHERE "id" = ${existingOrder.tableId} FOR UPDATE`;
+      const claimed = await transaction.pOSOrder.updateMany({
+        where: { id: existingOrder.id, status: { in: activeOrderStatuses }, updatedAt: existingOrder.updatedAt },
+        data: { status: "CANCELLED" }
+      });
+      if (!claimed.count) throw new HttpError(409, "Bill changed or is no longer open. Refresh and try again.");
+      await transaction.pOSOrderItem.updateMany({
+        where: {
+          orderId: existingOrder.id,
+          status: "ACTIVE"
+        },
+        data: {
+          status: "CANCELLED"
+        }
+      });
+
+      const cancelledOrder = await transaction.pOSOrder.update({
+        where: {
+          id: existingOrder.id
+        },
+        data: {
+          status: "CANCELLED"
+        },
+        include: orderInclude
+      });
+
+      const remainingOpenOrders = await transaction.pOSOrder.count({
+        where: {
+          businessId: existingOrder.businessId,
+          branchId: existingOrder.branchId,
+          tableId: existingOrder.tableId,
+          status: {
+            in: activeOrderStatuses
+          }
+        }
+      });
+
+      if (remainingOpenOrders === 0) {
+        await transaction.pOSTable.update({
+          where: {
+            id: existingOrder.tableId
+          },
+          data: {
+            status: "AVAILABLE"
+          }
+        });
+      }
+
+      return cancelledOrder;
+    });
+
+    await enqueueSyncOperation({
+      businessId: order.businessId,
+      branchId: order.branchId,
+      entityType: "pos_order",
+      entityId: order.id,
+      operation: "cancel",
+      method: "PATCH",
+      endpoint: `/api/pos/orders/${orderId}/cancel`,
+      payload: {
+        localOrderId: order.id
+      },
+      userId: req.user.id
     });
 
     res.json({ order });
@@ -792,7 +964,7 @@ posRouter.patch("/orders/:orderId/bill-printed", async (req, res, next) => {
 posRouter.patch("/orders/:orderId/pay", async (req, res, next) => {
   try {
     const { orderId } = req.params;
-    const { paymentMethod = "CASH", customerId } = req.body;
+    const { discountAmount = 0, paymentMethod = "CASH", customerId } = req.body;
 
     if (!["CASH", "CARD", "MOBILE_MONEY"].includes(paymentMethod)) {
       throw new HttpError(400, "Payment method is not supported.");
@@ -852,19 +1024,31 @@ posRouter.patch("/orders/:orderId/pay", async (req, res, next) => {
     }
 
     const sale = await prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw`SELECT "id" FROM "POSTable" WHERE "id" = ${existingOrder.tableId} FOR UPDATE`;
+      const claimed = await transaction.pOSOrder.updateMany({
+        where: { id: existingOrder.id, status: { in: activeOrderStatuses }, updatedAt: existingOrder.updatedAt },
+        data: { status: "PAID" }
+      });
+      if (!claimed.count) throw new HttpError(409, "Bill changed or was already settled. Refresh before paying.");
       const saleItems = existingOrder.items.map((item) => ({
         productId: item.productId,
         quantity: item.quantity,
+        suggestedPrice:item.suggestedPrice,
+        minimumPrice:item.minimumPrice,
         unitPrice: Number(item.unitPrice).toFixed(2),
         lineTotal: Number(item.lineTotal).toFixed(2)
       }));
       const subtotal = saleItems.reduce((total, item) => total + Number(item.lineTotal), 0);
+      const saleTotals = calculateSaleTotals(subtotal, existingOrder.business, discountAmount);
+      enforceMinimumTotal(saleItems,saleTotals);
 
       const paidSale = await transaction.sale.create({
         data: {
-          receiptNumber: `ZS-${Date.now()}`,
-          subtotal: subtotal.toFixed(2),
-          total: subtotal.toFixed(2),
+          receiptNumber: `ZS-${randomUUID()}`,
+          subtotal: formatMoneyValue(saleTotals.subtotal),
+          discountAmount: formatMoneyValue(saleTotals.discountAmount),
+          taxAmount: formatMoneyValue(saleTotals.taxAmount),
+          total: formatMoneyValue(saleTotals.total),
           paymentMethod,
           businessId: existingOrder.businessId,
           branchId: existingOrder.branchId,
@@ -893,8 +1077,8 @@ posRouter.patch("/orders/:orderId/pay", async (req, res, next) => {
           status: "PAID",
           saleId: paidSale.id,
           customerId: customer?.id || existingOrder.customerId || null,
-          total: subtotal.toFixed(2),
-          subtotal: subtotal.toFixed(2)
+          total: formatMoneyValue(saleTotals.total),
+          subtotal: formatMoneyValue(saleTotals.subtotal)
         }
       });
 
@@ -970,6 +1154,24 @@ posRouter.patch("/orders/:orderId/pay", async (req, res, next) => {
       });
     });
 
+    await enqueueSyncOperation({
+      businessId: sale.businessId,
+      branchId: sale.branchId,
+      entityType: "sale",
+      entityId: sale.id,
+      operation: "table_payment",
+      method: "PATCH",
+      endpoint: `/api/pos/orders/${orderId}/pay`,
+      payload: {
+        localSaleId: sale.id,
+        orderId,
+        customerId: sale.customerId,
+        discountAmount,
+        paymentMethod
+      },
+      userId: req.user.id
+    });
+
     res.json({ sale });
   } catch (error) {
     next(error);
@@ -980,32 +1182,10 @@ posRouter.get("/readiness/:businessId/:branchId", async (req, res, next) => {
   try {
     const { businessId, branchId } = req.params;
 
-    const membership = await prisma.businessUser.findUnique({
-      where: {
-        userId_businessId: {
-          userId: req.user.id,
-          businessId
-        }
-      },
-      include: { role: true }
-    });
-
-    if (!membership && req.user.systemRole !== "SYSTEM_ADMIN") {
-      throw new HttpError(403, "You do not have access to this POS workspace.");
-    }
+    const { membership, business: authorizedBusiness } = await getBusinessAccess(req.user, businessId);
 
     const [business, branch, posModule, activeProductCount] = await Promise.all([
-      prisma.business.findUnique({
-        where: { id: businessId },
-        select: {
-          id: true,
-          name: true,
-          type: true,
-          posMode: true,
-          status: true,
-          currency: true
-        }
-      }),
+      Promise.resolve(authorizedBusiness),
       prisma.branch.findFirst({
         where: {
           id: branchId,
@@ -1043,6 +1223,11 @@ posRouter.get("/readiness/:businessId/:branchId", async (req, res, next) => {
 
     const roleName = membership?.role?.name || req.user.systemRole;
     const roleAllowed = req.user.systemRole === "SYSTEM_ADMIN" || canRecordSale(roleName, business);
+    const businessActive = business.status === "ACTIVE";
+    const branchActive = branch.status === "ACTIVE";
+    const posActive = Boolean(posModule?.active);
+    const productCatalogReady = activeProductCount > 0;
+    const salesEngineReady = businessActive && branchActive && posActive && roleAllowed && productCatalogReady;
 
     res.json({
       readiness: {
@@ -1050,13 +1235,13 @@ posRouter.get("/readiness/:businessId/:branchId", async (req, res, next) => {
         branch,
         roleName,
         checks: {
-          businessActive: business.status === "ACTIVE",
-          branchActive: branch.status === "ACTIVE",
-          posActive: Boolean(posModule?.active),
+          businessActive,
+          branchActive,
+          posActive,
           roleAllowed,
-          productCatalogReady: activeProductCount > 0,
-          salesEngineReady: false,
-          paymentsReady: false
+          productCatalogReady,
+          salesEngineReady,
+          paymentsReady: salesEngineReady
         },
         activeProductCount
       }
@@ -1075,18 +1260,7 @@ posRouter.get("/sales/business/:businessId", async (req, res, next) => {
       throw new HttpError(503, "Prisma Client is out of date. Restart the backend and run npx prisma generate.");
     }
 
-    const membership = await prisma.businessUser.findUnique({
-      where: {
-        userId_businessId: {
-          userId: req.user.id,
-          businessId
-        }
-      }
-    });
-
-    if (!membership && req.user.systemRole !== "SYSTEM_ADMIN") {
-      throw new HttpError(403, "You do not have access to these sales.");
-    }
+    await getBusinessAccess(req.user, businessId);
 
     if (status && !["COMPLETED", "VOIDED"].includes(status)) {
       throw new HttpError(400, "Sale status filter is not supported.");
@@ -1186,15 +1360,7 @@ posRouter.patch("/sales/business/:businessId/:saleId/void", async (req, res, nex
       throw new HttpError(503, "Prisma Client is out of date. Restart the backend and run npx prisma generate.");
     }
 
-    const membership = await prisma.businessUser.findUnique({
-      where: {
-        userId_businessId: {
-          userId: req.user.id,
-          businessId
-        }
-      },
-      include: { role: true }
-    });
+    const { membership } = await getBusinessAccess(req.user, businessId);
 
     const canVoidSales = req.user.systemRole === "SYSTEM_ADMIN" || ["Owner", "Manager"].includes(membership?.role?.name);
 
@@ -1218,6 +1384,10 @@ posRouter.patch("/sales/business/:businessId/:saleId/void", async (req, res, nex
     }
 
     const sale = await prisma.$transaction(async (transaction) => {
+      const claimed = await transaction.sale.updateMany({
+        where: { id: existingSale.id, status: "COMPLETED" }, data: { status: "VOIDED" }
+      });
+      if (!claimed.count) throw new HttpError(409, "Sale was already voided. Refresh the sales list.");
       const voidedSale = await transaction.sale.update({
         where: { id: existingSale.id },
         data: { status: "VOIDED" },
@@ -1275,15 +1445,73 @@ posRouter.patch("/sales/business/:businessId/:saleId/void", async (req, res, nex
       return voidedSale;
     });
 
+    await enqueueSyncOperation({
+      businessId,
+      branchId: sale.branchId,
+      entityType: "sale",
+      entityId: sale.id,
+      operation: "void",
+      method: "PATCH",
+      endpoint: `/api/pos/sales/business/${businessId}/${saleId}/void`,
+      payload: {
+        localSaleId: sale.id
+      },
+      userId: req.user.id
+    });
+
     res.json({ sale });
   } catch (error) {
     next(error);
   }
 });
 
+const retrySaleInclude = {
+          branch: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          cashier: {
+            select: {
+              id: true,
+              name: true
+            }
+          },
+          customer: {
+            select: {
+              id: true,
+              name: true,
+              phone: true,
+              email: true
+            }
+          },
+          table: {
+            select: {
+              id: true,
+              name: true,
+              seats: true,
+              status: true
+            }
+          },
+          items: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  type: true,
+                  category: true,
+                  unit: true
+                }
+              }
+            }
+          }
+        };
+
 posRouter.post("/sales", async (req, res, next) => {
   try {
-    const { businessId, branchId, customerId, tableId, paymentMethod, items } = req.body;
+    const { businessId, branchId, customerId, discountAmount = 0, tableId, paymentMethod, items } = req.body;
 
     if (!prisma.sale) {
       throw new HttpError(503, "Prisma Client is out of date. Restart the backend and run npx prisma generate.");
@@ -1297,15 +1525,7 @@ posRouter.post("/sales", async (req, res, next) => {
       throw new HttpError(400, "Payment method is not supported.");
     }
 
-    const membership = await prisma.businessUser.findUnique({
-      where: {
-        userId_businessId: {
-          userId: req.user.id,
-          businessId
-        }
-      },
-      include: { role: true }
-    });
+    const { membership } = await getBusinessAccess(req.user, businessId);
 
     const [business, branch, posModule, customer, table] = await Promise.all([
       prisma.business.findUnique({
@@ -1385,8 +1605,13 @@ posRouter.post("/sales", async (req, res, next) => {
       throw new HttpError(400, "Selected table is not available for this branch.");
     }
 
+    const identity = saleRequestIdentity(req.body, req.user.id);
+    const existingSale = await previousSale(prisma,businessId,identity,retrySaleInclude);
+    if (existingSale) return res.status(200).json({sale:existingSale,replayed:true});
+
     const normalizedItems = items.map((item) => ({
       productId: item.productId,
+      enteredPrice: item.unitPrice,
       quantity: Number(item.quantity)
     }));
 
@@ -1409,26 +1634,40 @@ posRouter.post("/sales", async (req, res, next) => {
 
     const saleItems = normalizedItems.map((item) => {
       const product = products.find((productItem) => productItem.id === item.productId);
-      const unitPrice = Number(product.price);
+      const unitPrice = saleUnitPrice(product, item.enteredPrice);
       const lineTotal = unitPrice * item.quantity;
 
       return {
         productId: item.productId,
         quantity: item.quantity,
+        suggestedPrice: product.price,
+        minimumPrice: product.minimumPrice,
         unitPrice: unitPrice.toFixed(2),
         lineTotal: lineTotal.toFixed(2)
       };
     });
 
     const subtotal = saleItems.reduce((total, item) => total + Number(item.lineTotal), 0);
-    const receiptNumber = `ZS-${Date.now()}`;
+    const saleTotals = calculateSaleTotals(subtotal, business, discountAmount);
+    enforceMinimumTotal(saleItems,saleTotals);
+    const receiptNumber = `ZS-${randomUUID()}`;
 
+    let replayed = false;
     const sale = await prisma.$transaction(async (transaction) => {
+      if (identity.requestKey) {
+        const lockKey = `${businessId}:${identity.requestKey}`;
+        await transaction.$queryRaw`SELECT 1 AS locked FROM pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))`;
+        const previous = await previousSale(transaction,businessId,identity,retrySaleInclude);
+        if (previous) { replayed = true; return previous; }
+      }
       const recordedSale = await transaction.sale.create({
         data: {
+          ...identity,
           receiptNumber,
-          subtotal: subtotal.toFixed(2),
-          total: subtotal.toFixed(2),
+          subtotal: formatMoneyValue(saleTotals.subtotal),
+          discountAmount: formatMoneyValue(saleTotals.discountAmount),
+          taxAmount: formatMoneyValue(saleTotals.taxAmount),
+          total: formatMoneyValue(saleTotals.total),
           paymentMethod,
           businessId,
           branchId,
@@ -1462,53 +1701,37 @@ posRouter.post("/sales", async (req, res, next) => {
 
       return transaction.sale.findUnique({
         where: { id: recordedSale.id },
-        include: {
-          branch: {
-            select: {
-              id: true,
-              name: true
-            }
-          },
-          cashier: {
-            select: {
-              id: true,
-              name: true
-            }
-          },
-          customer: {
-            select: {
-              id: true,
-              name: true,
-              phone: true,
-              email: true
-            }
-          },
-          table: {
-            select: {
-              id: true,
-              name: true,
-              seats: true,
-              status: true
-            }
-          },
-          items: {
-            include: {
-              product: {
-                select: {
-                  id: true,
-                  name: true,
-                  type: true,
-                  category: true,
-                  unit: true
-                }
-              }
-            }
-          }
-        }
+        include: retrySaleInclude
       });
     });
 
-    res.status(201).json({ sale });
+    if (!replayed) await enqueueSyncOperation({
+      businessId,
+      branchId,
+      entityType: "sale",
+      entityId: sale.id,
+      operation: "create",
+      method: "POST",
+      endpoint: "/api/pos/sales",
+      payload: {
+        localSaleId: sale.id,
+        requestKey: identity.requestKey || sale.id,
+        businessId,
+        branchId,
+        customerId: sale.customerId,
+        discountAmount,
+        tableId: sale.tableId,
+        paymentMethod,
+        items: sale.items.map((item) => ({
+          productId: item.productId,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice
+        }))
+      },
+      userId: req.user.id
+    });
+
+    res.status(replayed ? 200 : 201).json({ sale, replayed });
   } catch (error) {
     next(error);
   }

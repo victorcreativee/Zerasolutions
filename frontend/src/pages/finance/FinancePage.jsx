@@ -168,7 +168,7 @@ export default function FinancePage() {
         <div className="grid gap-3 border-b border-zera-line px-4 py-3 lg:grid-cols-[1fr_auto] lg:items-center">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Finance</p>
+
               <span className="h-1 w-1 rounded-full bg-zera-line" />
               <p className="text-xs font-semibold text-zera-muted">{activeBusiness.name}</p>
             </div>
@@ -256,7 +256,7 @@ export default function FinancePage() {
           <FinanceSnapshot activeBusiness={activeBusiness} loading={loading} summary={summary} />
 
           <section className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
-            <PanelHeader eyebrow="Branches" title="Collection split" description="Where the money was recorded." />
+            <PanelHeader eyebrow="Branches" title="Collection split"  />
             <div className="divide-y divide-zera-line">
               {branchRows.length ? (
                 branchRows.map((row) => (
@@ -337,7 +337,7 @@ export default function FinancePage() {
           <div className="min-w-0">
             <p className="text-[11px] font-bold uppercase tracking-wide text-zera-green">Receipts</p>
             <h3 className="mt-0.5 text-base font-bold text-zera-ink">Latest collections</h3>
-            <p className="mt-0.5 text-sm text-zera-muted">Click a receipt to review payment, tax, and items.</p>
+
           </div>
           <SearchField placeholder="Search receipt, customer, cashier" value={receiptSearch} onChange={setReceiptSearch} />
         </div>
@@ -497,7 +497,7 @@ function PanelHeader({ description, eyebrow, title }) {
     <div className="border-b border-zera-line px-4 py-3">
       <p className="text-[11px] font-bold uppercase tracking-wide text-zera-green">{eyebrow}</p>
       <h3 className="mt-0.5 text-base font-bold text-zera-ink">{title}</h3>
-      <p className="mt-0.5 text-sm text-zera-muted">{description}</p>
+      {description ? <p className="mt-0.5 text-sm text-zera-muted">{description}</p> : null}
     </div>
   );
 }
@@ -590,7 +590,7 @@ function ExpenseModal({ branches, form, onChange, onClose, onSubmit, saving }) {
           <div>
             <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Money out</p>
             <h3 className="mt-1 text-xl font-bold text-zera-ink">Record expense</h3>
-            <p className="mt-1 text-sm text-zera-muted">Add the cost now, then approve or reject it from the review table.</p>
+
           </div>
           <button
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-zera-line bg-white text-zera-muted transition hover:bg-zera-surface hover:text-zera-ink"

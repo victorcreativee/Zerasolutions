@@ -1,0 +1,61 @@
+{
+  "name": "zera-solutions-desktop",
+  "version": "0.3.2",
+  "private": true,
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "build:frontend": "npm --prefix ../frontend run build",
+    "prisma:generate": "prisma generate --schema ../backend/prisma/schema.prisma",
+    "prepare:app": "node scripts/prepare-app.mjs",
+    "dev": "npm run build:frontend && npm run prisma:generate && npm run prepare:app && electron .",
+    "build": "node scripts/build.mjs",
+    "build:mac": "node scripts/check-platform.mjs darwin && npm run build:frontend && npm run prisma:generate && npm run prepare:app && electron-builder --config .desktop-build/electron-builder.generated.json --mac dmg",
+    "build:win": "node scripts/check-platform.mjs win32 && npm run build:frontend && npm run prisma:generate && npm run prepare:app && electron-builder --config .desktop-build/electron-builder.generated.json --win nsis",
+    "build:customer:mac": "node scripts/check-platform.mjs darwin && npm run build:frontend && npm run prisma:generate && npm run prepare:app && electron-builder --config .desktop-build/electron-builder.generated.json --mac dmg",
+    "build:customer:win": "node scripts/check-platform.mjs win32 && npm run build:frontend && npm run prisma:generate && npm run prepare:app && electron-builder --config .desktop-build/electron-builder.generated.json --win nsis",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "embedded-postgres": "17.10.0-beta.17",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "^25.1.8",
+    "prisma": "^5.22.0"
+  },
+  "build": {
+    "appId": "com.zera.solutions.desktop",
+    "productName": "Zera Solutions",
+    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "files": [
+      "src/**/*",
+      ".desktop-build/frontend/**/*",
+      ".desktop-build/backend/**/*",
+      ".desktop-build/deployment-manifest.json",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.business"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "description": "Zera shop management with a private local database"
+}

@@ -4,3 +4,7 @@ export async function getOperationsSummary(businessId, params = {}) {
   const response = await api.get(`/operations/business/${businessId}/summary`, { params });
   return response.data.operations;
 }
+
+export async function recordCashCount(businessId, body) {
+  return (await api.post(`/operations/business/${businessId}/cash-counts`,body)).data.cashCount;
+}

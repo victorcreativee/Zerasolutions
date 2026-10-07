@@ -18,6 +18,10 @@ export function errorHandler(error, _req, res, _next) {
     error.message?.includes("Can't reach database server") ||
     error.message?.includes("Can't connect to database server");
 
+  if (["P2025", "P2034"].includes(error.code)) {
+    error.statusCode = 409;
+    error.message = "The record changed during this request. Refresh and try again.";
+  }
   const statusCode = error.statusCode || (databaseMessages[error.code] || isDatabaseConnectionError ? 503 : 500);
   const message =
     databaseMessages[error.code] ||

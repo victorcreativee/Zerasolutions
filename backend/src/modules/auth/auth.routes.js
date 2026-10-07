@@ -1,3 +1,4 @@
+import { createLoginThrottle } from "../../middleware/loginThrottle.js";
 import { Router } from "express";
 import bcrypt from "bcryptjs";
 import { prisma } from "../../config/prisma.js";
@@ -25,16 +26,16 @@ authRouter.post("/register", async (req, res, next) => {
   }
 });
 
-authRouter.post("/login", async (req, res, next) => {
+authRouter.post("/login", createLoginThrottle(), async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    if (!email || !password) {
+    if (typeof email !== "string" || typeof password !== "string" || !email.trim() || !password || email.length > 254 || password.length > 1024) {
       throw new HttpError(400, "Email and password are required.");
     }
 
     const user = await prisma.user.findUnique({
-      where: { email: email.toLowerCase() }
+      where: { email: email.trim().toLowerCase() }
     });
 
     if (!user) {

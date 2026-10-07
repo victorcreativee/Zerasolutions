@@ -1,3 +1,4 @@
+import NotificationCenter from "../components/NotificationCenter.jsx";
 import {
   Building2,
   ChevronDown,
@@ -13,6 +14,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useWorkspace } from "../context/WorkspaceContext.jsx";
 import WorkspaceSwitcher from "../components/WorkspaceSwitcher.jsx";
+import { brandTheme } from "../utils/brandTheme.js";
 import {
   businessNavigation,
   getVisibleNavigation,
@@ -38,6 +40,8 @@ export default function DashboardLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("zera_sidebar_collapsed") === "true");
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const isSystemAdmin = user?.systemRole === "SYSTEM_ADMIN";
+  const brandedBusiness = !isSystemAdmin ? businesses.find((business) => business.id === activeBusinessId) : null;
+  const showBrand = Boolean(brandedBusiness?.useBrandTheme);
 
   const navigation = useMemo(() => {
     if (isSystemAdmin) {
@@ -76,7 +80,7 @@ export default function DashboardLayout() {
   const desktopContentOffset = sidebarCollapsed ? "lg:pl-[78px]" : "lg:pl-64";
 
   return (
-    <div className="min-h-screen bg-zera-canvas text-zera-ink">
+    <div style={brandTheme(brandedBusiness)} className="min-h-screen bg-zera-canvas text-zera-ink">
       <aside
         className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-zera-line bg-[#fbfdfc] shadow-[6px_0_24px_rgba(23,33,29,0.03)] transition-all duration-200 lg:translate-x-0 ${desktopSidebarWidth} ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
@@ -85,11 +89,11 @@ export default function DashboardLayout() {
         <div className="flex h-[68px] shrink-0 items-center justify-between border-b border-zera-line px-4">
           <Link className="flex min-w-0 items-center gap-3" to={isSystemAdmin ? "/system-admin" : "/dashboard"}>
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-green text-white shadow-xs">
-              <Building2 size={19} />
+              {showBrand && brandedBusiness.logoUrl ? <img src={brandedBusiness.logoUrl} alt="" className="h-10 w-10 rounded-md bg-white object-contain" /> : <Building2 size={19} />}
             </div>
             <div className={`min-w-0 ${sidebarCollapsed ? "lg:hidden" : ""}`}>
-              <div className="truncate text-lg font-bold leading-5 tracking-tight">Zera</div>
-              <div className="truncate text-xs font-medium text-zera-muted">Solutions</div>
+              <div className="truncate text-lg font-bold leading-5 tracking-tight">{showBrand ? brandedBusiness.name : "Zera"}</div>
+              <div className="truncate text-xs font-medium text-zera-muted">{showBrand ? "Powered by Zera" : "Solutions"}</div>
             </div>
           </Link>
           <button
@@ -157,6 +161,8 @@ export default function DashboardLayout() {
             </div>
           ))}
         </nav>
+
+        {!isSystemAdmin && activeBusinessId && activeBranchId && (brandedBusiness?.features?.stockNotifications || brandedBusiness?.features?.cashNotifications) && <NotificationCenter key={`${user?.id}:${activeBusinessId}:${activeBranchId}:${activeRoleName}`} userId={user?.id} businessId={activeBusinessId} branchId={activeBranchId} collapsed={sidebarCollapsed} />}
 
         <div className="shrink-0 border-t border-zera-line p-3">
           <div className="relative" ref={sidebarUserMenuRef}>

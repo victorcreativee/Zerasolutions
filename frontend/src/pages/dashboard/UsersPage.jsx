@@ -123,11 +123,9 @@ export default function UsersPage() {
     <div className="mx-auto max-w-[1500px] space-y-4">
       <header className="flex flex-col gap-3 border-b border-zera-line pb-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-zera-green">User management</p>
-          <h2 className="mt-1 text-2xl font-bold">Team accounts</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-zera-muted">
-            Create and manage the people who can use this business workspace.
-          </p>
+
+          <h2 className="mt-1 text-2xl font-bold">Team</h2>
+
         </div>
         {activeBusiness ? (
           <Button type="button" className="h-10 gap-2 px-3" onClick={() => setShowCreatePanel(true)}>
@@ -156,7 +154,7 @@ export default function UsersPage() {
 
           <section className="rounded-md border border-zera-line bg-white p-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-              <RoleGuide activeBusiness={activeBusiness} />
+
               <label className="flex h-10 min-w-0 items-center gap-2 rounded-md border border-zera-line bg-white px-3 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10 lg:w-96">
                 <Search size={17} className="shrink-0 text-zera-muted" />
                 <input
@@ -178,7 +176,7 @@ export default function UsersPage() {
                   <div>
                     <p className="text-xs font-bold uppercase text-zera-green">Create user</p>
                     <h3 className="mt-1 text-xl font-bold">{activeBusiness.name}</h3>
-                    <p className="mt-1 text-sm text-zera-muted">Assign a clear role before sharing login details.</p>
+
                   </div>
                   <button className="rounded-md border border-zera-line p-2 text-zera-muted hover:text-zera-ink" type="button" onClick={() => setShowCreatePanel(false)}>
                     <X size={18} />
@@ -323,7 +321,7 @@ function RoleGuide({ activeBusiness }) {
         <Users size={18} />
       </div>
       <div className="min-w-0">
-        <p className="text-xs font-bold uppercase text-zera-green">{guide.eyebrow}</p>
+
         <p className="mt-0.5 text-sm leading-6 text-zera-muted">{guide.helper}</p>
       </div>
     </div>

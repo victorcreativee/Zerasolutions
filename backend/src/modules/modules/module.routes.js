@@ -3,6 +3,7 @@ import { prisma } from "../../config/prisma.js";
 import { requireAuth } from "../../middleware/authMiddleware.js";
 import { HttpError } from "../../utils/httpError.js";
 import { moduleCatalog } from "../../config/platformCatalog.js";
+import { enqueueSyncOperation } from "../../utils/syncQueue.js";
 
 export const moduleRouter = Router();
 
@@ -42,6 +43,20 @@ moduleRouter.patch("/:businessId/:key", async (req, res, next) => {
         }
       },
       data: { active }
+    });
+
+    await enqueueSyncOperation({
+      businessId,
+      entityType: "business_module",
+      entityId: module.id,
+      operation: "status",
+      method: "PATCH",
+      endpoint: `/api/modules/${businessId}/${key}`,
+      payload: {
+        active,
+        key: normalizedKey
+      },
+      userId: req.user.id
     });
 
     res.json({ module });

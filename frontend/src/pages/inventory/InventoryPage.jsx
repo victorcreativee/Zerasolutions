@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -14,6 +14,15 @@ import { useWorkspace } from "../../context/WorkspaceContext.jsx";
 import { getInventoryStock, receiveInventoryStock, transferInventoryStock, updateInventoryStock } from "../../services/inventoryService.js";
 
 export default function InventoryPage() {
+  const mutationBusy = useRef(false);
+  const pendingMutation = useRef(null);
+  function stockRequest(action, businessId, branchId, productId, body) {
+    const fingerprint=JSON.stringify({action,businessId,branchId,productId,body});
+    if(pendingMutation.current && pendingMutation.current.fingerprint!==fingerprint) throw new Error('A stock update may already have saved. Check stock movements before starting another action.');
+    if(!pendingMutation.current)pendingMutation.current={fingerprint,key:crypto.randomUUID()};
+    return {...body,requestKey:pendingMutation.current.key};
+  }
+
   const { activeBranch, activeBranchId, activeBusiness, activeBusinessId, activeRoleName, branches } = useWorkspace();
   const [searchParams] = useSearchParams();
   const [stockItems, setStockItems] = useState([]);
@@ -80,6 +89,7 @@ export default function InventoryPage() {
 
   async function handleReceiveSubmit(event) {
     event.preventDefault();
+    if(mutationBusy.current)return;
 
     const selectedStock = stockItems.find((stock) => stock.id === selectedStockId);
 
@@ -87,11 +97,12 @@ export default function InventoryPage() {
       return;
     }
 
+    mutationBusy.current=true;
     try {
       setSaving(true);
       setError("");
       setMessage("");
-      const updatedStock = await receiveInventoryStock(activeBusinessId, activeBranchId, selectedStock.productId, receiveForm);
+      const updatedStock = await receiveInventoryStock(activeBusinessId, activeBranchId, selectedStock.productId, stockRequest("receive",activeBusinessId,activeBranchId,selectedStock.productId,receiveForm));
       setStockItems((current) => current.map((stock) => (stock.id === updatedStock.id ? updatedStock : stock)));
       setSelectedStockId(updatedStock.id);
       setStockForm({
@@ -101,17 +112,21 @@ export default function InventoryPage() {
       });
       setReceiveForm({ quantity: "", note: "" });
       setMessage(`${receiveForm.quantity} ${updatedStock.product.name} added to ${activeBranch?.name || "this branch"}.`);
+      pendingMutation.current=null;
       setStockActionModalOpen(false);
       await loadStock();
     } catch (apiError) {
-      setError(apiError.response?.data?.message || "Unable to receive stock.");
+      if([400,401,403,404,409].includes(apiError.response?.status)) pendingMutation.current=null;
+      setError(apiError.response?.data?.message || apiError.message || "Unable to receive stock.");
     } finally {
+      mutationBusy.current=false;
       setSaving(false);
     }
   }
 
   async function handleStockSubmit(event) {
     event.preventDefault();
+    if(mutationBusy.current)return;
 
     const selectedStock = stockItems.find((stock) => stock.id === selectedStockId);
 
@@ -119,11 +134,12 @@ export default function InventoryPage() {
       return;
     }
 
+    mutationBusy.current=true;
     try {
       setSaving(true);
       setError("");
       setMessage("");
-      const updatedStock = await updateInventoryStock(activeBusinessId, activeBranchId, selectedStock.productId, stockForm);
+      const updatedStock = await updateInventoryStock(activeBusinessId, activeBranchId, selectedStock.productId, stockRequest("set",activeBusinessId,activeBranchId,selectedStock.productId,{...stockForm,expectedQuantity:selectedStock.quantity}));
       setStockItems((current) => current.map((stock) => (stock.id === updatedStock.id ? updatedStock : stock)));
       setSelectedStockId(updatedStock.id);
       setStockForm({
@@ -132,17 +148,21 @@ export default function InventoryPage() {
         note: ""
       });
       setMessage(`${updatedStock.product.name} stock updated for ${activeBranch?.name || "this branch"}.`);
+      pendingMutation.current=null;
       setStockActionModalOpen(false);
       await loadStock();
     } catch (apiError) {
-      setError(apiError.response?.data?.message || "Unable to update stock.");
+      if([400,401,403,404,409].includes(apiError.response?.status)) pendingMutation.current=null;
+      setError(apiError.response?.data?.message || apiError.message || "Unable to update stock.");
     } finally {
+      mutationBusy.current=false;
       setSaving(false);
     }
   }
 
   async function handleTransferSubmit(event) {
     event.preventDefault();
+    if(mutationBusy.current)return;
 
     const selectedStock = stockItems.find((stock) => stock.id === selectedStockId);
 
@@ -150,17 +170,18 @@ export default function InventoryPage() {
       return;
     }
 
+    mutationBusy.current=true;
     try {
       setSaving(true);
       setError("");
       setMessage("");
-      const result = await transferInventoryStock(activeBusinessId, {
+      const result = await transferInventoryStock(activeBusinessId, stockRequest("transfer",activeBusinessId,activeBranchId,selectedStock.productId,{
         fromBranchId: activeBranchId,
         productId: selectedStock.productId,
         quantity: transferForm.quantity,
         toBranchId: transferForm.toBranchId,
         note: transferForm.note
-      });
+      }));
       const updatedStock = result.sourceStock;
       setStockItems((current) => current.map((stock) => (stock.id === updatedStock.id ? updatedStock : stock)));
       setSelectedStockId(updatedStock.id);
@@ -172,11 +193,14 @@ export default function InventoryPage() {
       const destinationName = branches.find((branch) => branch.id === transferForm.toBranchId)?.name || "another branch";
       setTransferForm((current) => ({ ...current, quantity: "", note: "" }));
       setMessage(`${transferForm.quantity} ${updatedStock.product.name} transferred to ${destinationName}.`);
+      pendingMutation.current=null;
       setStockActionModalOpen(false);
       await loadStock();
     } catch (apiError) {
-      setError(apiError.response?.data?.message || "Unable to transfer stock.");
+      if([400,401,403,404,409].includes(apiError.response?.status)) pendingMutation.current=null;
+      setError(apiError.response?.data?.message || apiError.message || "Unable to transfer stock.");
     } finally {
+      mutationBusy.current=false;
       setSaving(false);
     }
   }
@@ -259,7 +283,7 @@ export default function InventoryPage() {
     {
       label: "Missing codes",
       value: uncodedPhysicalProducts.length,
-      helper: uncodedPhysicalProducts.length ? "Need SKU or barcode" : "Products are easy to scan",
+      helper: uncodedPhysicalProducts.length ? "Need SKU or barcode" : "No missing codes",
       ready: uncodedPhysicalProducts.length === 0 && physicalProducts.length > 0
     },
     {
@@ -287,11 +311,10 @@ export default function InventoryPage() {
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs font-bold uppercase tracking-wide text-zera-green">{guide.eyebrow}</p>
-              <span className="h-1 w-1 rounded-full bg-zera-lineStrong" />
+
               <p className="truncate text-xs font-bold uppercase tracking-wide text-zera-muted">{activeBranch?.name || "Current branch"}</p>
             </div>
-            <h2 className="mt-1 text-xl font-bold text-zera-ink">{guide.title}</h2>
+            <h2 className="mt-1 text-xl font-bold text-zera-ink">Inventory</h2>
           </div>
 
           <InventorySummaryStrip items={readiness} loading={loading} />
@@ -316,7 +339,7 @@ export default function InventoryPage() {
         </div>
       </section>
 
-      {error ? <div className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+      {error ? <div role="alert" className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}{pendingMutation.current && <button type="button" disabled={saving} className="mt-2 block underline" onClick={()=>{pendingMutation.current=null;setError("");}}>I checked stock movements — start a new action</button>}</div> : null}
       {message ? <div className="rounded-md bg-zera-mintSoft px-4 py-3 text-sm font-semibold text-zera-green">{message}</div> : null}
 
       <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -327,7 +350,7 @@ export default function InventoryPage() {
               <div>
                 <h3 className="text-base font-bold">Products in stock</h3>
                 <p className="text-sm text-zera-muted">
-                  {loading ? "Loading..." : `${filteredStockItems.length} of ${physicalProducts.length} physical item${physicalProducts.length === 1 ? "" : "s"}. Click any row to manage stock.`}
+                  {loading ? "Loading..." : `${filteredStockItems.length} of ${physicalProducts.length} item${physicalProducts.length === 1 ? "" : "s"}`}
                 </p>
               </div>
             </div>
@@ -516,7 +539,7 @@ function InventoryPriorityPanel({ currency, lowStockItems, missingCodeItems, onS
       <div className="flex items-center justify-between gap-3 border-b border-zera-line px-4 py-3">
         <div className="min-w-0">
           <h3 className="text-base font-bold">Needs attention</h3>
-          <p className="truncate text-sm text-zera-muted">{hasAttention ? "Open an item to fix it." : "No inventory issues now."}</p>
+
         </div>
         <span className={`rounded-md px-2.5 py-1 text-xs font-bold ${hasAttention ? "bg-amber-50 text-amber-700" : "bg-zera-mint text-zera-green"}`}>
           {lowStockItems.length + missingCodeItems.length} item{lowStockItems.length + missingCodeItems.length === 1 ? "" : "s"}
@@ -628,7 +651,7 @@ function StockActionModal({
       <section className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-zera-line bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
         <header className="flex items-start justify-between gap-4 border-b border-zera-line bg-white px-5 py-4">
           <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Inventory action</p>
+
             <h3 className="mt-1 truncate text-xl font-bold text-zera-ink">{product?.name || "Product"}</h3>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-xs font-semibold text-zera-muted">
               <span>{activeBranch?.name || "Current branch"}</span>

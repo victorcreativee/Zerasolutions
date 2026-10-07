@@ -118,14 +118,12 @@ export default function SalesPage() {
         <div className="grid gap-3 border-b border-zera-line px-4 py-3 lg:grid-cols-[1fr_auto] lg:items-center">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Sales register</p>
+
               <span className="h-1 w-1 rounded-full bg-zera-line" />
               <p className="text-xs font-semibold text-zera-muted">{completedSales.length} completed receipts</p>
             </div>
             <h2 className="mt-0.5 text-lg font-bold text-zera-ink">Receipts</h2>
-            <p className="mt-0.5 max-w-3xl text-sm text-zera-muted">
-              Filter, review, print, or void receipts from one compact register.
-            </p>
+
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="inline-flex h-9 items-center rounded-md border border-zera-line bg-white px-3 text-sm font-bold text-zera-muted">
@@ -406,7 +404,7 @@ function ReceiptModal({ activeBusiness, canVoidSales, onClose, onPrint, onVoid, 
       <article className="flex max-h-[calc(100vh-2rem)] w-full max-w-6xl flex-col overflow-hidden rounded-md border border-zera-line bg-white shadow-2xl">
         <header className="flex items-start justify-between gap-4 border-b border-zera-line px-5 py-4">
           <div className="min-w-0">
-            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Receipt review</p>
+
             <h3 className="mt-1 truncate text-xl font-bold">{sale.receiptNumber}</h3>
             <p className="mt-1 text-sm text-zera-muted">{formatDate(sale.createdAt)}</p>
           </div>
@@ -477,7 +475,7 @@ function ReceiptModal({ activeBusiness, canVoidSales, onClose, onPrint, onVoid, 
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <h4 className="font-bold">Receipt preview</h4>
-                <p className="mt-1 text-xs text-zera-muted">Customer print format</p>
+
               </div>
               <Printer className="text-zera-green" size={20} />
             </div>
@@ -488,7 +486,7 @@ function ReceiptModal({ activeBusiness, canVoidSales, onClose, onPrint, onVoid, 
         </div>
 
         <footer className="grid gap-2 border-t border-zera-line bg-white p-4 sm:grid-cols-[1fr_auto_auto] sm:items-center">
-          <p className="text-sm text-zera-muted">Close this window to return to the receipt register.</p>
+
           <Button type="button" variant="secondary" className="no-print gap-2" onClick={onPrint}>
             <Printer size={18} />
             Print receipt

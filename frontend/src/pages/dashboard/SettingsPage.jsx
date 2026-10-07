@@ -220,7 +220,7 @@ export default function SettingsPage() {
       <header className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
         <div className="flex flex-col gap-4 border-b border-zera-line px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Business setup</p>
+
             <h2 className="mt-1 text-2xl font-bold">Workspace settings</h2>
           </div>
           {activeBusiness ? <SummaryPill label="Selected business" value={activeBusiness.name} /> : null}
@@ -263,7 +263,7 @@ export default function SettingsPage() {
           </nav>
 
           {activeTab === "profile" ? (
-            <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+            <section className="space-y-4">
               <form className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs" onSubmit={handleProfileSubmit}>
                 <div className="mb-4 flex items-start gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
@@ -289,18 +289,7 @@ export default function SettingsPage() {
                 </div>
               </form>
 
-              <section className="overflow-hidden rounded-md border border-zera-line bg-white p-4 shadow-xs">
-                <div className="flex items-start gap-3">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zera-mintSoft text-zera-green">
-                    <workflow.icon size={20} />
-                  </div>
-                  <div>
-                    <h3 className="font-bold">Sales workflow</h3>
-                    <p className="mt-1 text-sm leading-6 text-zera-muted">{workflow.description}</p>
-                    <p className="mt-3 rounded-md bg-zera-mintSoft px-3 py-2 text-xs font-semibold text-zera-muted">Managed by Zera System Admin.</p>
-                  </div>
-                </div>
-              </section>
+
             </section>
           ) : null}
 
@@ -365,7 +354,7 @@ export default function SettingsPage() {
           ) : null}
 
           {activeTab === "access" ? (
-            <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+            <section className="space-y-4">
               <ModulesTable modules={activeBusiness.modules || []} />
               <RolesPanel roles={roleDetails} />
             </section>
@@ -391,7 +380,7 @@ export default function SettingsPage() {
                   <div>
                     <p className="text-xs font-bold uppercase text-zera-green">New branch</p>
                     <h3 className="mt-1 text-xl font-bold">{activeBusiness.name}</h3>
-                    <p className="mt-1 text-sm text-zera-muted">Add a location where this business operates.</p>
+
                   </div>
                   <button className="rounded-md border border-zera-line p-2 text-zera-muted hover:text-zera-ink" type="button" onClick={() => setShowBranchPanel(false)}>
                     <X size={18} />
@@ -473,7 +462,7 @@ function RolesPanel({ roles }) {
         </div>
         <div>
           <h3 className="font-bold">Role structure</h3>
-          <p className="mt-0.5 text-sm text-zera-muted">Access levels for this business type.</p>
+
         </div>
       </div>
       <div className="divide-y divide-zera-line rounded-md border border-zera-line">
@@ -530,7 +519,7 @@ function SystemUpdatesPanel({ activeBusiness, desktopInfo, loading, onPrepareSyn
           <div>
             <p className="text-xs font-bold uppercase tracking-wide text-zera-green">System updates</p>
             <h3 className="mt-1 text-lg font-bold text-zera-ink">Desktop app status</h3>
-            <p className="mt-1 text-sm text-zera-muted">Installed version, update readiness, and offline queue state.</p>
+
           </div>
           <button
             className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-zera-line bg-white px-3 text-sm font-bold text-zera-ink shadow-xs disabled:cursor-not-allowed disabled:opacity-60"
@@ -559,7 +548,7 @@ function SystemUpdatesPanel({ activeBusiness, desktopInfo, loading, onPrepareSyn
 
       <article className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
         <div className="border-b border-zera-line px-4 py-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Offline readiness</p>
+          <p className="text-xs font-bold uppercase tracking-wide text-zera-green">Offline status</p>
           <h3 className="mt-1 text-lg font-bold text-zera-ink">Local sync queue</h3>
         </div>
         <div className="divide-y divide-zera-line">
@@ -575,7 +564,7 @@ function SystemUpdatesPanel({ activeBusiness, desktopInfo, loading, onPrepareSyn
             onClick={onPrepareSync}
           >
             <Wifi size={16} />
-            {loading ? "Checking..." : "Check sync readiness"}
+            {loading ? "Checking..." : "Check sync status"}
           </button>
           <p className="mt-2 text-sm leading-5 text-zera-muted">
             {isDesktop
@@ -611,7 +600,7 @@ function SystemUpdatesPanel({ activeBusiness, desktopInfo, loading, onPrepareSyn
                   <tr className="border-b border-zera-line last:border-0 hover:bg-zera-mintSoft" key={operation.id}>
                     <td className="px-4 py-3">
                       <p className="font-bold text-zera-ink">{formatSyncAction(operation)}</p>
-                      <p className="mt-0.5 text-xs text-zera-muted">{operation.endpoint}</p>
+
                     </td>
                     <td className="px-4 py-3 text-zera-muted">{operation.entityId || "Batch import"}</td>
                     <td className="px-4 py-3">

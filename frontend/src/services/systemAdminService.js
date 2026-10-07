@@ -64,6 +64,17 @@ export async function buildSystemBusinessDesktopInstaller(businessId, platform) 
   return response.data.installer;
 }
 
+export async function getSystemBusinessInstallations(businessId) {
+  return (await api.get(`/system-admin/businesses/${businessId}/installations`)).data;
+}
+
+export async function createInstallationEnrollment(businessId) {
+  return (await api.post(`/system-admin/businesses/${businessId}/installations/enrollment`)).data;
+}
+export async function revokeInstallation(businessId, installationId) {
+  return (await api.delete(`/system-admin/businesses/${businessId}/installations/${installationId}`)).data;
+}
+
 export async function downloadSystemBusinessDesktopInstaller(businessId, platform) {
   const response = await api.get(`/system-admin/businesses/${businessId}/desktop-installers/${platform}/download`, {
     responseType: "blob"

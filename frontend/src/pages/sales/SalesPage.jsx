@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Pagination, { usePagination } from "../../components/Pagination.jsx";
 import { Banknote, FileText, Printer, ReceiptText, RotateCcw, Search, X } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import PrintableReceipt from "../../components/PrintableReceipt.jsx";
@@ -122,16 +123,8 @@ export default function SalesPage() {
               <span className="h-1 w-1 rounded-full bg-zera-line" />
               <p className="text-xs font-semibold text-zera-muted">{completedSales.length} completed receipts</p>
             </div>
-            <h2 className="mt-0.5 text-lg font-bold text-zera-ink">Receipts</h2>
+            <h2 className="mt-0.5 text-2xl font-bold text-zera-ink">Sales</h2>
 
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex h-9 items-center rounded-md border border-zera-line bg-white px-3 text-sm font-bold text-zera-muted">
-              {activeBusiness.name}
-            </span>
-            <Button type="button" variant="secondary" className="h-9 px-3" disabled={loading} onClick={loadSales}>
-              {loading ? "Refreshing..." : "Refresh"}
-            </Button>
           </div>
         </div>
 
@@ -217,8 +210,8 @@ function SalesCounts({ cashTotal, completedCount, currency, loading, netTotal, v
 function SalesToolbar({ activePeriod, branches, filters, onClear, onFilterChange, onPeriodChange, onQueryChange, query }) {
   return (
     <div className="overflow-x-auto border-b border-zera-line px-3 py-2">
-      <div className="flex min-w-max flex-nowrap items-center gap-2">
-        <label className="flex h-9 w-[320px] shrink-0 items-center gap-2 rounded-md border border-zera-line bg-white px-2.5 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
+        <label className="flex h-10 w-full sm:w-[320px] shrink-0 items-center gap-2 rounded-md border border-zera-line bg-white px-2.5 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
           <Search size={16} className="shrink-0 text-zera-muted" />
           <input
             className="w-full border-0 bg-transparent text-sm outline-none"
@@ -306,9 +299,18 @@ function CompactInput({ className = "", label, onChange, type, value }) {
 }
 
 function SalesTable({ activeBusiness, loading, onSelect, sales, selectedSaleId }) {
+  const pagination = usePagination(sales);
   return (
-    <div className="overflow-x-auto">
-      <div className="max-h-[calc(100vh-278px)] min-w-[1080px] overflow-y-auto">
+    <>
+    <div className="divide-y divide-zera-line sm:hidden">
+      {loading ? <p className="p-4 text-sm text-zera-muted">Loading receipts…</p> : !sales.length ? <p className="p-4 text-sm text-zera-muted">No matching receipts.</p> : pagination.rows.map(sale => <button type="button" key={sale.id} onClick={() => onSelect(sale.id)} className="block w-full space-y-2 p-4 text-left hover:bg-zera-mintSoft">
+        <span className="flex items-center justify-between gap-2"><span className="font-semibold">{sale.receiptNumber}</span><span className="font-semibold">{formatMoney(sale.total, activeBusiness.currency)}</span></span>
+        <span className="flex flex-wrap items-center justify-between gap-2 text-sm text-zera-muted"><span>{sale.customer?.name || 'Walk-in'} · {formatPayment(sale.paymentMethod)}</span><StatusBadge status={sale.status} /></span>
+        <span className="block text-xs text-zera-muted">{formatDate(sale.createdAt)}</span>
+      </button>)}
+    </div>
+    <div className="hidden overflow-x-auto sm:block">
+      <div className="min-w-[800px]">
         <table className="w-full border-collapse text-left text-sm">
           <thead className="sticky top-0 z-10 border-b border-zera-line bg-zera-mintSoft text-xs font-bold uppercase text-zera-muted">
             <tr>
@@ -337,14 +339,14 @@ function SalesTable({ activeBusiness, loading, onSelect, sales, selectedSaleId }
               </tr>
             ) : null}
             {!loading &&
-              sales.map((sale) => (
+              pagination.rows.map((sale) => (
                 <tr
                   className={`cursor-pointer transition hover:bg-zera-mintSoft ${selectedSaleId === sale.id ? "bg-zera-mintSoft" : ""}`}
                   key={sale.id}
                   onClick={() => onSelect(sale.id)}
                 >
                   <td className="px-3 py-2.5">
-                    <p className="truncate font-bold text-zera-ink">{sale.receiptNumber}</p>
+                    <button type="button" className="truncate text-left font-bold text-zera-ink" onClick={() => onSelect(sale.id)} aria-label={`Open receipt ${sale.receiptNumber}`}>{sale.receiptNumber}</button>
                     {sale.table?.name ? <p className="mt-1 text-xs font-semibold text-zera-green">{sale.table.name}</p> : null}
                   </td>
                   <td className="px-3 py-2.5 text-zera-muted">{formatDate(sale.createdAt)}</td>
@@ -366,6 +368,8 @@ function SalesTable({ activeBusiness, loading, onSelect, sales, selectedSaleId }
         </table>
       </div>
     </div>
+      <Pagination {...pagination} loading={loading} />
+    </>
   );
 }
 

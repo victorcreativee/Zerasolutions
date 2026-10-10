@@ -459,8 +459,8 @@ function DashboardMetricCell({ helper, icon: Icon, label, value }) {
           <Icon size={19} />
         </div>
         <div className="min-w-0">
-          <p className="text-xs font-bold uppercase text-zera-muted">{label}</p>
-          <p className="mt-1 truncate text-lg font-bold text-zera-ink">{value}</p>
+          <p className="text-xs font-medium text-zera-muted">{label}</p>
+          <p className="mt-1 break-words text-2xl font-bold tracking-tight text-zera-ink">{value}</p>
           <p className="mt-0.5 truncate text-xs text-zera-muted">{helper}</p>
         </div>
       </div>

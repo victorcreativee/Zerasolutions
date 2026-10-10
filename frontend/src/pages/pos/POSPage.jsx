@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import Pagination from "../../components/Pagination.jsx";
 import { Hotel, Minus, Pill, Plus, Printer, ReceiptText, Search, ShoppingBasket, ShoppingCart, Smartphone, Store, Table2, Trash2, UserRound, X } from "lucide-react";
 import { Link } from "react-router-dom";
 import Button from "../../components/Button.jsx";
@@ -759,16 +760,7 @@ export default function POSPage() {
               ))}
             </div>
             {!isTableService && !loadingProducts && products.length > 0 ? (
-              <nav aria-label="Product pages" className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zera-line pt-3">
-                <p className="text-sm text-zera-muted" aria-live="polite">
-                  {productPageStart + 1}–{Math.min(productPageStart + productsPerPage, products.length)} of {products.length}
-                </p>
-                <div className="flex items-center gap-3">
-                  <Button variant="secondary" disabled={currentProductPage === 1} onClick={() => setProductPage(currentProductPage - 1)}>Previous</Button>
-                  <span className="text-sm font-semibold" aria-live="polite">Page {currentProductPage} of {productPageCount}</span>
-                  <Button variant="secondary" disabled={currentProductPage === productPageCount} onClick={() => setProductPage(currentProductPage + 1)}>Next</Button>
-                </div>
-              </nav>
+              <Pagination page={currentProductPage} pageSize={productsPerPage} total={products.length} onPageChange={setProductPage} loading={loadingProducts} />
             ) : null}
           </section>
 

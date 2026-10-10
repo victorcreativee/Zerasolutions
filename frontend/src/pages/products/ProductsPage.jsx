@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Pagination, { usePagination } from "../../components/Pagination.jsx";
 import {
   Barcode,
   CheckCircle2,
@@ -45,7 +46,6 @@ export default function ProductsPage() {
   const [typeFilter, setTypeFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [visibleCount, setVisibleCount] = useState(100);
   const [loading, setLoading] = useState(false);
   const [importSaving, setImportSaving] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -59,8 +59,6 @@ export default function ProductsPage() {
   const serviceProducts = products.filter((product) => product.type === "SERVICE");
   const feeProducts = products.filter((product) => product.type === "FEE");
   const physicalWithoutCode = physicalProducts.filter((product) => !product.sku && !product.barcode);
-  const visibleProducts = products.slice(0, visibleCount);
-  const hiddenProductCount = Math.max(products.length - visibleProducts.length, 0);
   const isEditing = Boolean(editingProductId);
   const guide = getCatalogGuide(activeBusiness);
   const productCategories = useMemo(() => {
@@ -78,9 +76,6 @@ export default function ProductsPage() {
     loadProducts();
   }, [activeBusinessId, categoryFilter, statusFilter, typeFilter]);
 
-  useEffect(() => {
-    setVisibleCount(100);
-  }, [activeBusinessId, categoryFilter, search, statusFilter, typeFilter]);
 
   async function loadProducts(nextSearch = search, overrides = {}) {
     if (!activeBusinessId) {
@@ -297,12 +292,10 @@ export default function ProductsPage() {
 
         <ProductTable
           business={activeBusiness}
-          hiddenCount={hiddenProductCount}
           loading={loading}
           onEdit={openEditDrawer}
-          onLoadMore={() => setVisibleCount((current) => current + 100)}
           onStatusToggle={handleStatusToggle}
-          products={visibleProducts}
+          products={products}
           totalCount={products.length}
           updatingProductId={updatingProductId}
         />
@@ -338,23 +331,21 @@ function CatalogCounts({ activeCount, feeCount, inactiveCount, loading, missingC
   const items = [
     { label: "Total", value: totalCount },
     { label: "Active", value: activeCount },
-    { label: "Physical", value: physicalCount },
-    { label: "Services / fees", value: serviceCount + feeCount },
     { label: "Paused", value: inactiveCount },
     { label: "Need codes", value: missingCodeCount, attention: missingCodeCount > 0 }
   ];
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-zera-line bg-white sm:grid-cols-4">
       {items.map((item) => (
         <div
-          className={`inline-flex min-h-9 items-center gap-2 rounded-md border px-3 text-sm shadow-xs ${
-            item.attention ? "border-amber-200 bg-amber-50 text-amber-800" : "border-zera-line bg-white text-zera-muted"
+          className={`flex min-h-20 flex-col justify-center gap-1 border-r border-zera-line px-5 text-sm last:border-r-0 ${
+            item.attention ? "text-amber-800" : "text-zera-muted"
           }`}
           key={item.label}
         >
-          <span className="font-semibold">{item.label}</span>
-          <span className="font-bold text-zera-ink">{loading ? "..." : item.value}</span>
+          <span className="text-xs">{item.label}</span>
+          <span className="text-2xl font-bold text-zera-ink">{loading ? "..." : item.value}</span>
         </div>
       ))}
     </div>
@@ -377,9 +368,9 @@ function CatalogToolbar({
 }) {
   return (
     <div className="overflow-x-auto border-b border-zera-line bg-white px-3 py-2">
-      <div className="flex min-w-max flex-nowrap items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
         <form
-          className="flex h-9 w-[320px] shrink-0 items-center gap-2 rounded-md border border-zera-line bg-white px-2.5 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10"
+          className="flex h-10 w-full sm:w-[320px] shrink-0 items-center gap-2 rounded-md border border-zera-line bg-white px-2.5 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10"
           onSubmit={onSearchSubmit}
         >
           <Search size={16} className="shrink-0 text-zera-muted" />
@@ -462,7 +453,8 @@ function SelectControl({ children, label, onChange, value, widthClass = "w-40" }
   );
 }
 
-function ProductTable({ business, hiddenCount, loading, onEdit, onLoadMore, onStatusToggle, products, totalCount, updatingProductId }) {
+function ProductTable({ business, loading, onEdit, onStatusToggle, products, totalCount, updatingProductId }) {
+  const pagination = usePagination(products);
   if (!loading && totalCount === 0) {
     return (
       <div className="m-4 rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-6 text-sm text-zera-muted">
@@ -473,8 +465,14 @@ function ProductTable({ business, hiddenCount, loading, onEdit, onLoadMore, onSt
 
   return (
     <>
-      <div className="overflow-x-auto">
-        <div className="max-h-[calc(100vh-292px)] min-w-[980px] overflow-y-auto">
+      <div className="divide-y divide-zera-line sm:hidden">
+        {loading ? <p className="p-4 text-sm text-zera-muted">Loading products…</p> : pagination.rows.map(product => <article key={product.id} className="space-y-3 p-4">
+          <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="break-words font-semibold">{product.name}</p><p className="mt-1 text-xs text-zera-muted">{product.sku || product.category || product.type}</p></div><span className="text-xs text-zera-muted">{product.status === 'ACTIVE' ? 'Active' : 'Paused'}</span></div>
+          <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold">{formatMoney(product.price, business.currency)}</p><p className="text-xs text-zera-muted">Min {formatMoney(product.minimumPrice || 0, business.currency)}</p></div><div className="flex gap-2"><button type="button" className="pagination-button" onClick={() => onEdit(product)}>Edit</button><button type="button" className="pagination-button" disabled={updatingProductId === product.id} onClick={() => onStatusToggle(product)}>{product.status === 'ACTIVE' ? 'Pause' : 'Activate'}</button></div></div>
+        </article>)}
+      </div>
+      <div className="hidden overflow-x-auto sm:block">
+        <div className="min-w-[980px]">
           <table className="w-full border-collapse text-left text-sm">
             <thead className="sticky top-0 z-10 border-b border-zera-line bg-zera-mintSoft text-xs font-bold uppercase text-zera-muted">
               <tr>
@@ -496,7 +494,7 @@ function ProductTable({ business, hiddenCount, loading, onEdit, onLoadMore, onSt
                 </tr>
               ) : null}
 
-              {!loading && products.map((product) => (
+              {!loading && pagination.rows.map((product) => (
                 <ProductRow
                   business={business}
                   key={product.id}
@@ -511,20 +509,7 @@ function ProductTable({ business, hiddenCount, loading, onEdit, onLoadMore, onSt
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 border-t border-zera-line px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm text-zera-muted">
-          Showing {loading ? "..." : products.length} of {loading ? "..." : totalCount} products
-        </p>
-        {hiddenCount > 0 ? (
-          <button
-            className="inline-flex min-h-10 items-center justify-center rounded-md border border-zera-line bg-white px-4 text-sm font-bold text-zera-ink hover:bg-zera-mintSoft"
-            type="button"
-            onClick={onLoadMore}
-          >
-            Load {Math.min(hiddenCount, 100)} more
-          </button>
-        ) : null}
-      </div>
+      <Pagination {...pagination} loading={loading} />
     </>
   );
 }

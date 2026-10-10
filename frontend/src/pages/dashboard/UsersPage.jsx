@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Pagination, { usePagination } from "../../components/Pagination.jsx";
 import { BriefcaseBusiness, KeyRound, Plus, Search, ShieldCheck, UserCheck, Users, UserX, X } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import Input from "../../components/Input.jsx";
@@ -229,6 +230,7 @@ export default function UsersPage() {
 }
 
 function UsersTable({ loading, onStatusToggle, updatingUserId, users }) {
+  const pagination = usePagination(users);
   return (
     <section className="overflow-hidden rounded-md border border-zera-line bg-white">
       <div className="flex items-center justify-between border-b border-zera-line p-4">
@@ -249,7 +251,7 @@ function UsersTable({ loading, onStatusToggle, updatingUserId, users }) {
           </thead>
           <tbody className="divide-y divide-zera-line">
             {!loading && users.length ? (
-              users.map((membership) => {
+              pagination.rows.map((membership) => {
                 const isActive = membership.user.status === "ACTIVE";
                 const isOwner = membership.role?.name === "Owner";
 
@@ -292,6 +294,7 @@ function UsersTable({ loading, onStatusToggle, updatingUserId, users }) {
           </tbody>
         </table>
       </div>
+      <Pagination {...pagination} loading={loading} />
     </section>
   );
 }

@@ -10,6 +10,7 @@ const appRoot = process.env.ZERA_TEST_APP_ROOT;
 const runtimeRoot = appRoot ? new URL(`file://${appRoot}/src/`) : new URL('../src/', import.meta.url);
 const { startManagedDatabase, applyMigrations, backupStoppedDatabase } = await import(new URL('localDatabase.js', runtimeRoot));
 const { provisionWorkspace, validateOwner } = await import(new URL('provisionWorkspace.js', runtimeRoot));
+const { prepareRecovery } = await import(new URL('recovery.js', runtimeRoot));
 import bcrypt from 'bcryptjs';
 const require = createRequire(import.meta.url);
 const { PrismaClient } = appRoot ? require(path.join(appRoot, '.desktop-build/backend/prisma-client')) : require('../../backend/node_modules/@prisma/client');
@@ -94,7 +95,7 @@ test('standalone database installs, provisions, persists, backs up and upgrades 
     assert.equal((await client.inventoryStock.findFirst({where:{productId:imported.id}})).quantity,12);
     await client.$disconnect(); client = null;
     await runtime.cluster.stop(); runtime = null;
-    await backupStoppedDatabase(directory);
+    const recoveryBackup = await backupStoppedDatabase(directory);
     runtime = await startManagedDatabase(directory, password);
     await applyMigrations(runtime.databaseUrl, migrations);
     client = new PrismaClient({datasources:{db:{url:runtime.databaseUrl}}});
@@ -110,6 +111,21 @@ test('standalone database installs, provisions, persists, backs up and upgrades 
     assert.equal((await client.business.findFirst()).name,'Configured shop');
     await client.$executeRaw`DELETE FROM "_prisma_migrations" WHERE id = 'upgrade-test-future'`;
     await applyMigrations(runtime.databaseUrl,migrations);
+    await client.business.updateMany({data:{name:'Changed after backup'}});
+    const recovery = await prepareRecovery(directory,path.basename(recoveryBackup),async stage => {
+      const trial = await startManagedDatabase(stage,password);
+      try { await applyMigrations(trial.databaseUrl,migrations); }
+      finally { await trial.cluster.stop(); }
+    });
+    await client.$disconnect(); client = null;
+    await runtime.cluster.stop(); runtime = null;
+    await recovery.commit();
+    runtime = await startManagedDatabase(directory,password);
+    client = new PrismaClient({datasources:{db:{url:runtime.databaseUrl}}});
+    assert.equal((await client.business.findFirst()).name,'Configured shop');
+    assert.equal((await client.sale.findFirst()).receiptNumber,savedReceipt);
+    assert.equal((await client.inventoryStock.findFirst()).quantity,12);
+    assert.equal(await client.cashCount.count(),1);
   } finally {
     globalThis.fetch=originalFetch;
     if (client) await client.$disconnect();

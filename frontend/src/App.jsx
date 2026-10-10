@@ -9,8 +9,12 @@ import CustomersPage from "./pages/customers/CustomersPage.jsx";
 import DashboardPage from "./pages/dashboard/DashboardPage.jsx";
 import SettingsPage from "./pages/dashboard/SettingsPage.jsx";
 import UsersPage from "./pages/dashboard/UsersPage.jsx";
+import PayrollPage from "./pages/finance/PayrollPage.jsx";
+import FinancialReportsPage from "./pages/finance/FinancialReportsPage.jsx";
 import FinancePage from "./pages/finance/FinancePage.jsx";
 import InventoryPage from "./pages/inventory/InventoryPage.jsx";
+import ExpensesPage from "./pages/finance/ExpensesPage.jsx";
+import MoneyPage from "./pages/finance/MoneyPage.jsx";
 import OperationsPage from "./pages/operations/OperationsPage.jsx";
 import OpenBillsPage from "./pages/pos/OpenBillsPage.jsx";
 import POSPage from "./pages/pos/POSPage.jsx";
@@ -58,7 +62,17 @@ export default function App() {
             <Route path="/purchasing" element={<PurchasingPage />} />
           </Route>
           <Route element={<BusinessModuleRoute moduleKey="FINANCE" allowedRoles={["Owner"]} />}>
+            <Route path="/finance/accounts" element={<MoneyPage />} />
+            <Route path="/finance/income" element={<MoneyPage view="income" />} />
+            <Route path="/finance/payments" element={<MoneyPage view="payments" />} />
+            <Route path="/finance/payroll" element={<PayrollPage />} />
+            <Route path="/finance/reports" element={<FinancialReportsPage />} />
+            <Route path="/money" element={<Navigate to="/finance/accounts" replace />} />
+          </Route>
+          <Route element={<BusinessModuleRoute moduleKey="FINANCE" allowedRoles={["Owner", "Store Keeper"]} />}>
             <Route path="/finance" element={<FinancePage />} />
+            <Route path="/finance/expenses" element={<ExpensesPage />} />
+            <Route path="/expenses" element={<Navigate to="/finance/expenses" replace />} />
           </Route>
           <Route element={<BusinessModuleRoute moduleKey="OPERATIONS" allowedRoles={["Owner", "Manager"]} />}>
             <Route path="/operations" element={<OperationsPage />} />

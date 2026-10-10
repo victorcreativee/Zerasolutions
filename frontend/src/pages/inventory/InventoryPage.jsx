@@ -1,4 +1,5 @@
 import { useEffect, useRef, useMemo, useState } from "react";
+import Pagination, { usePagination } from "../../components/Pagination.jsx";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -26,6 +27,7 @@ export default function InventoryPage() {
   const { activeBranch, activeBranchId, activeBusiness, activeBusinessId, activeRoleName, branches } = useWorkspace();
   const [searchParams] = useSearchParams();
   const [stockItems, setStockItems] = useState([]);
+  const [valuation, setValuation] = useState(null);
   const [recentAdjustments, setRecentAdjustments] = useState([]);
   const [selectedStockId, setSelectedStockId] = useState("");
   const [stockActionModalOpen, setStockActionModalOpen] = useState(false);
@@ -46,6 +48,7 @@ export default function InventoryPage() {
   useEffect(() => {
     if (!activeBusinessId || !activeBranchId) {
       setStockItems([]);
+      setValuation(null);
       setRecentAdjustments([]);
       return;
     }
@@ -56,9 +59,11 @@ export default function InventoryPage() {
   async function loadStock() {
     try {
       setLoading(true);
+      setValuation(null);
       setError("");
       const data = await getInventoryStock(activeBusinessId, activeBranchId);
       setStockItems(data.stockItems || []);
+      setValuation(data.valuation || null);
       setRecentAdjustments(data.recentAdjustments || []);
     } catch (apiError) {
       setError(apiError.response?.data?.message || "Unable to load inventory stock.");
@@ -212,7 +217,7 @@ export default function InventoryPage() {
   const lowStockItems = stockItems.filter((stock) => stock.reorderLevel > 0 && stock.quantity <= stock.reorderLevel);
   const missingCodeStockItems = stockItems.filter((stock) => stock.product?.type === "PHYSICAL" && !stock.product?.sku && !stock.product?.barcode);
   const totalUnits = stockItems.reduce((total, stock) => total + Number(stock.quantity || 0), 0);
-  const stockValue = stockItems.reduce((total, stock) => total + Number(stock.quantity || 0) * Number(stock.product?.price || 0), 0);
+  const stockValue = valuation?.value;
   const selectedStock = stockItems.find((stock) => stock.id === selectedStockId) || null;
   const categories = useMemo(
     () => [...new Set(physicalProducts.map((product) => product.category).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
@@ -267,6 +272,7 @@ export default function InventoryPage() {
     return matchesType && matchesCategory && matchesSearch;
   });
 
+  const pagination = usePagination(filteredStockItems);
   const readiness = [
     {
       label: "Physical catalog",
@@ -275,8 +281,8 @@ export default function InventoryPage() {
       ready: activePhysicalProducts.length > 0
     },
     {
-      label: "Stock value",
-      value: formatMoney(stockValue, activeBusiness?.currency),
+      label: "Stock at cost",
+      value: stockValue == null ? "Unavailable" : formatMoney(stockValue, activeBusiness?.currency),
       helper: `${totalUnits} unit${totalUnits === 1 ? "" : "s"} currently on hand`,
       ready: totalUnits > 0
     },
@@ -317,17 +323,9 @@ export default function InventoryPage() {
             <h2 className="mt-1 text-xl font-bold text-zera-ink">Inventory</h2>
           </div>
 
-          <InventorySummaryStrip items={readiness} loading={loading} />
+          <InventorySummaryStrip items={activeRoleName === "Owner" ? readiness : readiness.filter(item => item.label !== "Stock at cost")} loading={loading} />
 
           <div className="flex shrink-0 items-center gap-2">
-            <button
-              className="inline-flex h-9 items-center justify-center rounded-md border border-zera-line bg-white px-3 text-sm font-semibold text-zera-ink shadow-xs transition hover:bg-zera-mintSoft disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={loading}
-              type="button"
-              onClick={loadStock}
-            >
-              {loading ? "Refreshing..." : "Refresh"}
-            </button>
             <Link
               to="/products"
               className="inline-flex h-9 items-center justify-center gap-2 rounded-md bg-zera-green px-3 text-sm font-semibold text-white shadow-xs transition hover:bg-zera-greenDark"
@@ -342,8 +340,10 @@ export default function InventoryPage() {
       {error ? <div role="alert" className="rounded-md bg-red-50 px-4 py-3 text-sm text-red-700">{error}{pendingMutation.current && <button type="button" disabled={saving} className="mt-2 block underline" onClick={()=>{pendingMutation.current=null;setError("");}}>I checked stock movements — start a new action</button>}</div> : null}
       {message ? <div className="rounded-md bg-zera-mintSoft px-4 py-3 text-sm font-semibold text-zera-green">{message}</div> : null}
 
+      {valuation?.missingCostProducts > 0 && <p className="rounded-md bg-amber-50 px-4 py-3 text-sm text-amber-800">Stock value is incomplete: {valuation.missingCostProducts} stocked products have no cost price. <Link to="/products" className="font-semibold underline">Update product costs</Link></p>}
+      {valuation && !valuation.missingCostProducts && <p className="text-xs text-zera-muted">Stock valued at current product cost.</p>}
       <section className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <article className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
+        <article className="min-w-0 overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
           <div className="flex flex-col gap-3 border-b border-zera-line px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-center gap-3">
               <IconFrame icon={Boxes} />
@@ -355,12 +355,13 @@ export default function InventoryPage() {
               </div>
             </div>
             <div className="min-w-0 overflow-x-auto">
-              <div className="flex min-w-max flex-nowrap items-center gap-2 lg:min-w-0">
-                <label className="flex h-9 w-[280px] shrink-0 items-center gap-2 rounded-md border border-zera-line bg-white px-2.5 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex h-9 w-full sm:w-[280px] items-center gap-2 rounded-md border border-zera-line bg-white px-2.5 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10">
                   <Search size={16} className="shrink-0 text-zera-muted" />
                   <input
                     className="w-full border-0 bg-transparent text-sm outline-none"
                     placeholder="Search item, SKU, barcode"
+                    aria-label="Search inventory"
                     value={search}
                     onChange={(event) => setSearch(event.target.value)}
                   />
@@ -407,8 +408,14 @@ export default function InventoryPage() {
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <div className="max-h-[calc(100vh-255px)] min-w-[980px] overflow-y-auto">
+          <div className="divide-y divide-zera-line sm:hidden">
+            {loading ? <p className="p-4 text-sm text-zera-muted">Loading stock…</p> : !filteredStockItems.length ? <p className="p-4 text-sm text-zera-muted">No matching stock.</p> : pagination.rows.map(stock => <button type="button" key={stock.id} onClick={() => selectStock(stock, 'RECEIVE', true)} className="flex w-full items-center justify-between gap-3 p-4 text-left hover:bg-zera-mintSoft">
+              <span className="min-w-0"><span className="block break-words font-semibold">{stock.product.name}</span><span className="mt-1 block text-xs text-zera-muted">{stock.product.sku || stock.product.category || '—'}</span></span>
+              <span className="shrink-0 text-right"><span className="block text-lg font-bold">{stock.quantity}</span><span className="text-xs text-zera-muted">On hand</span></span>
+            </button>)}
+          </div>
+          <div className="hidden overflow-x-auto sm:block">
+            <div className="min-w-[760px]">
               <table className="w-full border-collapse text-left text-sm">
                 <thead className="sticky top-0 z-10 border-b border-zera-line bg-zera-mintSoft text-xs font-bold uppercase text-zera-muted">
                   <tr>
@@ -428,7 +435,7 @@ export default function InventoryPage() {
                       </td>
                     </tr>
                   ) : null}
-                  {filteredStockItems.map((stock) => (
+                  {pagination.rows.map((stock) => (
                     <InventoryRow
                       key={stock.id}
                       active={stock.id === selectedStock?.id}
@@ -441,9 +448,10 @@ export default function InventoryPage() {
               </table>
             </div>
           </div>
+          <Pagination {...pagination} loading={loading} />
         </article>
 
-        <aside className="space-y-4">
+        <aside className="min-w-0 space-y-4">
           <InventoryPriorityPanel
             currency={activeBusiness.currency}
             lowStockItems={lowStockItems}
@@ -1022,7 +1030,7 @@ function InventoryRow({ active, currency, onSelect, stock }) {
     >
       <td className="px-3 py-3">
         <div className="min-w-0">
-          <p className="truncate font-bold">{product.name}</p>
+          <button type="button" className="truncate text-left font-bold" onClick={onSelect} aria-label={`Manage stock for ${product.name}`}>{product.name}</button>
           <p className="mt-1 text-xs text-zera-muted">
             {formatMoney(product.price, currency)}
             {product.unit ? ` / ${product.unit}` : ""}

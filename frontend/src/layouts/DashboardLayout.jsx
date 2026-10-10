@@ -1,4 +1,5 @@
 import NotificationCenter from "../components/NotificationCenter.jsx";
+import WorkspaceSearch from "../components/WorkspaceSearch.jsx";
 import {
   Building2,
   ChevronDown,
@@ -50,7 +51,7 @@ export default function DashboardLayout() {
 
     const activeBusiness = businesses.find((business) => business.id === activeBusinessId);
     const activeModuleKeys = activeBusiness?.modules?.filter((module) => module.active).map((module) => module.key) || [];
-    return getBusinessNavigationForMode(getVisibleNavigation(businessNavigation, activeRoleName, activeModuleKeys), activeBusiness);
+    return getBusinessNavigationForMode(getVisibleNavigation(businessNavigation, activeRoleName, activeModuleKeys, activeBusiness), activeBusiness);
   }, [activeBusinessId, activeRoleName, businesses, isSystemAdmin]);
 
   useEffect(() => {
@@ -61,6 +62,12 @@ export default function DashboardLayout() {
     setSidebarOpen(false);
     setUserMenuOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const close = event => { if (event.key === 'Escape') { setSidebarOpen(false); setUserMenuOpen(false); } };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, []);
 
   useEffect(() => {
     function closeUserMenu(event) {
@@ -80,7 +87,7 @@ export default function DashboardLayout() {
   const desktopContentOffset = sidebarCollapsed ? "lg:pl-[78px]" : "lg:pl-64";
 
   return (
-    <div style={brandTheme(brandedBusiness)} className="min-h-screen bg-zera-canvas text-zera-ink">
+    <div style={brandTheme(brandedBusiness)} className={`min-h-screen bg-zera-canvas text-zera-ink ${!isSystemAdmin ? 'workspace-ui' : ''}`}>
       <aside
         className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col border-r border-zera-line bg-[#fbfdfc] shadow-[6px_0_24px_rgba(23,33,29,0.03)] transition-all duration-200 lg:translate-x-0 ${desktopSidebarWidth} ${
           sidebarOpen ? "translate-x-0" : "-translate-x-full"
@@ -219,7 +226,7 @@ export default function DashboardLayout() {
       ) : null}
 
       <div className={`min-w-0 transition-[padding] duration-200 ${desktopContentOffset}`}>
-        <header className="sticky top-0 z-20 border-b border-zera-line bg-white/95 shadow-[0_1px_0_rgba(23,33,29,0.02)] backdrop-blur lg:hidden">
+        <header className={`sticky top-0 z-20 border-b border-zera-line bg-white/95 backdrop-blur ${isSystemAdmin ? 'lg:hidden' : ''}`}>
           <div className="flex min-h-[56px] items-center gap-3 px-4 sm:px-5">
             <button
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-zera-line bg-white text-zera-ink shadow-xs lg:hidden"
@@ -229,10 +236,11 @@ export default function DashboardLayout() {
               <Menu size={20} />
             </button>
 
-            <div className="min-w-0 flex-1" />
+            <div className="min-w-0 flex-1">{!isSystemAdmin && <WorkspaceSearch navigation={navigation} />}</div>
+            {!isSystemAdmin && <span className="hidden text-xs text-zera-muted lg:block">{branches.find(branch => branch.id === activeBranchId)?.name}</span>}
 
             {!isSystemAdmin ? (
-            <div className="relative" ref={topUserMenuRef}>
+            <div className="relative lg:hidden" ref={topUserMenuRef}>
               <button
                 className="flex h-10 items-center gap-2 rounded-md border border-zera-line bg-white px-2 text-left shadow-xs hover:bg-zera-surface"
                 onClick={() => setUserMenuOpen((current) => !current)}
@@ -317,6 +325,7 @@ function getBusinessNavigationForMode(groups, business) {
 
 function isNavigationTargetActive(targetPath, location, includeChildren = false) {
   const [pathname, search = ""] = targetPath.split("?");
+  if(pathname === "/finance" && location.pathname.startsWith("/finance/")) return true;
 
   if (pathname !== location.pathname) {
     return false;

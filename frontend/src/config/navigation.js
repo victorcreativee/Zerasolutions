@@ -1,4 +1,5 @@
 import {
+  Banknote,
   BarChart3,
   Boxes,
   Building2,
@@ -48,7 +49,7 @@ export const businessNavigation = [
     label: "Insights",
     items: [
       { label: "Reports", path: "/reports", icon: BarChart3, roles: reportRoles, modules: ["REPORTS", "POS"] },
-      { label: "Finance", path: "/finance", icon: Wallet, roles: ["Owner"], modules: ["FINANCE"] }
+      { label: "Finance", path: "/finance", icon: Wallet, roles: ["Owner", "Store Keeper"], modules: ["FINANCE"] },
     ]
   },
   {
@@ -90,7 +91,15 @@ const routeMetadata = {
   "/inventory": { title: "Inventory", section: "Operations" },
   "/operations": { title: "Operations", section: "Operations" },
   "/reports": { title: "Reports", section: "Insights" },
+  "/finance/accounts": { title: "Money accounts", section: "Finance" },
+  "/finance/expenses": { title: "Expenses", section: "Finance" },
+  "/finance/income": { title: "Income", section: "Finance" },
+  "/finance/payments": { title: "Payments", section: "Finance" },
+  "/finance/payroll": { title: "Payroll", section: "Finance" },
+  "/finance/reports": { title: "Financial reports", section: "Finance" },
   "/finance": { title: "Finance", section: "Insights" },
+  "/expenses": { title: "Expenses", section: "Operations" },
+  "/money": { title: "Money accounts", section: "Insights" },
   "/users": { title: "Team", section: "Administration" },
   "/settings": { title: "Business Settings", section: "Administration" },
   "/system-admin": { title: "System Control", section: "Zera Platform" }
@@ -100,11 +109,12 @@ export function getRouteMetadata(pathname) {
   return routeMetadata[pathname] || { title: "Zera Solutions", section: "Workspace" };
 }
 
-export function getVisibleNavigation(groups, roleName, activeModuleKeys) {
+export function getVisibleNavigation(groups, roleName, activeModuleKeys, business) {
   return groups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
+        if (item.path === "/finance" && roleName === "Store Keeper" && business?.features?.typeKey !== "RETAIL_SHOP") return false;
         const roleAllowed = !item.roles || item.roles.includes(roleName || "Cashier");
         const moduleAllowed = !item.modules || item.modules.some((module) => activeModuleKeys.includes(module));
         return roleAllowed && moduleAllowed;

@@ -95,7 +95,8 @@ inventoryRouter.get("/business/:businessId/branch/:branchId", async (req, res, n
   try {
     const { businessId, branchId } = req.params;
 
-    await assertInventoryWorkspace(req.user, businessId, branchId);
+    const { roleName } = await assertInventoryWorkspace(req.user, businessId, branchId);
+    const owner = roleName === "Owner";
     await ensureStockRows(businessId, branchId);
 
     const [stockItems, recentAdjustments] = await Promise.all([
@@ -107,7 +108,7 @@ inventoryRouter.get("/business/:businessId/branch/:branchId", async (req, res, n
             type: "PHYSICAL"
           }
         },
-        include: stockInclude(),
+        include: { product: owner ? { include: { privateCost: true } } : true, branch: true },
         orderBy: [{ product: { name: "asc" } }]
       }),
       prisma.stockAdjustment.findMany({
@@ -130,7 +131,17 @@ inventoryRouter.get("/business/:businessId/branch/:branchId", async (req, res, n
       })
     ]);
 
-    res.json({ stockItems, recentAdjustments });
+    const valuation = owner ? stockItems.reduce((result, stock) => {
+      const cost = stock.product.privateCost?.amount;
+      if (Number(stock.quantity) > 0 && cost == null) result.missingCostProducts += 1;
+      if (cost != null) result.value += Number(stock.quantity) * Number(cost);
+      return result;
+    }, { value: 0, missingCostProducts: 0, basis: "CURRENT_COST" }) : null;
+    if (valuation) valuation.value = Math.round(valuation.value * 100) / 100;
+    res.json({ stockItems: stockItems.map(stock => {
+      const { privateCost, ...product } = stock.product;
+      return { ...stock, product };
+    }), recentAdjustments, valuation });
   } catch (error) {
     next(error);
   }

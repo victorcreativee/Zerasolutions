@@ -73,6 +73,55 @@ select:disabled {
   width: 80mm;
 }
 
+@layer components {
+  .pagination-button {
+    @apply inline-flex h-9 min-w-9 items-center justify-center rounded-lg border border-zera-line px-2 text-sm transition hover:bg-zera-mintSoft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zera-green disabled:cursor-not-allowed disabled:opacity-40;
+  }
+}
+
+/* Workspace surfaces share the organization palette and leave receipts untouched. */
+@media screen {
+  .workspace-ui > aside { background: white; box-shadow: none; }
+  .workspace-ui nav a { border-radius: 10px; }
+  .workspace-ui nav a.bg-white { background: rgb(var(--zera-mint, 232 248 239)); box-shadow: none; border-color: transparent; }
+  .workspace-ui > div > main { min-width: 0; padding: 28px 32px; }
+  .workspace-ui main > div { row-gap: 20px; }
+  .workspace-ui main > div > header { border-bottom: 0; padding-bottom: 8px; }
+  .workspace-ui main > div > header h2 { font-size: 28px; letter-spacing: -0.035em; }
+  .workspace-ui main section.rounded-md,
+  .workspace-ui main article.rounded-md { border-radius: 12px; box-shadow: none; }
+  /* One visual language for every business workspace, including table service. */
+  .workspace-ui main > div > header.rounded-md { border-radius: 12px; padding-bottom: 0; }
+  .workspace-ui main > div > section:first-child h2,
+  .workspace-ui main > div > header h2 { font-size: 28px; line-height: 1.2; letter-spacing: -0.035em; }
+  .workspace-ui main .grid > * { min-width: 0; }
+  .workspace-ui main article,
+  .workspace-ui main section { min-width: 0; }
+  .workspace-ui main [class*="divide-zera-line"] > div { font-variant-numeric: tabular-nums; }
+  .workspace-ui main table tbody tr:focus-visible { outline: 2px solid rgb(var(--zera-green)); outline-offset: -2px; }
+  .workspace-ui main button,
+  .workspace-ui main input:not([type=checkbox]):not([type=radio]),
+  .workspace-ui main select { min-height: 40px; }
+  .workspace-ui main table { font-variant-numeric: tabular-nums; }
+  .workspace-ui main th { background: #f7f9f8; font-size: 11px; letter-spacing: .045em; padding-top: 13px; padding-bottom: 13px; }
+  .workspace-ui main td { padding-top: 15px; padding-bottom: 15px; }
+  .workspace-ui main input:not([type=checkbox]):not([type=radio]),
+  .workspace-ui main select,
+  .workspace-ui main textarea { border-radius: 8px; }
+  .workspace-ui main button { border-radius: 8px; }
+  .workspace-ui button:focus-visible,
+  .workspace-ui a:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+  @media (max-width: 767px) {
+    .workspace-ui > div > main { min-width: 0; padding: 18px 12px; }
+    .workspace-ui main > div > header h2,
+    .workspace-ui main > div > section:first-child h2 { font-size: 24px; }
+    .workspace-ui main td { padding-top: 12px; padding-bottom: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .workspace-ui * { transition: none !important; }
+  }
+}
+
 @media print {
   @page {
     size: 80mm auto;

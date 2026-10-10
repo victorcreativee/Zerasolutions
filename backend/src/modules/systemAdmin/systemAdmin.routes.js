@@ -68,8 +68,11 @@ export async function runInstallerWorker() {
         const sha256 = await artifactDigest(target);
         const info = await stat(target);
         await prisma.installerBuild.update({where:{id:job.id},data:{status:'READY',fileName:installer.fileName,sha256,byteSize:info.size,finishedAt:new Date()}});
-      } catch {
-        await prisma.installerBuild.update({where:{id:job.id},data:{status:'FAILED',error:'Installer build failed. Check the build host and signing configuration, then retry.',finishedAt:new Date()}});
+      } catch (error) {
+        const message = error.buildFailure === 'DEPENDENCIES'
+          ? 'Dependency download or installation failed after 3 attempts. Check the build computer’s internet connection and npm logs, then retry.'
+          : 'Installer build failed. Check the build log on the build computer, then retry.';
+        await prisma.installerBuild.update({where:{id:job.id},data:{status:'FAILED',error:message,finishedAt:new Date()}});
       }
     }, {timeout:45*60*1000,maxWait:5000});
   } catch (error) { console.error('Installer worker unavailable:',error.code || error.name); }

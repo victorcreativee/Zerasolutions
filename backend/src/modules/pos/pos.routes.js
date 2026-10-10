@@ -1,3 +1,4 @@
+import { recordSaleMoney, reverseSaleMoney } from '../../utils/moneyLedger.js';
 import {saleRequestIdentity, previousSale} from '../../utils/saleRetry.js';
 import { ensureInventoryStock } from "../../utils/inventoryStock.js";
 import { saleUnitPrice, enforceMinimumTotal } from '../../utils/salePrice.js';
@@ -1061,6 +1062,7 @@ posRouter.patch("/orders/:orderId/pay", async (req, res, next) => {
         }
       });
 
+      await recordSaleMoney(transaction, paidSale);
       await deductStockForSale(transaction, {
         businessId: existingOrder.businessId,
         branchId: existingOrder.branchId,
@@ -1436,6 +1438,7 @@ posRouter.patch("/sales/business/:businessId/:saleId/void", async (req, res, nex
         }
       });
 
+      await reverseSaleMoney(transaction, voidedSale, req.user.id);
       await restoreStockForVoidedSale(transaction, {
         businessId,
         receiptNumber: voidedSale.receiptNumber,
@@ -1680,6 +1683,7 @@ posRouter.post("/sales", async (req, res, next) => {
         }
       });
 
+      await recordSaleMoney(transaction, recordedSale);
       await deductStockForSale(transaction, {
         businessId,
         branchId,

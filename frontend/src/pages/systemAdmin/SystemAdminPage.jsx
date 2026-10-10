@@ -942,7 +942,7 @@ export default function SystemAdminPage() {
       const link = document.createElement("a");
 
       link.href = url;
-      link.download = filename || `${slugifyFileName(selectedBusiness.name)}-${platform}-installer`;
+      link.download = filename || `${slugifyFileName(selectedBusiness.name)}-${platform}-installer.${platform === 'windows' ? 'exe' : 'dmg'}`;
       document.body.appendChild(link);
       link.click();
       link.remove();

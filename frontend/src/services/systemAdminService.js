@@ -84,7 +84,7 @@ export async function downloadSystemBusinessDesktopInstaller(businessId, platfor
 
   return {
     blob: response.data,
-    filename: filenameMatch?.[1] || `zera-${platform}-installer`
+    filename: filenameMatch?.[1] || `zera-${platform}-installer.${platform === 'windows' ? 'exe' : 'dmg'}`
   };
 }
 

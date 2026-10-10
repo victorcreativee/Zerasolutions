@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Pagination, { usePagination } from "../../components/Pagination.jsx";
 import { BarChart3, Banknote, Boxes, CreditCard, Download, MapPin, ReceiptText, RefreshCcw, Smartphone } from "lucide-react";
 import Button from "../../components/Button.jsx";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
@@ -127,7 +128,8 @@ export default function ReportsPage() {
         <div className="grid gap-4 border-b border-zera-line px-4 py-4 lg:grid-cols-[1fr_auto] lg:items-center">
           <div>
 
-            <h2 className="mt-1 text-xl font-bold">Reports</h2>
+            <h2 className="mt-1 text-xl font-bold">Sales report</h2>
+            <p className="mt-1 text-sm text-zera-muted">{activeBusiness.name} · {formatDateLabel(filters.dateFrom)} – {formatDateLabel(filters.dateTo)}</p>
 
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -135,18 +137,14 @@ export default function ReportsPage() {
               <Download size={16} />
               {exporting ? "Exporting..." : "Export CSV"}
             </Button>
-            <Button type="button" variant="secondary" className="h-10 gap-2 px-3 shadow-xs" onClick={loadReport}>
-              <RefreshCcw size={16} />
-              Refresh
-            </Button>
           </div>
         </div>
 
         <div className="grid divide-y divide-zera-line md:grid-cols-4 md:divide-x md:divide-y-0">
-          <ReportMetricCell icon={Banknote} label="Net sales" value={loading ? "..." : formatMoney(totalSales, activeBusiness.currency)} helper="Completed receipts" />
-          <ReportMetricCell icon={ReceiptText} label="Receipts" value={loading ? "..." : receiptCount} helper={`${voidedCount} voided`} />
+          <ReportMetricCell icon={Banknote} label="Sales collected" value={loading ? "..." : formatMoney(totalSales, activeBusiness.currency)} helper="Including tax" />
+          <ReportMetricCell icon={ReceiptText} label="Receipts" value={loading ? "..." : receiptCount} helper={`Average ${formatMoney(averageSale, activeBusiness.currency)}`} />
           <ReportMetricCell icon={Boxes} label="Discounts" value={loading ? "..." : formatMoney(discountTotal, activeBusiness.currency)} />
-          <ReportMetricCell icon={BarChart3} label="Tax collected" value={loading ? "..." : formatMoney(taxCollected, activeBusiness.currency)} helper={`Average ${formatMoney(averageSale, activeBusiness.currency)}`} />
+          <ReportMetricCell icon={BarChart3} label="Tax collected" value={loading ? "..." : formatMoney(taxCollected, activeBusiness.currency)} helper={`${voidedCount} voided receipts excluded`} />
         </div>
       </section>
 
@@ -210,13 +208,17 @@ export default function ReportsPage() {
           </Button>
         </div>
 
-        <div className="mt-3 grid gap-2 border-t border-zera-line pt-3 md:grid-cols-3">
-          <ReportNote label="Selected period" value={`${formatDateLabel(filters.dateFrom)} to ${formatDateLabel(filters.dateTo)}`} />
-          <ReportNote label="Business" value={activeBusiness.name} />
-          <ReportNote label="Branch view" value={filters.branchId ? branches.find((branch) => branch.id === filters.branchId)?.name || "Selected branch" : "All branches"} />
-        </div>
       </section>
 
+      <section className="rounded-md border border-zera-line bg-white p-5">
+        <h3 className="font-bold">Period summary</h3>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div><p className="text-sm text-zera-muted">Net sales, excluding tax</p><p className="text-xl font-bold">{loading ? '…' : formatMoney(reportSummary.netSales ?? totalSales - taxCollected, activeBusiness.currency)}</p></div>
+          <div><p className="text-sm text-zera-muted">Items sold</p><p className="text-xl font-bold">{loading ? '…' : itemCount}</p></div>
+          {report?.expenses && <><div><p className="text-sm text-zera-muted">Approved expenses</p><p className="text-xl font-bold">{loading ? '…' : formatMoney(report.expenses.APPROVED.amount, activeBusiness.currency)}</p></div><div><p className="text-sm text-zera-muted">Pending expenses</p><p className="text-xl font-bold">{loading ? '…' : formatMoney(report.expenses.PENDING.amount, activeBusiness.currency)}</p><p className="text-xs text-zera-muted">{report.expenses.PENDING.count} awaiting approval</p></div></>}
+        </div>
+        {report?.expenses && <p className="mt-4 text-xs text-zera-muted">Expenses use the selected dates and branch, across all payment methods. Product costs are not deducted from net sales.</p>}
+      </section>
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="space-y-4">
           <SalesTable currency={activeBusiness.currency} loading={loading} rows={completedSales} />
@@ -227,14 +229,6 @@ export default function ReportsPage() {
           <CompactPanel title="Payment mix" rows={paymentRows} currency={activeBusiness.currency} iconMap={paymentIcons} unitLabel="receipt" />
           <CompactPanel title="Branch sales" rows={branchRows} currency={activeBusiness.currency} fallbackIcon={MapPin} unitLabel="receipt" />
           <CompactPanel title="Top products" rows={productRows} currency={activeBusiness.currency} fallbackIcon={Boxes} unitLabel="item" />
-          <div className="rounded-md border border-zera-line bg-white p-4 shadow-xs">
-            <p className="text-xs font-bold uppercase text-zera-muted">Notes</p>
-            <div className="mt-3 grid gap-2">
-              <Note label="Items sold" value={`${itemCount}`} />
-              <Note label="Voided receipts" value={`${voidedCount}`} />
-              <Note label="Source" value="POS sales only" />
-            </div>
-          </div>
         </aside>
       </section>
     </div>
@@ -242,6 +236,7 @@ export default function ReportsPage() {
 }
 
 function SalesTable({ currency, loading, rows }) {
+  const pagination = usePagination(rows);
   return (
     <section className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
       <div className="flex items-center justify-between border-b border-zera-line p-4">
@@ -265,7 +260,7 @@ function SalesTable({ currency, loading, rows }) {
           </thead>
           <tbody>
             {!loading && rows.length ? (
-              rows.slice(0, 12).map((sale) => (
+              pagination.rows.map((sale) => (
                 <tr className="border-b border-zera-line last:border-0 hover:bg-zera-mintSoft/70" key={sale.id}>
                   <td className="px-4 py-3 font-bold text-zera-ink">{sale.receiptNumber}</td>
                   <td className="px-4 py-3 text-zera-muted">{sale.branch?.name || "Branch"}</td>
@@ -285,6 +280,7 @@ function SalesTable({ currency, loading, rows }) {
           </tbody>
         </table>
       </div>
+      <Pagination {...pagination} loading={loading} />
     </section>
   );
 }
@@ -382,8 +378,8 @@ function ReportMetricCell({ helper, icon: Icon, label, value }) {
         </div>
         <div className="min-w-0">
           <p className="text-xs font-bold uppercase text-zera-muted">{label}</p>
-          <p className="mt-1 truncate text-lg font-bold text-zera-ink">{value}</p>
-          {helper ? <p className="mt-0.5 truncate text-xs text-zera-muted">{helper}</p> : null}
+          <p className="mt-1 break-words text-lg font-bold text-zera-ink">{value}</p>
+          {helper ? <p className="mt-0.5 text-xs text-zera-muted">{helper}</p> : null}
         </div>
       </div>
     </article>
@@ -475,6 +471,7 @@ function buildWaiterRows(sales) {
   return Object.values(
     sales.reduce((rows, sale) => {
       const waiter = sale.posOrder?.waiter;
+      if (!waiter) return rows;
       const key = waiter?.id || "no-waiter";
       const current = rows[key] || { key, label: waiter?.name || "Counter sale", quantity: 0, total: 0 };
       rows[key] = {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Banknote, CheckCircle2, Clock3, CreditCard, Printer, ReceiptText, RefreshCcw, Smartphone, Table2, Trash2, UserRound } from "lucide-react";
+import Pagination, { usePagination } from "../../components/Pagination.jsx";
 import Button from "../../components/Button.jsx";
 import PrintableBill from "../../components/PrintableBill.jsx";
 import PrintableReceipt from "../../components/PrintableReceipt.jsx";
@@ -31,7 +32,8 @@ export default function OpenBillsPage() {
   const billStats = useMemo(() => buildBillQueueStats(orders), [orders]);
   const sortedOrders = useMemo(() => sortBillsForCashier(orders), [orders]);
   const visibleOrders = useMemo(() => filterBillsForCashier(sortedOrders, billFilter), [billFilter, sortedOrders]);
-  const selectedOrder = visibleOrders.find((order) => order.id === selectedOrderId) || visibleOrders[0] || null;
+  const billPagination = usePagination(visibleOrders, 10);
+  const selectedOrder = billPagination.rows.find((order) => order.id === selectedOrderId) || billPagination.rows[0] || null;
   const totalDue = orders.reduce((total, order) => total + Number(order.total), 0);
   const selectedItemsTotal = useMemo(
     () => selectedOrder?.items?.reduce((total, item) => total + Number(item.lineTotal), 0) || Number(selectedOrder?.subtotal || selectedOrder?.total || 0),
@@ -145,7 +147,7 @@ export default function OpenBillsPage() {
         <div className="flex flex-col gap-4 border-b border-zera-line px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
 
-            <h2 className="mt-1 text-2xl font-bold">Settle table bills</h2>
+            <h2 className="mt-1 text-2xl font-bold">Open bills</h2>
 
           </div>
           <Button type="button" variant="secondary" className="h-10 gap-2 px-3" onClick={loadOpenBills}>
@@ -194,7 +196,7 @@ export default function OpenBillsPage() {
             </p>
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="hidden overflow-x-auto md:block">
             <table className="min-w-[860px] w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-zera-line bg-zera-mintSoft text-xs uppercase text-zera-muted">
@@ -208,7 +210,7 @@ export default function OpenBillsPage() {
               </thead>
               <tbody>
                 {!loading && visibleOrders.length ? (
-                  visibleOrders.map((order) => {
+                  billPagination.rows.map((order) => {
                     const isSelected = selectedOrder?.id === order.id;
 
                     return (
@@ -216,6 +218,9 @@ export default function OpenBillsPage() {
                         key={order.id}
                         className={`cursor-pointer border-b border-zera-line last:border-0 ${isSelected ? "bg-zera-mintSoft" : "hover:bg-zera-mintSoft"}`}
                         onClick={() => setSelectedOrderId(order.id)}
+                        tabIndex={0}
+                        aria-selected={isSelected}
+                        onKeyDown={event => { if(event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedOrderId(order.id); } }}
                       >
                         <td className="px-4 py-3">
                           <p className="font-bold text-zera-ink">{order.table?.name || "Table bill"}</p>
@@ -241,6 +246,13 @@ export default function OpenBillsPage() {
               </tbody>
             </table>
           </div>
+          <div className="divide-y divide-zera-line md:hidden">
+            {loading ? <p className="p-4 text-sm text-zera-muted">Loading bills…</p> : billPagination.rows.length ? billPagination.rows.map(order => <button key={order.id} type="button" aria-pressed={selectedOrder?.id === order.id} onClick={() => setSelectedOrderId(order.id)} className={`flex w-full items-start justify-between gap-3 p-4 text-left ${selectedOrder?.id === order.id ? 'bg-zera-mintSoft' : 'bg-white'}`}>
+              <span className="min-w-0"><span className="block font-semibold">{order.table?.name || 'Table bill'}</span><span className="block text-xs text-zera-muted">{order.orderNumber} · {order.waiter?.name || 'Staff'}</span><StatusBadge status={order.status} /></span>
+              <span className="shrink-0 text-sm font-bold">{formatMoney(order.total, activeBusiness.currency)}</span>
+            </button>) : <p className="p-4 text-sm text-zera-muted">No bills in this queue.</p>}
+          </div>
+          <Pagination {...billPagination} loading={loading || savingPayment} />
         </article>
 
         <aside className="space-y-4">

@@ -7,6 +7,7 @@ import { startApplicationServer } from './localServer.js';
 import { DeviceManagement } from './deviceManagement.js';
 import { validateSharedServer } from './sharedServer.js';
 import { readRuntimeSettings, saveRuntimeSettings, validateDatabaseUrl } from './runtimeSettings.js';
+import { prepareRecovery, listRecoveryBackups, recoverInterruptedRestore } from './recovery.js';
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile, rename } from "node:fs/promises";
 import path from "node:path";
@@ -37,6 +38,7 @@ const require = createRequire(import.meta.url);
 
 async function prepareManagedDatabase(settings) {
   const directory = electronApp.getPath('userData');
+  await recoverInterruptedRestore(directory);
   const migrationsDir = path.join(backendRoot, 'prisma', 'migrations');
   const names = (await readdir(migrationsDir, {withFileTypes:true})).filter(item => item.isDirectory()).map(item => item.name).sort();
   const hash = createHash('sha256');
@@ -226,11 +228,75 @@ async function openManagement() {
   await managementWindow.loadFile(path.join(__dirname,'management.html'));
 }
 
+async function stopWorkspace() {
+  deviceManagement?.stop();
+  for (const server of [sharedApiServer, apiServer]) {
+    if (server) { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
+  }
+  sharedApiServer = null;
+  apiServer = null;
+  if (desktopContext) {
+    const { prisma } = await import(pathToFileURL(path.join(backendRoot, 'src/config/prisma.js')).href);
+    await prisma.$disconnect();
+  }
+  if (managedDatabase) { await managedDatabase.cluster.stop(); managedDatabase = null; }
+}
+
+async function restoreLocalBackup() {
+  if (configuring) return;
+  configuring = true;
+  let prepared;
+  let stopped = false;
+  try {
+    const directory = electronApp.getPath('userData');
+    const settings = await readRuntimeSettings(directory, safeStorage);
+    if (!settings?.managed || !managedDatabase || !desktopContext) throw new Error('Open your local workspace before restoring a backup.');
+    if (!(await listRecoveryBackups(directory)).length) throw new Error('No completed backups are available yet.');
+    const selection = await dialog.showOpenDialog({title:'Select a local Zera backup',defaultPath:path.join(directory,'backups'),properties:['openDirectory']});
+    if (selection.canceled) return;
+    const selected = selection.filePaths[0];
+    if (path.dirname(selected) !== path.join(directory,'backups')) throw new Error('Select a backup inside this installation’s backups folder.');
+    const candidates = await listRecoveryBackups(directory);
+    const backup = candidates.find(item => item.name === path.basename(selected));
+    if (!backup) throw new Error('Select a completed backup.');
+    const confirmation = await dialog.showMessageBox({type:'warning',title:'Restore backup',message:`Restore the backup from ${new Date(backup.createdAt).toLocaleString()}?`,detail:'Sales, stock and other changes after this backup will be removed from the active workspace. Connected tills will disconnect. The current database will be retained on this computer. Zera will restart.',buttons:['Cancel','Restore backup'],defaultId:0,cancelId:0});
+    if (confirmation.response !== 1) return;
+    const { PrismaClient } = require(path.join(backendRoot,'prisma-client'));
+    const currentClient = new PrismaClient({datasources:{db:{url:managedDatabase.databaseUrl}}});
+    let businessIds;
+    try { businessIds = (await currentClient.business.findMany({select:{id:true}})).map(item=>item.id).sort().join(','); }
+    finally { await currentClient.$disconnect(); }
+    prepared = await prepareRecovery(directory, backup.name, async stage => {
+      const trial = await startManagedDatabase(stage, decodeURIComponent(new URL(settings.databaseUrl).password));
+      let client;
+      try {
+        await applyMigrations(trial.databaseUrl,path.join(backendRoot,'prisma','migrations'));
+        await verifyDatabase(trial.databaseUrl);
+        client = new PrismaClient({datasources:{db:{url:trial.databaseUrl}}});
+        const restoredIds = (await client.business.findMany({select:{id:true}})).map(item=>item.id).sort().join(',');
+        if (!businessIds || restoredIds !== businessIds) throw new Error('This backup belongs to another workspace.');
+      } finally { if (client) await client.$disconnect(); await trial.cluster.stop(); }
+    });
+    stopped = true;
+    await stopWorkspace();
+    await prepared.commit();
+    prepared = null;
+    await dialog.showMessageBox({message:'Backup restored. Zera will restart.',detail:'Sign in again to continue.'});
+  } catch (error) {
+    await dialog.showMessageBox({type:'error',message:'Restore could not complete.',detail:error.message});
+  } finally {
+    if (prepared) await prepared.cancel();
+    configuring = false;
+    if (stopped) { electronApp.relaunch(); electronApp.quit(); }
+  }
+}
+
 electronApp.whenReady().then(async () => {
   if (!hasInstanceLock) return;
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     ...(process.platform === 'darwin' ? [{ role: 'appMenu' }] : []),
     { label: 'Application', submenu: [{ label: 'Settings…', click: () => openApplicationSettings() },{label:'Connection & services…',click:() => openManagement()}, {label:'Access address',click:() => dialog.showMessageBox({message:desktopContext?.sharedAccessUrl || desktopContext?.accessUrl || 'Complete setup first.',detail:sharedApiServer ? 'Shared HTTPS access is available while Zera is running.' : 'This address works on this computer while Zera is running.'})}, { role: 'quit' }] },
+    {label:'Recovery',submenu:[{label:'Restore local backup…',click:() => restoreLocalBackup()}]},
     { role: 'editMenu' }, { role: 'viewMenu' }
   ]));
   try {
@@ -277,6 +343,7 @@ electronApp.on("window-all-closed", () => {
 
 electronApp.on("before-quit", event => {
   if (quitting) return;
+  if (configuring) { event.preventDefault(); return; }
   event.preventDefault();
   quitting = true;
   (async () => {

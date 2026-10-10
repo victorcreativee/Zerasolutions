@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import Pagination, { usePagination } from "../../components/Pagination.jsx";
 import { Banknote, Eye, Mail, Pencil, Phone, Plus, ReceiptText, Search, ToggleLeft, ToggleRight, UserRound, X } from "lucide-react";
 import { useWorkspace } from "../../context/WorkspaceContext.jsx";
 import { createCustomer, getCustomerSummary, getCustomers, updateCustomer, updateCustomerStatus } from "../../services/customerService.js";
@@ -255,17 +256,17 @@ export default function CustomersPage() {
 
 function CustomerCounts({ activeCount, inactiveCount, loading, totalCount }) {
   const items = [
-    { label: "Visible", value: totalCount },
+    { label: "Customers", value: totalCount },
     { label: "Active", value: activeCount },
     { label: "Inactive", value: inactiveCount }
   ];
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="grid grid-cols-3 overflow-hidden rounded-xl border border-zera-line bg-white">
       {items.map((item) => (
-        <div className="inline-flex min-h-9 items-center gap-2 rounded-md border border-zera-line bg-white px-3 text-sm text-zera-muted shadow-xs" key={item.label}>
-          <span className="font-semibold">{item.label}</span>
-          <span className="font-bold text-zera-ink">{loading ? "..." : item.value}</span>
+        <div className="flex min-h-20 flex-col justify-center gap-1 border-r border-zera-line px-4 text-zera-muted last:border-r-0" key={item.label}>
+          <span className="text-xs">{item.label}</span>
+          <span className="text-2xl font-bold text-zera-ink">{loading ? "..." : item.value}</span>
         </div>
       ))}
     </div>
@@ -275,7 +276,7 @@ function CustomerCounts({ activeCount, inactiveCount, loading, totalCount }) {
 function CustomerToolbar({ filterCount, onClearFilters, onSearchChange, onSearchSubmit, onStatusChange, search, statusFilter }) {
   return (
     <div className="overflow-x-auto border-b border-zera-line bg-white px-3 py-2">
-      <div className="flex min-w-max flex-nowrap items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
         <form
           className="flex h-9 w-[320px] shrink-0 items-center gap-2 rounded-md border border-zera-line bg-white px-2.5 focus-within:border-zera-green focus-within:ring-4 focus-within:ring-zera-green/10"
           onSubmit={onSearchSubmit}
@@ -330,6 +331,7 @@ function SegmentedStatusFilter({ onChange, value }) {
 }
 
 function CustomerTable({ canManageStatus, customers, loading, onEdit, onOpenProfile, onStatusToggle, profileLoadingCustomerId, updatingCustomerId }) {
+  const pagination = usePagination(customers);
   if (!loading && customers.length === 0) {
     return (
       <div className="m-4 rounded-md border border-dashed border-zera-line bg-zera-mintSoft p-6 text-sm text-zera-muted">
@@ -339,8 +341,15 @@ function CustomerTable({ canManageStatus, customers, loading, onEdit, onOpenProf
   }
 
   return (
-    <div className="overflow-x-auto">
-      <div className="max-h-[calc(100vh-286px)] min-w-[880px] overflow-y-auto">
+    <>
+    <div className="divide-y divide-zera-line sm:hidden">
+      {loading ? <p className="p-4 text-sm text-zera-muted">Loading customers…</p> : pagination.rows.map(customer => <article key={customer.id} className="space-y-3 p-4">
+        <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="break-words font-semibold">{customer.name}</p><p className="mt-1 break-words text-sm text-zera-muted">{customer.phone || customer.email || '—'}</p></div><StatusBadge status={customer.status} /></div>
+        <div className="flex flex-wrap gap-2"><button type="button" className="pagination-button" disabled={profileLoadingCustomerId === customer.id} onClick={() => onOpenProfile(customer)}>View</button><button type="button" className="pagination-button" onClick={() => onEdit(customer)}>Edit</button>{canManageStatus && <button type="button" className="pagination-button" disabled={updatingCustomerId === customer.id} onClick={() => onStatusToggle(customer)}>{customer.status === 'ACTIVE' ? 'Pause' : 'Activate'}</button>}</div>
+      </article>)}
+    </div>
+    <div className="hidden overflow-x-auto sm:block">
+      <div className="min-w-[880px]">
         <table className="w-full border-collapse text-left text-sm">
           <thead className="sticky top-0 z-10 border-b border-zera-line bg-zera-mintSoft text-xs font-bold uppercase text-zera-muted">
             <tr>
@@ -360,11 +369,11 @@ function CustomerTable({ canManageStatus, customers, loading, onEdit, onOpenProf
               </tr>
             ) : null}
 
-            {!loading && customers.map((customer) => (
+            {!loading && pagination.rows.map((customer) => (
               <tr className="hover:bg-zera-mintSoft/70" key={customer.id}>
                 <td className="px-4 py-3">
                   <p className="font-bold text-zera-ink">{customer.name}</p>
-                  <p className="mt-1 truncate text-xs text-zera-muted">{customer.notes || "No notes"}</p>
+                  {customer.notes && <p className="mt-1 truncate text-xs text-zera-muted">{customer.notes}</p>}
                 </td>
                 <td className="px-4 py-3 text-zera-muted">
                   <ContactLine icon={Phone} value={customer.phone || "No phone"} />
@@ -413,6 +422,8 @@ function CustomerTable({ canManageStatus, customers, loading, onEdit, onOpenProf
         </table>
       </div>
     </div>
+      <Pagination {...pagination} loading={loading} />
+    </>
   );
 }
 

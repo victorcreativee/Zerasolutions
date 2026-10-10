@@ -1,4 +1,5 @@
 import CashCountPanel from "./CashCountPanel.jsx";
+import Pagination from "../../components/Pagination.jsx";
 import { operationIssues } from "../../utils/operationIssues.js";
 import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -89,10 +90,6 @@ export default function OperationsPage() {
       <section className="overflow-hidden rounded-md border border-zera-line bg-white shadow-xs">
         <div className="grid gap-3 border-b border-zera-line px-4 py-3 lg:grid-cols-[1fr_auto] lg:items-center">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-
-              <p className="text-xs font-semibold text-zera-muted">{formatPOSMode(activeBusiness.posMode)}</p>
-            </div>
             <h2 className="mt-0.5 text-xl font-bold text-zera-ink">Operations</h2>
 
           </div>
@@ -163,10 +160,7 @@ export default function OperationsPage() {
                   {["All", "Out of stock", "Low stock", "Manual price", "No minimum price", "Missing code"].map(value => <button type="button" key={value} aria-pressed={issueFilter === value} onClick={() => {setIssueFilter(value);setPage(1);}} className={`rounded-md border px-3 py-2 text-xs font-semibold ${issueFilter === value ? "bg-zera-green text-white" : "border-zera-line"}`}>{value}</button>)}
                 </div>
                 <CounterIssueRegister inventoryEnabled={inventoryEnabled} loading={loading} rows={visibleCounterRows.slice((currentPage-1)*10,currentPage*10)} />
-                <div className="flex items-center justify-between border-t border-zera-line p-3 text-sm">
-                  <span>{visibleCounterRows.length} products · {currentPage}/{pages}</span>
-                  <div className="flex gap-2"><Button variant="secondary" disabled={loading || currentPage === 1} onClick={() => setPage(currentPage-1)}>Previous</Button><Button variant="secondary" disabled={loading || currentPage === pages} onClick={() => setPage(currentPage+1)}>Next</Button></div>
-                </div>
+                <Pagination page={currentPage} pageSize={10} total={visibleCounterRows.length} onPageChange={setPage} loading={loading} />
               </>
             )}
           </section>}
@@ -345,8 +339,8 @@ function Metric({ icon: Icon, label, loading, value }) {
         <Icon size={18} />
       </span>
       <div className="min-w-0">
-        <p className="text-[11px] font-bold uppercase tracking-wide text-zera-muted">{label}</p>
-        <p className="mt-0.5 truncate text-lg font-extrabold text-zera-ink">{loading ? "..." : value}</p>
+        <p className="text-xs font-medium text-zera-muted">{label}</p>
+        <p className="mt-1 break-words text-2xl font-bold tracking-tight text-zera-ink">{loading ? "..." : value}</p>
       </div>
     </div>
   );

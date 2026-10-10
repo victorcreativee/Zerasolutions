@@ -1,0 +1,4 @@
+import {NavLink} from 'react-router-dom';
+import {useWorkspace} from '../../context/WorkspaceContext.jsx';
+export const financeLinks=[['/finance','Overview'],['/finance/expenses','Expenses'],['/finance/accounts','Money accounts'],['/finance/income','Income'],['/finance/payments','Payments'],['/finance/payroll','Payroll'],['/finance/reports','Financial reports']];
+export default function FinanceNav(){const {activeRoleName}=useWorkspace();return <nav aria-label="Finance navigation" className="mb-5 flex flex-wrap gap-1 border-b border-zera-line pb-3">{financeLinks.filter(([path])=>activeRoleName==='Owner'||['/finance','/finance/expenses'].includes(path)).map(([path,label])=><NavLink end to={path} key={path} className={({isActive})=>`rounded-lg px-3 py-2 text-sm font-medium ${isActive?'bg-zera-mint text-zera-green':'text-zera-muted hover:bg-white'}`}>{label}</NavLink>)}</nav>;}

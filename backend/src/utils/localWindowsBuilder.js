@@ -36,6 +36,7 @@ export async function buildWindowsLocally(job,folder) {
     if(!(await readdir(folder)).includes(fileName)) throw new Error('Installer output missing.');
     return {fileName,filePath:path.join(folder,fileName)};
   } catch(error) {
+    if (`${error.stdout || ''}\n${error.stderr || ''}`.includes('Dependency installation failed for')) error.buildFailure = 'DEPENDENCIES';
     await writeFile(path.join(folder,'build.log'),[
       `Exit: ${error.code ?? 'unknown'}; signal: ${error.signal ?? 'none'}`,
       String(error.stdout || '').slice(-80000),

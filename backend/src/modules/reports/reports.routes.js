@@ -19,7 +19,7 @@ reportsRouter.get("/business/:businessId/summary", async (req, res, next) => {
     const { businessId } = req.params;
     const { branchId, dateFrom, dateTo, paymentMethod } = req.query;
 
-    const { business, baseWhere } = await getReportContext(req);
+    const { business, baseWhere, roleName } = await getReportContext(req);
     const completedWhere = {
       ...baseWhere,
       status: "COMPLETED"
@@ -119,6 +119,15 @@ reportsRouter.get("/business/:businessId/summary", async (req, res, next) => {
     const taxCollected = toNumber(totalAggregate._sum.taxAmount);
     const receiptCount = totalAggregate._count._all;
     const waiterRows = buildWaiterRows(completedSales);
+    const expenseRows = roleName === "Owner" && business.modules.some(module => module.key === "FINANCE" && module.active)
+      ? await prisma.expense.groupBy({ by: ["status"], where: {
+        businessId, ...(branchId ? { branchId } : {}),
+        ...(baseWhere.createdAt ? { createdAt: baseWhere.createdAt } : {})
+      }, _sum: { amount: true }, _count: { _all: true } }) : null;
+    const expenses = expenseRows ? Object.fromEntries(["APPROVED", "PENDING", "REJECTED"].map(status => {
+      const row = expenseRows.find(item => item.status === status);
+      return [status, { amount: toNumber(row?._sum.amount), count: row?._count._all || 0 }];
+    })) : null;
 
     res.json({
       report: {
@@ -135,6 +144,7 @@ reportsRouter.get("/business/:businessId/summary", async (req, res, next) => {
         },
         summary: {
           totalSales,
+          netSales: totalSales - taxCollected,
           subtotal,
           discountTotal,
           taxCollected,
@@ -143,6 +153,7 @@ reportsRouter.get("/business/:businessId/summary", async (req, res, next) => {
           itemCount: itemAggregate._sum.quantity || 0,
           averageSale: receiptCount ? totalSales / receiptCount : 0
         },
+        expenses,
         paymentRows: paymentRows
           .map((row) => ({
             key: row.paymentMethod,
@@ -298,6 +309,7 @@ function buildWaiterRows(sales) {
   return Object.values(
     sales.reduce((rows, sale) => {
       const waiter = sale.posOrder?.waiter;
+      if (!waiter) return rows;
       const key = waiter?.id || "counter";
       const current = rows[key] || { key, label: waiter?.name || "Counter sale", quantity: 0, total: 0 };
       rows[key] = {
@@ -393,7 +405,7 @@ async function getReportContext(req) {
       ...(paymentMethod ? { paymentMethod } : {}),
       ...(createdAt ? { createdAt } : {})
     };
-    return { business, baseWhere };
+    return { business, baseWhere, roleName };
 }
 
 reportsRouter.get("/business/:businessId/export", async (req, res, next) => {

@@ -123,8 +123,9 @@ test('Zera checkout, stock, finance and sync regression suite', { skip: process.
       assert.equal(exported.data.trim().split('\r\n').length - 1, expected);
       const summary = await call(`/reports/business/${business.id}/summary`); expectStatus(summary, 200);
       const counter = summary.data.report.staffRows.find(row => row.key === 'waiter-counter');
-      const counterCount = await prisma.sale.count({ where: { businessId: business.id, status: 'COMPLETED', posOrder: null } });
-      assert.equal(counter.quantity, counterCount);
+      assert.equal(counter, undefined, 'Counter sales are not waiter activity');
+      const completedCount = await prisma.sale.count({ where: { businessId: business.id, status: 'COMPLETED' } });
+      assert.equal(summary.data.report.staffRows.filter(row => row.role === 'Cashier').reduce((sum,row) => sum + row.quantity,0), completedCount);
       for (const path of [`/reports/business/${business.id}/export`, `/reports/business/${business.id}/summary`, `/finance/business/${business.id}/summary`]) {
         expectStatus(await call(`${path}?dateFrom=2026-02-30`), 400);
         expectStatus(await call(`${path}?dateFrom=2026-09-16&dateTo=2026-09-15`), 400);

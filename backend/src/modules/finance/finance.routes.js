@@ -5,6 +5,8 @@ import { requireAuth } from "../../middleware/authMiddleware.js";
 import { getBusinessAccess } from "../../utils/businessAccess.js";
 import { HttpError } from "../../utils/httpError.js";
 import { enqueueSyncOperation } from "../../utils/syncQueue.js";
+import { money } from "../../utils/productPricing.js";
+import { decimal, fingerprint, lockMoney, paidAmount } from "../../utils/moneyLedger.js";
 
 export const financeRouter = Router();
 
@@ -13,6 +15,19 @@ financeRouter.use(requireAuth);
 const financeRoles = new Set(["Owner"]);
 const paymentMethods = new Set(["CASH", "CARD", "MOBILE_MONEY"]);
 const expenseStatuses = new Set(["PENDING", "APPROVED", "REJECTED"]);
+
+financeRouter.get('/business/:businessId/cashflow',async(req,res,next)=>{try{
+ const {businessId}=req.params;await assertFinanceAccess(req.user,businessId);
+ const branchId=String(req.query.branchId||'');if(branchId&&!await prisma.branch.findFirst({where:{id:branchId,businessId}}))throw new HttpError(404,'Branch not found.');
+ const createdAt=buildDateFilter(req.query),where={businessId,...(branchId?{branchId}:{}),...(createdAt?{createdAt}:{})};
+ const result=await prisma.$transaction(async tx=>{
+  const accounts=await tx.moneyAccount.findMany({where:{businessId,...(branchId?{branchId}:{}),kind:'ASSET'},include:{branch:{select:{name:true}}}});
+  const balances=await tx.moneyEntry.groupBy({by:['accountId'],where:{accountId:{in:accounts.map(a=>a.id)}},_sum:{amount:true}});
+  const movements=await tx.moneyPosting.groupBy({by:['kind'],where,_sum:{amount:true}});
+  const branchCount=await tx.branch.count({where:{businessId,...(branchId?{id:branchId}:{})}});
+  return {tracking:{branches:branchCount,tracked:new Set(accounts.map(a=>a.branchId)).size},accounts:accounts.map(a=>({id:a.id,name:a.name,code:a.code,branch:a.branch.name,balance:decimal(balances.find(b=>b.accountId===a.id)?._sum.amount).toFixed(2)})),movements:movements.map(m=>({kind:m.kind,amount:decimal(m._sum.amount).toFixed(2)}))};
+ },{isolationLevel:'RepeatableRead'});res.json(result);
+}catch(e){next(e);}});
 
 financeRouter.get("/business/:businessId/summary", async (req, res, next) => {
   try {
@@ -250,23 +265,41 @@ financeRouter.get("/business/:businessId/summary", async (req, res, next) => {
   }
 });
 
+financeRouter.get("/business/:businessId/expenses", async (req, res, next) => {
+  try {
+    const { businessId } = req.params;
+    const { roleName } = await assertFinanceAccess(req.user, businessId, { expensesOnly: true });
+    const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1));
+    const where = { businessId, ...(roleName === "Store Keeper" ? { recordedById: req.user.id } : {}) };
+    if(req.query.status){if(!expenseStatuses.has(req.query.status))throw new HttpError(400,'Invalid expense status.');where.status=req.query.status;}
+    if(req.query.search)where.OR=['title','category'].map(key=>({[key]:{contains:String(req.query.search).slice(0,200),mode:'insensitive'}}));
+    const [expenses, total] = await prisma.$transaction([
+      prisma.expense.findMany({ where, include: expenseInclude, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (page - 1) * 10, take: 10 }),
+      prisma.expense.count({ where })
+    ]);
+    const payments=await prisma.moneyPosting.groupBy({by:['sourceId'],where:{businessId,kind:'EXPENSE',sourceId:{in:expenses.map(e=>e.id)}},_sum:{amount:true}});
+    res.json({ expenses:expenses.map(e=>({...e,paid:decimal(payments.find(p=>p.sourceId===e.id)?._sum.amount).toFixed(2)})), total, page });
+  } catch (error) { next(error); }
+});
+
 financeRouter.post("/business/:businessId/expenses", async (req, res, next) => {
   try {
     const { businessId } = req.params;
     const { amount, branchId, category = "General", note = "", title } = req.body;
 
-    await assertFinanceAccess(req.user, businessId);
+    await assertFinanceAccess(req.user, businessId, { expensesOnly: true });
 
-    if (!title?.trim()) {
+    if (typeof title!=="string" || !title.trim() || title.length>200 || typeof note!=="string" || note.length>2000 || typeof category!=="string" || category.length>200) {
       throw new HttpError(400, "Expense title is required.");
     }
 
-    const normalizedAmount = Number(amount);
+    const normalizedAmount = Number(money(amount, "Expense amount"));
 
     if (!Number.isFinite(normalizedAmount) || normalizedAmount <= 0) {
       throw new HttpError(400, "Expense amount must be greater than zero.");
     }
 
+    if(typeof branchId!=="string"||!branchId)throw new HttpError(400,"Choose an active branch.");
     const branch = await prisma.branch.findFirst({
       where: {
         id: branchId,
@@ -282,7 +315,17 @@ financeRouter.post("/business/:businessId/expenses", async (req, res, next) => {
       throw new HttpError(400, "Choose an active branch for this expense.");
     }
 
-    const expense = await prisma.expense.create({
+    const requestKey=req.body.requestKey;
+    if(requestKey!==undefined&&(typeof requestKey!=='string'||! /^[a-zA-Z0-9-]{16,80}$/.test(requestKey)))throw new HttpError(400,'Invalid submission reference.');
+    const requestHash=fingerprint({title:title.trim(),amount:normalizedAmount,branchId,category,note,userId:req.user.id});
+    let replayed=false;
+    const expense = await prisma.$transaction(async tx => {
+      if(requestKey){
+        await lockMoney(tx,businessId);
+        const prior=await tx.financeEvent.findFirst({where:{businessId,entityId:`request:${requestKey}`,action:'EXPENSE_REQUEST'}});
+        if(prior){if(prior.details.hash!==requestHash)throw new HttpError(409,'This submission reference was used for a different expense.');replayed=true;return tx.expense.findUnique({where:{id:prior.details.expenseId},include:expenseInclude});}
+      }
+      const result = await tx.expense.create({
       data: {
         title: title.trim(),
         category: String(category || "General").trim() || "General",
@@ -295,7 +338,10 @@ financeRouter.post("/business/:businessId/expenses", async (req, res, next) => {
       include: expenseInclude
     });
 
-    await enqueueSyncOperation({
+    if(requestKey)await tx.financeEvent.create({data:{businessId,entityId:`request:${requestKey}`,actorId:req.user.id,action:'EXPENSE_REQUEST',details:{hash:requestHash,expenseId:result.id}}});
+    await tx.financeEvent.create({data:{businessId,entityId:result.id,actorId:req.user.id,action:'EXPENSE_CREATED',details:{amount:String(result.amount),title:result.title}}});return result;});
+
+    if(!replayed)await enqueueSyncOperation({
       businessId,
       branchId: branch.id,
       entityType: "expense",
@@ -343,7 +389,11 @@ financeRouter.patch("/business/:businessId/expenses/:expenseId/status", async (r
       throw new HttpError(404, "Expense was not found.");
     }
 
-    const expense = await prisma.expense.update({
+    const expense = await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM "Expense" WHERE id=${expenseId} AND "businessId"=${businessId} FOR UPDATE`;
+      if (normalizedStatus !== "APPROVED" && (await paidAmount(tx,businessId,'EXPENSE',expenseId)).gt(0)) throw new HttpError(409,'This expense has recorded payments. Correct the payment before changing approval.');
+      const before=await tx.expense.findUnique({where:{id:expenseId}});
+      const updated=await tx.expense.update({
       where: {
         id: existingExpense.id
       },
@@ -353,6 +403,8 @@ financeRouter.patch("/business/:businessId/expenses/:expenseId/status", async (r
         approvedAt: normalizedStatus === "APPROVED" ? new Date() : null
       },
       include: expenseInclude
+      });
+      await tx.financeEvent.create({data:{businessId,entityId:expenseId,actorId:req.user.id,action:'EXPENSE_STATUS',details:{before:before.status,after:normalizedStatus}}});return updated;
     });
 
     await enqueueSyncOperation({
@@ -376,7 +428,30 @@ financeRouter.patch("/business/:businessId/expenses/:expenseId/status", async (r
   }
 });
 
+financeRouter.patch('/business/:businessId/expenses/:expenseId',async(req,res,next)=>{try{
+ const {businessId,expenseId}=req.params;const {roleName}=await assertFinanceAccess(req.user,businessId,{expensesOnly:true});
+ const {title,category,note='',amount}=req.body;
+ if(typeof title!=='string'||!title.trim()||title.length>200||typeof category!=='string'||!category.trim()||category.length>200||typeof note!=='string'||note.length>2000)throw new HttpError(400,'Enter a title, category and valid note.');
+ const value=money(amount,'Expense amount');if(Number(value)<=0)throw new HttpError(400,'Amount must be greater than zero.');
+ const expense=await prisma.$transaction(async tx=>{
+  await tx.$queryRaw`SELECT id FROM "Expense" WHERE id=${expenseId} AND "businessId"=${businessId} FOR UPDATE`;
+  const before=await tx.expense.findFirst({where:{id:expenseId,businessId}});
+  if(!before||(roleName!=='Owner'&&before.recordedById!==req.user.id))throw new HttpError(404,'Expense not found.');
+  if(before.status!=='PENDING'||(await paidAmount(tx,businessId,'EXPENSE',expenseId)).gt(0))throw new HttpError(409,'Only pending, unpaid expenses can be edited.');
+  const result=await tx.expense.update({where:{id:expenseId},data:{title:title.trim(),category:category.trim(),note:note.trim()||null,amount:value},include:expenseInclude});
+  await tx.financeEvent.create({data:{businessId,entityId:expenseId,actorId:req.user.id,action:'EXPENSE_EDITED',details:{before:{title:before.title,amount:String(before.amount),category:before.category,note:before.note},after:{title:result.title,amount:value,category:result.category,note:result.note}}}});return result;
+ });res.json({expense});
+}catch(e){next(e);}});
+financeRouter.get('/business/:businessId/expenses/:expenseId/history',async(req,res,next)=>{try{
+ const {businessId,expenseId}=req.params;const {roleName}=await assertFinanceAccess(req.user,businessId,{expensesOnly:true});
+ if(!await prisma.expense.findFirst({where:{businessId,id:expenseId,...(roleName==='Store Keeper'?{recordedById:req.user.id}:{})}}))throw new HttpError(404,'Expense not found.');
+ const events=await prisma.financeEvent.findMany({where:{businessId,entityId:expenseId},orderBy:{createdAt:'desc'}});
+ const actors=await prisma.user.findMany({where:{id:{in:[...new Set(events.map(e=>e.actorId))]}},select:{id:true,name:true}});
+ res.json({events:events.map(e=>({...e,actorName:actors.find(a=>a.id===e.actorId)?.name||'Former user'}))});
+}catch(e){next(e);}});
+
 const expenseInclude = {
+  payrollEntry: {select:{period:true}},
   branch: {
     select: {
       id: true,
@@ -397,14 +472,15 @@ const expenseInclude = {
   }
 };
 
-async function assertFinanceAccess(user, businessId) {
+async function assertFinanceAccess(user, businessId, { expensesOnly = false } = {}) {
   if (!prisma.expense) {
     throw new HttpError(503, "Prisma Client is out of date. Restart the backend and run npx prisma generate.");
   }
 
   const { business, roleName } = await getBusinessAccess(user, businessId);
 
-  if (user.systemRole !== "SYSTEM_ADMIN" && !financeRoles.has(roleName)) {
+  const retailExpenseAccess = expensesOnly && roleName === "Store Keeper" && business.features.typeKey === "RETAIL_SHOP";
+  if (user.systemRole !== "SYSTEM_ADMIN" && !financeRoles.has(roleName) && !retailExpenseAccess) {
     throw new HttpError(403, "Only the business owner can access finance.");
   }
 

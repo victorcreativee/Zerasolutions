@@ -1,13 +1,31 @@
 #!/bin/bash
 set -euo pipefail
 trap 'echo "Windows packaging failed at line $LINENO" >&2' ERR
+# Preserve npm diagnostics outside the disposable container and retry transient
+# package-manager failures. Every ci attempt starts from the lockfile.
+export npm_config_logs_dir=/output/npm-logs
+export npm_config_fetch_retries=3
+export npm_config_fetch_timeout=120000
+export npm_config_audit=false
+export npm_config_fund=false
+install_dependencies() {
+  local project="$1"
+  local attempt
+  for attempt in 1 2 3; do
+    echo "Installing $project dependencies (attempt $attempt of 3)"
+    if npm --prefix "$project" ci; then return 0; fi
+    if [ "$attempt" -lt 3 ]; then sleep 5; fi
+  done
+  echo "Dependency installation failed for $project. See npm-logs in the build output." >&2
+  return 1
+}
 mkdir -p /workspace
 cp -R /source/. /workspace/
 cd /workspace
 node -e "const fs=require('fs');const p='backend/prisma/schema.prisma';fs.writeFileSync(p,fs.readFileSync(p,'utf8').replace(/provider = \"prisma-client-js\"/, 'provider = \"prisma-client-js\"\n  binaryTargets = [\"native\", \"windows\"]'));"
-npm --prefix backend ci
-npm --prefix frontend ci
-npm --prefix desktop ci
+install_dependencies backend
+install_dependencies frontend
+install_dependencies desktop
 cd desktop
 PG_VERSION=$(node -p "require('./node_modules/embedded-postgres/package.json').version")
 npm install --force --ignore-scripts --no-save --package-lock=false "@embedded-postgres/windows-x64@$PG_VERSION"

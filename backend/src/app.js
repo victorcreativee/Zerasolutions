@@ -9,7 +9,9 @@ import { authRouter } from "./modules/auth/auth.routes.js";
 import { businessRouter } from "./modules/businesses/business.routes.js";
 import { branchRouter } from "./modules/branches/branch.routes.js";
 import { customerRouter } from "./modules/customers/customer.routes.js";
+import { payrollRouter } from "./modules/finance/payroll.routes.js";
 import { financeRouter } from "./modules/finance/finance.routes.js";
+import { moneyRouter } from "./modules/finance/money.routes.js";
 import { userRouter } from "./modules/users/user.routes.js";
 import { roleRouter } from "./modules/roles/role.routes.js";
 import { inventoryRouter } from "./modules/inventory/inventory.routes.js";
@@ -45,7 +47,8 @@ app.use(
 
       callback(new Error(`Origin ${origin} is not allowed by CORS.`));
     },
-    credentials: true
+    credentials: true,
+    exposedHeaders: ['Content-Disposition', 'X-Installer-SHA256']
   })
 );
 app.use(express.json());
@@ -74,6 +77,7 @@ app.use("/api/businesses", businessRouter);
 app.use("/api/branches", branchRouter);
 app.use("/api/customers", customerRouter);
 app.use("/api/finance", financeRouter);
+app.use("/api/payroll", payrollRouter);
 app.use("/api/users", userRouter);
 app.use("/api/roles", roleRouter);
 app.use("/api/inventory", inventoryRouter);
@@ -86,6 +90,7 @@ app.use("/api/sync", syncRouter);
 app.use("/api/system-admin", systemAdminRouter);
 
 app.use("/api/purchasing", purchasingRouter);
+app.use("/api/money", moneyRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

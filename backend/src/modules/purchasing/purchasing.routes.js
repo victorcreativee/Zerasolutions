@@ -1,3 +1,4 @@
+import { paidAmount } from '../../utils/moneyLedger.js';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { buildDateFilter, csvCell } from '../../utils/reportDates.js';
@@ -194,6 +195,7 @@ purchasingRouter.post('/business/:businessId/orders/:orderId/:action', async (re
       }
       const allowed = action === 'approve' ? ['DRAFT'] : action === 'receive' ? ['ORDERED','PARTIALLY_RECEIVED'] : ['DRAFT','ORDERED','PARTIALLY_RECEIVED'];
       if (!allowed.includes(existing.status)) throw new HttpError(409, 'This order has already changed. Refresh before continuing.');
+      if (action === 'cancel' && (await paidAmount(tx,businessId,'PURCHASE',orderId)).gt(0)) throw new HttpError(409,'This order has payments. Resolve the supplier payment before cancelling.');
       if (action !== 'cancel') {
         const branch = await tx.branch.findFirst({ where: { id: existing.branchId, businessId, status: 'ACTIVE' } });
         if (!branch) throw new HttpError(409, 'Activate the receiving branch before continuing.');
